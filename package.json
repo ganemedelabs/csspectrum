@@ -1,7 +1,9 @@
 {
     "name": "csspectrum",
-    "version": "0.1.1",
+    "version": "0.1.4",
     "description": "A TypeScript class for working with CSS color formats, providing conversion, manipulation, and analysis tools for various color models and spaces.",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
     "repository": {
         "type": "git",
         "url": "https://github.com/ganemedelabs/csspectrum.git"
