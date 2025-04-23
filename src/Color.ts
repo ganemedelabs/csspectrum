@@ -13,6 +13,14 @@ export type XYZA = [number, number, number, number?];
 export type RGBA = [number, number, number, number?];
 
 /**
+ * Options for creating a Color instance.
+ */
+export type ColorOptions = {
+    /** The original color string value that was used to create the color. */
+    originalString: string;
+};
+
+/**
  * The supported color format names, derived from the keys of the `formatConverters` object.
  * For example, valid values might include "hex", "rgb", "hsl", etc.
  */
@@ -1673,8 +1681,14 @@ class Color {
      */
     private name: string | undefined;
 
-    constructor(x: number, y: number, z: number, a?: number) {
-        this.xyza = [x, y, z, a];
+    /**
+     * The color's original string representation.
+     */
+    private originalString: string;
+
+    constructor(xyza: XYZA, options: ColorOptions) {
+        this.xyza = xyza;
+        this.originalString = options.originalString;
     }
 
     /**
@@ -1777,14 +1791,23 @@ class Color {
     static from(color: Name): Color; // eslint-disable-line no-unused-vars
     static from(color: string): Color; // eslint-disable-line no-unused-vars
     static from(color: Name | string) {
-        color = color.toLowerCase();
+        const instance = new Color([0, 0, 0, 1], { originalString: color });
+        color = color?.toLowerCase();
 
-        if (Color.isRelative(color)) {
+        if (instance.isRelative()) {
             const { type, components } = Color.parseRelative(color);
-            return Color.in(type).setArray(components);
+
+            const colorString =
+                type in formatConverters
+                    ? `${type}(${components.join(" ")})`
+                    : `color(${type} ${components.join(" ")})`;
+
+            const xyza = converters[type].toXYZA(components);
+
+            return new Color(xyza, { originalString: colorString });
         }
 
-        if (Color.isColorMix(color)) {
+        if (instance.isColorMix()) {
             const parsed = Color.parseColorMix(color);
             const { model, hueInterpolationMethod, color1, color2 } = parsed;
             let { weight1, weight2 } = parsed;
@@ -1809,19 +1832,19 @@ class Color {
             const colorInstance = Color.from(color1).in(model).mixWith(color2, weight2Prime, hueInterpolationMethod);
 
             // Create a new Color instance because .in(model) methods return chainable .in(model) methods.
-            return new Color(...colorInstance.xyza);
+            return new Color(colorInstance.xyza, { originalString: color });
         }
 
         for (const [, converter] of Object.entries(converters)) {
             if (converter.pattern.test(color)) {
-                let x, y, z, a;
+                let xyza;
                 if ("components" in converter) {
                     const components = converter.toComponents(color);
-                    [x, y, z, a] = converter.toXYZA(components);
+                    xyza = converter.toXYZA(components);
                 } else {
-                    [x, y, z, a] = converter.toXYZA(color);
+                    xyza = converter.toXYZA(color);
                 }
-                return new Color(x, y, z, a);
+                return new Color(xyza, { originalString: color });
             }
         }
 
@@ -1837,9 +1860,9 @@ class Color {
     static in<M extends Model>(model: M): InterfaceWithSetOnly<Interface<M>>; // eslint-disable-line no-unused-vars
     static in(model: string): InterfaceWithSetOnly<Interface<any>>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
     static in<M extends Model>(model: string | M): InterfaceWithSetOnly<Interface<M>> {
-        const result = Object.fromEntries(
-            Object.entries(new Color(0, 0, 0, 1).in(model)).filter(([key]) => key.startsWith("set"))
-        );
+        const originalString = model in formatConverters ? `${model}(0 0 0 1)` : `color(${model} 0 0 0 1)`;
+        const color = new Color([0, 0, 0, 1], { originalString });
+        const result = Object.fromEntries(Object.entries(color.in(model)).filter(([key]) => key.startsWith("set")));
         return result as InterfaceWithSetOnly<Interface<M>>;
     }
 
@@ -1924,34 +1947,6 @@ class Color {
         };
 
         (converters as Record<string, ColorConverter>)[spaceName] = spaceConverter;
-    }
-
-    /**
-     * Determines the type of the given color string based on predefined patterns.
-     *
-     * @param color - The color string to be evaluated.
-     * @returns The key corresponding to the matched color pattern.
-     */
-    static type(color: string): Format | Space {
-        const error = `Unsupported color format: ${color}\nSupported formats: ${Object.keys(this.patterns).join(", ")}`;
-
-        if (this.isRelative(color)) {
-            const { type } = Color.parseRelative(color);
-            return type;
-        }
-
-        if (this.isColorMix(color)) {
-            const { model } = Color.parseColorMix(color);
-            return model;
-        }
-
-        for (const [key, pattern] of Object.entries(this.patterns)) {
-            if (pattern.test(color.trim())) {
-                return key as Format;
-            }
-        }
-
-        throw new Error(error);
     }
 
     /**
@@ -2074,94 +2069,63 @@ class Color {
             } else if (component.startsWith("calc(") && component.endsWith(")")) {
                 // Case 3: Calc expression (e.g., "calc(r * 2)")
                 const expression = component.slice(5, -1).trim();
-                return evaluateExpression(expression, colorInstance, model);
+                return parseCalc(expression, model);
             } else if (component in converters[model].components) {
                 // Case 4: Component name (e.g., "h", "s")
                 return colorInstance.in(model).get(component as Component<M>);
             } else if (isAngle) {
                 // Case 5: Angle with unit (e.g., "30deg", "0.5turn")
-                try {
-                    return parseAngle(component);
-                } catch {
-                    throw new Error(`Invalid angle format for ${model} component ${index}: ${component}`);
-                }
+                return parseAngle(component);
             } else {
                 throw new Error(`Invalid component format for ${model} component ${index}: ${component}`);
             }
         };
 
-        const evaluateExpression = <M extends Model>(expression: string, baseColor: Color, model: M): number => {
-            const infixToPostfix = (tokens: string[]): string[] => {
-                const output: string[] = [];
-                const operatorStack: string[] = [];
-                type Operator = "+" | "-" | "*" | "/";
-                const precedence: Record<Operator, number> = { "+": 1, "-": 1, "*": 2, "/": 2 };
+        const parseCalc = (str: string, model: Model) => {
+            const expr = str
+                .split("")
+                .map((char) => {
+                    if (/[a-zA-Z]/.test(char)) {
+                        const value = colorInstance.in(model).get(char as Component<Model>);
+                        return isNaN(value) ? char : value;
+                    }
+                    return char;
+                })
+                .join("")
+                .replace(/\s/g, "");
 
-                for (const token of tokens) {
-                    if (/^-?\d*\.?\d+$/.test(token) || /^-?\d*\.?\d+%$/.test(token) || /^[a-zA-Z]+$/.test(token)) {
-                        output.push(token);
-                    } else if (token === "(") {
-                        operatorStack.push(token);
-                    } else if (token === ")") {
-                        while (operatorStack.length && operatorStack[operatorStack.length - 1] !== "(") {
-                            output.push(operatorStack.pop()!);
-                        }
-                        operatorStack.pop();
-                    } else if (token in precedence) {
-                        while (
-                            operatorStack.length &&
-                            operatorStack[operatorStack.length - 1] !== "(" &&
-                            precedence[operatorStack[operatorStack.length - 1] as Operator] >=
-                                precedence[token as Operator]
-                        ) {
-                            output.push(operatorStack.pop()!);
-                        }
-                        operatorStack.push(token);
+            const evaluate = (expr: string) => {
+                while (expr.includes("(")) {
+                    expr = expr.replace(/\(([^()]+)\)/, (_, inner) => evaluate(inner).toString());
+                }
+
+                const tokens = expr.match(/(\d*\.?\d+|\+|-|\*|\/)/g) || [];
+                if (!tokens) return NaN;
+
+                let i = 0;
+                while (i < tokens.length) {
+                    if (tokens[i] === "*" || tokens[i] === "/") {
+                        const left = Number(tokens[i - 1]);
+                        const right = Number(tokens[i + 1]);
+                        const result = tokens[i] === "*" ? left * right : left / right;
+                        tokens.splice(i - 1, 3, result.toString());
+                    } else {
+                        i++;
                     }
                 }
-                while (operatorStack.length) {
-                    output.push(operatorStack.pop()!);
+
+                let result = Number(tokens[0]);
+                for (i = 1; i < tokens.length; i += 2) {
+                    const op = tokens[i];
+                    const num = Number(tokens[i + 1]);
+                    result = op === "+" ? result + num : result - num;
                 }
-                return output;
+
+                return result;
             };
 
-            const evaluatePostfix = (postfix: string[]): number => {
-                const stack: number[] = [];
-
-                for (const token of postfix) {
-                    if (/^-?\d*\.?\d+$/.test(token)) {
-                        stack.push(parseFloat(token));
-                    } else if (/^-?\d*\.?\d+%$/.test(token)) {
-                        stack.push(parseFloat(token.slice(0, -1)) / 100);
-                    } else if (/^[a-zA-Z]+$/.test(token)) {
-                        stack.push(baseColor.in(model).get(token as Component<M>));
-                    } else if (token in { "+": 1, "-": 1, "*": 1, "/": 1 }) {
-                        const b = stack.pop()!;
-                        const a = stack.pop()!;
-                        /* eslint-disable indent */
-                        switch (token) {
-                            case "+":
-                                stack.push(a + b);
-                                break;
-                            case "-":
-                                stack.push(a - b);
-                                break;
-                            case "*":
-                                stack.push(a * b);
-                                break;
-                            case "/":
-                                stack.push(a / b);
-                                break;
-                        }
-                        /* eslint-enable indent */
-                    }
-                }
-                return stack[0];
-            };
-
-            const tokens = expression.split(/\s+/);
-            const postfix = infixToPostfix(tokens);
-            return evaluatePostfix(postfix);
+            const result = evaluate(expr);
+            return isNaN(result) ? NaN : result;
         };
 
         color = color.toLowerCase();
@@ -2371,8 +2335,8 @@ class Color {
         const firstColorData = parseColorAndWeight(parts[0]);
         const secondColorData = parseColorAndWeight(parts[1]);
 
-        const firstColorModel = Color.type(firstColorData.colorComponent);
-        const secondColorModel = Color.type(secondColorData.colorComponent);
+        const firstColorModel = Color.from(firstColorData.colorComponent).type();
+        const secondColorModel = Color.from(secondColorData.colorComponent).type();
 
         if (
             firstColorModel === secondColorModel &&
@@ -2398,51 +2362,6 @@ class Color {
             color2: colorInstance2.to(secondColorModel),
             weight2: secondColorData.weight,
         };
-    }
-
-    /**
-     * ────────────────────────────────────────────────────────
-     * Static Validation Methods
-     * ────────────────────────────────────────────────────────
-     */
-
-    /**
-     * Checks if the given value matches the pattern for the specified type.
-     *
-     * @param type - The type of pattern to validate against.
-     * @param value - The string value to be validated.
-     * @returns Whether the value matches the pattern for the specified type.
-     */
-    static isValid(type: Format | Space, value: string) {
-        return this.patterns[type].test(value.trim());
-    }
-
-    /**
-     * Determines if a color string is a relative color format.
-     *
-     * @param color - The color string to test
-     * @returns True if the color is a relative color format, false otherwise
-     *
-     * @example
-     * Color.isRelative('rgb(from red 255 0 0)') // returns true
-     * Color.isRelative('rgb(255 0 0)') // returns false
-     */
-    static isRelative(color: string) {
-        return this.patterns.relative.test(color);
-    }
-
-    /**
-     * Determines if a color string is a color-mix() format.
-     *
-     * @param color - The color string to test
-     * @returns True if the string is a valid color-mix() format, false otherwise
-     *
-     * @example
-     * Color.isColorMix('color-mix(in srgb, plum, #f00)') // returns true
-     * Color.isColorMix('hsl(200deg 50% 80%)') // returns false
-     */
-    static isColorMix(color: string) {
-        return this.patterns["color-mix"].test(color);
     }
 
     /**
@@ -2544,10 +2463,12 @@ class Color {
     /**
      * Advances to the next color format based on the current index.
      *
-     * @param currentColorString - The current color's string in any supported format.
      * @returns A tuple containing the next color as a string and the updated index.
      */
-    toNextColor(currentColorString: string, options: ToNextColorOptions = { modern: false, exclude: [] }) {
+    toNextColor(options: ToNextColorOptions = { modern: false, exclude: [] }) {
+        const color = this.originalString.toLowerCase();
+        const type = Color.from(color).type();
+
         let formats = Object.keys(converters);
 
         if (options.exclude?.length) {
@@ -2562,7 +2483,6 @@ class Color {
             throw new Error("No available formats after applying exclusions.");
         }
 
-        const type = Color.type(currentColorString);
         const currentIndex = formats.lastIndexOf(type);
         const nextFormat = formats[(currentIndex + 1) % formats.length];
 
@@ -2765,7 +2685,7 @@ class Color {
         }
 
         const instance = this.in("rgb").set({ alpha: (a) => a * amount });
-        return new Color(...instance.xyza);
+        return new Color(instance.xyza, { originalString: this.originalString });
     }
 
     /**
@@ -2781,7 +2701,7 @@ class Color {
         }
 
         const instance = this.in("hsl").set({ s: (s) => s * amount });
-        return new Color(...instance.xyza);
+        return new Color(instance.xyza, { originalString: this.originalString });
     }
 
     /**
@@ -2792,7 +2712,7 @@ class Color {
      */
     hueRotate(amount: number) {
         const instance = this.in("hsl").set({ h: (h) => h + amount });
-        return new Color(...instance.xyza);
+        return new Color(instance.xyza, { originalString: this.originalString });
     }
 
     /**
@@ -2813,7 +2733,7 @@ class Color {
             b: (b) => Math.round((b - 128) * amount + 128),
         });
 
-        return new Color(...instance.xyza);
+        return new Color(instance.xyza, { originalString: this.originalString });
     }
 
     /**
@@ -2842,7 +2762,7 @@ class Color {
             b: b + (sepiaB - b) * amount,
         });
 
-        return new Color(...instance.xyza);
+        return new Color(instance.xyza, { originalString: this.originalString });
     }
 
     /**
@@ -2858,7 +2778,7 @@ class Color {
         }
 
         const instance = this.in("hsl").set({ l: (l) => l * amount });
-        return new Color(...instance.xyza);
+        return new Color(instance.xyza, { originalString: this.originalString });
     }
 
     /**
@@ -2875,7 +2795,7 @@ class Color {
         }
 
         const instance = this.in("hsl").set({ s: (s) => s * (1 - amount) });
-        return new Color(...instance.xyza);
+        return new Color(instance.xyza, { originalString: this.originalString });
     }
 
     /**
@@ -2897,7 +2817,7 @@ class Color {
             b: (b) => Math.round(b * (1 - amount) + (255 - b) * amount),
         });
 
-        return new Color(...instance.xyza);
+        return new Color(instance.xyza, { originalString: this.originalString });
     }
 
     /**
@@ -2905,6 +2825,34 @@ class Color {
      * Instance Utility Methods
      * ────────────────────────────────────────────────────────
      */
+
+    /**
+     * Determines the type of the given color string based on predefined patterns.
+     *
+     * @returns The key corresponding to the matched color pattern.
+     */
+    type(): Format | Space {
+        const color = this.originalString;
+        const error = `Unsupported color format: ${color}\nSupported formats: ${Object.keys(Color.patterns).join(", ")}`;
+
+        if (this.isRelative()) {
+            const { type } = Color.parseRelative(color);
+            return type;
+        }
+
+        if (this.isColorMix()) {
+            const { model } = Color.parseColorMix(color);
+            return model;
+        }
+
+        for (const [key, pattern] of Object.entries(Color.patterns)) {
+            if (pattern.test(color.trim())) {
+                return key as Format;
+            }
+        }
+
+        throw new Error(error);
+    }
 
     /**
      * Calculates the luminance of the color.
@@ -2954,6 +2902,45 @@ class Color {
      */
     equals(color: string) {
         return this.to("xyz") === Color.from(color).to("xyz");
+    }
+
+    /**
+     * Checks if the given value matches the pattern for the specified type.
+     *
+     * @param type - The type of pattern to validate against.
+     * @returns Whether the value matches the pattern for the specified type.
+     */
+    isValid(type: Format | Space) {
+        const color = this.originalString.toLowerCase().trim();
+        return Color.patterns[type].test(color);
+    }
+
+    /**
+     * Determines if a color string is a relative color format.
+     *
+     * @returns True if the color is a relative color format, false otherwise
+     *
+     * @example
+     * Color.from("rgb(from red 255 0 0)").isRelative() // returns true
+     * Color.from("rgb(255 0 0)").isRelative() // returns false
+     */
+    isRelative() {
+        const color = this.originalString.toLowerCase().trim();
+        return Color.patterns.relative.test(color);
+    }
+
+    /**
+     * Determines if a color string is a color-mix() format.
+     *
+     * @returns True if the string is a valid color-mix() format, false otherwise
+     *
+     * @example
+     * Color.from("color-mix(in srgb, plum, #f00)").isColorMix() // returns true
+     * Color.from("hsl(200deg 50% 80%)").isColorMix() // returns false
+     */
+    isColorMix() {
+        const color = this.originalString.toLowerCase().trim();
+        return Color.patterns["color-mix"].test(color);
     }
 
     /**

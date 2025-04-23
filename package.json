@@ -1,6 +1,6 @@
 {
     "name": "csspectrum",
-    "version": "0.1.4",
+    "version": "0.3.0",
     "description": "A TypeScript class for working with CSS color formats, providing conversion, manipulation, and analysis tools for various color models and spaces.",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
@@ -71,6 +71,7 @@
         "jiti": "^2.4.2",
         "prettier": "^3.4.1",
         "ts-jest": "^29.2.5",
+        "ts-node": "^10.9.2",
         "typescript": "^5.7.2"
     }
 }

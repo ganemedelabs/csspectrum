@@ -1,3 +1,25 @@
+# GitHub Actions workflow to publish an NPM package.
+#
+# What it does:
+# 1. Triggers on push to the main branch.
+# 2. Checks out the repository code with full Git history.
+# 3. Sets up Node.js 20 and configures the NPM registry.
+# 4. Installs project dependencies.
+# 5. Compares the current package.json version with the latest NPM version.
+# 6. Builds the project if the version has changed.
+# 7. Publishes the package to NPM with public access if the version has changed.
+#
+# Prerequisites:
+# 1. If the package is scoped (e.g., @my-org/my-package), you must have created an organization on npm (e.g., @my-org).
+#
+# How to set up the repository secrets:
+# 1. In your NPM account, navigate to Access Tokens > Generate New Token > Granular Access Token.
+# 2. In `Packages and Scopes` section, select `Read and write` access for all packages.
+#    - If the package is scoped, select `Read and write` in the `Organizations` section for the specific organization.
+# 3. Copy the generated token.
+# 4. In your GitHub repository, navigate to Settings > Secrets and variables > Actions.
+# 5. Add a new repository secret named `NPM_TOKEN` with the token value from NPM.
+
 name: Publish NPM package
 
 on:
@@ -22,19 +44,18 @@ jobs:
             - name: Install dependencies
               run: npm install
 
-            # - name: Test
-            #   run: npm run test
-
             - name: Check the version
               id: check
               run: |
+                  PACKAGE_NAME=$(jq -r .name package.json)
                   CURRENT_VERSION=$(jq -r .version package.json)
+                  echo "Package name: $PACKAGE_NAME"
                   echo "Current version: $CURRENT_VERSION"
-                  LATEST_VERSION=$(npm show <package-name> version || echo "0.0.0")
+
+                  LATEST_VERSION=$(npm show "$PACKAGE_NAME" version 2>/dev/null || echo "0.0.0")
                   echo "Latest version: $LATEST_VERSION"
 
-                  if [ "$LATEST_VERSION" != "$CURRENT_VERSION" ]; 
-                  then
+                  if [ "$LATEST_VERSION" != "$CURRENT_VERSION" ]; then
                     echo "Version changed"
                     echo "version_changed=true" >> $GITHUB_OUTPUT
                     echo "new_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
