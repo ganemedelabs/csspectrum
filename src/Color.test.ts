@@ -10,9 +10,9 @@ describe("Color", () => {
         expect(Color.from("rgb(255, 87, 51)").type()).toBe("rgb");
         expect(Color.from("hsl(9, 100%, 60%)").type()).toBe("hsl");
         expect(Color.from("red").type()).toBe("named");
-        expect(Color.from("hwb(9, 10%, 20%)").type()).toBe("hwb");
-        expect(Color.from("lab(53.23288%, 80.10933, 67.22006)").type()).toBe("lab");
-        expect(Color.from("lch(50, 80, 30)").type()).toBe("lch");
+        expect(Color.from("hwb(9 10% 20%)").type()).toBe("hwb");
+        expect(Color.from("lab(53.23288% 80.10933 67.22006)").type()).toBe("lab");
+        expect(Color.from("lch(50% 80% 30)").type()).toBe("lch");
         expect(Color.from("oklab(59% 0.1 0.1 / 0.5)").type()).toBe("oklab");
         expect(Color.from("oklch(60% 0.15 50)").type()).toBe("oklch");
     });
@@ -46,15 +46,26 @@ describe("Color", () => {
     });
 
     it("should return correct arrays of components", () => {
-        expect(Color.from("blanchedalmond").in("rgb").getArray()).toEqual([255, 235, 205, 1]);
-        expect(Color.from("#7a7239").in("rgb").getArray()).toEqual([122, 114, 57, 1]);
-        expect(Color.from("rgba(68%, 16%, 50%, 0.3)").in("rgb").getArray()).toEqual([173, 41, 128, 0.3]);
-        expect(Color.from("hsla(182, 43%, 33%, 0.8)").in("hsl").getArray()).toEqual([182, 43, 33, 0.8]);
-        expect(Color.from("hwb(228 6% 9% / 0.6)").in("hwb").getArray()).toEqual([228, 6, 9, 0.6]);
-        expect(Color.from("lab(52.23% 40.16% 59.99% / 0.5)").in("lab").getArray()).toEqual([52.23, 50.2, 74.9875, 0.5]);
-        expect(Color.from("lch(62.23% 59.2% 126.2 / 0.5)").in("lch").getArray()).toEqual([62.23, 88.8, 126.2, 0.5]);
-        expect(Color.from("oklab(42.1% 41% -25% / 0.5)").in("oklab").getArray()).toEqual([0.421, 0.164, -0.1, 0.5]);
-        expect(Color.from("oklch(72.32% 0.12% 247.99 / 0.5)").in("oklch").getArray()).toEqual([
+        const gamutClipMethod = "minmax";
+        expect(Color.from("blanchedalmond").in("rgb").getCoords({ gamutClipMethod })).toEqual([255, 235, 205, 1]);
+        expect(Color.from("#7a7239").in("rgb").getCoords({ gamutClipMethod })).toEqual([122, 114, 57, 1]);
+        expect(Color.from("rgba(68%, 16%, 50%, 0.3)").in("rgb").getCoords({ gamutClipMethod })).toEqual([
+            173, 41, 128, 0.3,
+        ]);
+        expect(Color.from("hsla(182, 43%, 33%, 0.8)").in("hsl").getCoords({ gamutClipMethod })).toEqual([
+            182, 43, 33, 0.8,
+        ]);
+        expect(Color.from("hwb(228 6% 9% / 0.6)").in("hwb").getCoords({ gamutClipMethod })).toEqual([228, 6, 9, 0.6]);
+        expect(Color.from("lab(52.23% 40.16% 59.99% / 0.5)").in("lab").getCoords({ gamutClipMethod })).toEqual([
+            52.23, 50.2, 74.9875, 0.5,
+        ]);
+        expect(Color.from("lch(62.23% 59.2% 126.2 / 0.5)").in("lch").getCoords({ gamutClipMethod })).toEqual([
+            62.23, 88.8, 126.2, 0.5,
+        ]);
+        expect(Color.from("oklab(42.1% 41% -25% / 0.5)").in("oklab").getCoords({ gamutClipMethod })).toEqual([
+            0.421, 0.164, -0.1, 0.5,
+        ]);
+        expect(Color.from("oklch(72.32% 0.12% 247.99 / 0.5)").in("oklch").getCoords({ gamutClipMethod })).toEqual([
             0.7232, 0.00048, 247.99, 0.5,
         ]);
     });
@@ -68,23 +79,23 @@ describe("Color", () => {
     });
 
     it("should convert LCH color to sRGB", () => {
-        expect(Color.from("lch(79.7256 40.448 84.771)").to("srgb")).toBe("color(srgb 0.84171 0.76338 0.53501)");
+        expect(Color.from("lch(79.7256 40.448 84.771)").to("srgb")).toBe("color(srgb 0.92605 0.75038 0.39305)");
     });
 
     it("should calculate luminance correctly", () => {
-        expect(Color.from("rgb(255, 255, 255)").getLuminance()).toBeCloseTo(1);
-        expect(Color.from("rgb(0, 0, 0)").getLuminance()).toBeCloseTo(0);
+        expect(Color.from("rgb(255, 255, 255)").luminance()).toBeCloseTo(1);
+        expect(Color.from("rgb(0, 0, 0)").luminance()).toBeCloseTo(0);
     });
 
     it("should calculate contrast ratio correctly", () => {
-        expect(Color.from("#ffffff").getContrastRatio("#000000")).toBeCloseTo(21);
+        expect(Color.from("#ffffff").contrastRatio("#000000")).toBeCloseTo(21);
     });
 
     it("should determine if a color pair is accessible", () => {
-        expect(Color.from("#ffffff").isAccessibleWith("#000000", "AA")).toBe(true);
-        expect(Color.from("#ffffff").isAccessibleWith("#cccccc", "AAA")).toBe(false);
-        expect(Color.from("#ffffff").isAccessibleWith("#000000", "AA", true)).toBe(true);
-        expect(Color.from("#ffffff").isAccessibleWith("#cccccc", "AAA", true)).toBe(false);
+        expect(Color.from("#ffffff").evaluateAccessibility("#000000", "AA").isAccessible).toBe(true);
+        expect(Color.from("#ffffff").evaluateAccessibility("#cccccc", "AAA").isAccessible).toBe(false);
+        expect(Color.from("#ffffff").evaluateAccessibility("#000000", "AA", true).isAccessible).toBe(true);
+        expect(Color.from("#ffffff").evaluateAccessibility("#cccccc", "AAA", true).isAccessible).toBe(false);
     });
 
     it("should determine if a color is dark", () => {
@@ -152,28 +163,28 @@ describe("Color patterns", () => {
         },
         {
             name: "hwb",
-            valid: ["hwb(12, 50%, 0%)", "hwb(12 50% 0%)", "hwb(194 none none / 0.5)", "hwb(194 0% 0% / 0.5)"],
-            invalid: ["hwb(12, 50%, 200%)", "hwb(12, 150%, 0%)"],
+            valid: ["hwb(12 50% 0%)", "hwb(194 none none / 0.5)", "hwb(194 0% 0% / 0.5)"],
+            invalid: ["hwb(12, 50%, 0%)", "hwb(12, 50%, 200%)", "hwb(12, 150%, 0%)"],
         },
         {
             name: "lab",
-            valid: ["lab(50%, 40, 59.5)", "lab(50% none 59.5)", "lab(50% 40 59.5 / 0.5)"],
-            invalid: ["lab(50, 40)", "lab(150%, 59.5)"],
+            valid: ["lab(50% none 59.5)", "lab(50% 40 59.5 / 0.5)"],
+            invalid: ["lab(50%, 40, 59.5)", "lab(50, 40)", "lab(150%, 59.5)"],
         },
         {
             name: "lch",
-            valid: ["lch(52.2%, 72.2, 50)", "lch(52.2% 72.2 none)", "lch(52.2% 72.2 50 / 0.5)"],
-            invalid: ["lch(52.2, 72.2%)", "lch(52.2%, -72.2)"],
+            valid: ["lch(52.2% 72.2 none)", "lch(52.2% 72.2 50 / 0.5)"],
+            invalid: ["lch(52.2%, 72.2, 50)", "lch(52.2, 72.2%)", "lch(52.2%, -72.2)"],
         },
         {
             name: "oklab",
-            valid: ["oklab(59%, 0.1, 0.1)", "oklab(59% none 0.1)", "oklab(59% 0.1 0.1 / 0.5)"],
-            invalid: ["oklab(59, 0.1)", "oklab(59% 0.1)"],
+            valid: ["oklab(59% none 0.1)", "oklab(59% 0.1 0.1 / 0.5)"],
+            invalid: ["oklab(59%, 0.1, 0.1)", "oklab(59, 0.1)", "oklab(59% 0.1)"],
         },
         {
             name: "oklch",
-            valid: ["oklch(60%, 0.15, 50)", "oklch(60% none 50)", "oklch(60% 0.15 50 / 0.5)"],
-            invalid: ["oklch(60, 0.15%)", "oklch(60% 0.15)"],
+            valid: ["oklch(60% none 50)", "oklch(60% 0.15 50 / 0.5)"],
+            invalid: ["oklch(60%, 0.15, 50)", "oklch(60, 0.15%)", "oklch(60% 0.15)"],
         },
         {
             name: "named",
@@ -263,24 +274,25 @@ describe("Color patterns", () => {
 describe("Color manipulation methods", () => {
     it("should define a color from components", () => {
         const fromObject = Color.in("hsl").set({ h: 260, s: 100, l: 50 }).to("hsl");
-        const fromArray = Color.in("hsl").setArray([260, 100, 50]).to("hsl");
+        const fromArray = Color.in("hsl").setCoords([260, 100, 50]).to("hsl");
         expect(fromObject).toBe("hsl(260, 100%, 50%)");
         expect(fromArray).toEqual(fromObject);
     });
 
-    it("should return correct component values using get", () => {
+    it("should return correct component values using get()", () => {
         const rgbColor = Color.from("rgb(0, 157, 255)");
         const rgbInterface = rgbColor.in("rgb");
-        expect(rgbInterface.get("r")).toBe(0);
-        expect(rgbInterface.get("g")).toBe(157);
-        expect(rgbInterface.get("b")).toBe(255);
-        expect(rgbInterface.get("alpha")).toBe(1);
+        const gamutClipMethod = "minmax";
+        expect(rgbInterface.get("r", { gamutClipMethod })).toBe(0);
+        expect(rgbInterface.get("g", { gamutClipMethod })).toBe(157);
+        expect(rgbInterface.get("b", { gamutClipMethod })).toBe(255);
+        expect(rgbInterface.get("alpha", { gamutClipMethod })).toBe(1);
     });
 
-    it("should retrieve the correct array of components using getArray", () => {
+    it("should retrieve the correct array of components using getArray()", () => {
         const rgbColor = Color.from("rgb(0, 157, 255)");
         const rgbInterface = rgbColor.in("rgb");
-        expect(rgbInterface.getArray()).toEqual([0, 157, 255, 1]);
+        expect(rgbInterface.getCoords({ gamutClipMethod: "minmax" })).toEqual([0, 157, 255, 1]);
     });
 
     it("should update multiple components with set()", () => {
@@ -289,26 +301,26 @@ describe("Color manipulation methods", () => {
             h: (h) => h + 50,
             s: (s) => s - 20,
         });
-        const { h, s } = updated.getComponents();
+        const [h, s] = updated.getCoords();
         expect(h).toBe(50);
         expect(s).toBe(80);
     });
 
     it("should update components with setArray()", () => {
-        const hslInterface = Color.in("hsl").setArray([180, 50, 50]);
+        const hslInterface = Color.in("hsl").setCoords([180, 50, 50]);
         expect(hslInterface.to("hsl")).toBe("hsl(180, 50%, 50%)");
     });
 
-    it("should mix two colors correctly using mixWith", () => {
-        const color1 = Color.from("red").in("hsl").mixWith("lime", 0.5, "shorter").to("named");
-        const color2 = Color.from("red").in("hsl").mixWith("lime", 0.5, "longer").to("named");
+    it("should mix two colors correctly using mix()", () => {
+        const color1 = Color.from("red").in("hsl").mix("lime", 0.5, "shorter").to("named");
+        const color2 = Color.from("red").in("hsl").mix("lime", 0.5, "longer").to("named");
         expect(color1).toBe("yellow");
         expect(color2).toBe("blue");
     });
 
     it("should clamp component values when getting components", () => {
         const rgbColor = Color.from("rgb(200, 100, 50)").in("rgb").set({ g: 400 });
-        const { g } = rgbColor.getComponents();
+        const [, g] = rgbColor.getCoords({ gamutClipMethod: "minmax" });
         expect(g).toBe(255);
     });
 
@@ -367,7 +379,7 @@ describe("Color registration methods", () => {
             Color.registerNamedColor("Duplicate", [100, 100, 100]);
             expect(() => {
                 Color.registerNamedColor("duplicate", [100, 100, 100]);
-            }).toThrow(`Color name "duplicate" is already registered.`); // eslint-disable-line quotes
+            }).toThrow(`Color name "duplicate" is already registered.`);
         });
     });
 

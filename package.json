@@ -1,7 +1,19 @@
 {
     "name": "csspectrum",
-    "version": "0.3.0",
-    "description": "A TypeScript class for working with CSS color formats, providing conversion, manipulation, and analysis tools for various color models and spaces.",
+    "version": "0.4.0",
+    "description": "A TypeScript library for working with CSS color formats, providing conversion, manipulation, and analysis tools for various color models and spaces.",
+    "type": "commonjs",
+    "private": false,
+    "exports": {
+        ".": {
+            "import": "./dist/index.js",
+            "require": "./dist/index.cjs",
+            "types": "./dist/index.d.ts"
+        },
+        "./package.json": "./package.json",
+        "./README.md": "./README.md",
+        "./LICENSE": "./LICENSE"
+    },
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "repository": {
