@@ -312,7 +312,8 @@ export const _formatConverters = (() => {
                 return [X, Y, Z, a / 255];
             },
 
-            fromXYZA: ([r, g, b, a = 1]: XYZA) => {
+            fromXYZA: (xyza: XYZA) => {
+                const [r, g, b, a = 1] = converters.rgb.fromXYZA(xyza);
                 const toHex = (v: number) => v.toString(16).padStart(2, "0");
                 const hex = [r, g, b].map((v) => toHex(Math.round(Math.max(0, Math.min(255, v))))).join("");
                 return `#${hex}${a < 1 ? toHex(Math.round(a * 255)) : ""}`.toUpperCase();
@@ -400,10 +401,10 @@ export const _formatConverters = (() => {
                 return [h, s, l, alpha];
             },
 
-            toXYZA: ([H, S, L, alpha = 1]: number[]): XYZA => {
-                const [R, G, B] = hslToSRGB(H, S, L).map((c) => c * 255);
-                const [X, Y, Z] = converters.rgb.toXYZA([R, G, B, alpha]);
-                return [X, Y, Z, alpha];
+            toXYZA: ([h, s, l, a = 1]: number[]): XYZA => {
+                const [r, g, b] = hslToSRGB(h, s, l).map((c) => c * 255);
+                const [x, y, z] = converters.rgb.toXYZA([r, g, b, a]);
+                return [x, y, z, a];
             },
         },
 

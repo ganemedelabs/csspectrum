@@ -22,8 +22,9 @@ import type {
     IsInGamutOptions,
     GetOptions,
     LightnessRangeOptions,
-    GamutClipMethod,
+    FitMethod,
     ToOptions,
+    HarmonyType,
 } from "./types";
 
 /**
@@ -84,9 +85,20 @@ class Color {
      * ────────────────────────────────────────────────────────
      */
 
-    private clip(format: Model, method: GamutClipMethod = "minmax") {
-        const { targetGamut, components } = _converters[format] as ConverterWithComponents;
-        const coords = this.in(format).getCoords();
+    /**
+     * Maps the color to the target gamut using the specified method.
+     *
+     * @param format - Target color space.
+     * @param method - Gamut mapping method:
+     *   - "minmax": Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
+     *   - "chroma-reduction": Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
+     *
+     * @see https://www.w3.org/TR/css-color-4/
+     */
+    // TODO: Implement the RGB gamut mapping method (W3C Color 4, Section 13.2)
+    private fit(model: Model, method: FitMethod = "minmax") {
+        const { targetGamut, components } = _converters[model] as ConverterWithComponents;
+        const coords = this.in(model).getCoords();
 
         const componentProps: ComponentDefinition[] = [];
         for (const [, props] of Object.entries(components)) {
@@ -100,11 +112,11 @@ class Color {
             });
         }
 
-        let clippedCoords: number[] = [];
+        let clipped: number[] = [];
 
         switch (method) {
             case "minmax": {
-                clippedCoords = coords.map((value, i) => {
+                clipped = coords.map((value, i) => {
                     const props = componentProps[i];
                     if (!props) {
                         throw new Error(`Missing component properties for index ${i}`);
@@ -124,51 +136,53 @@ class Color {
                 break;
             }
 
-            case "oklch": {
-                const [L, C, H] = this.in("oklch").getCoords();
+            case "chroma-reduction": {
+                const [L, , H, alpha] = this.in("oklch").getCoords();
 
-                // Step 1: Get the valid lightness range for this hue
                 const [L_min, L_max] = this.lightnessRange(targetGamut as Space);
-
-                // Step 2: Adjust lightness to the nearest in-gamut value
                 const L_adjusted = Math.min(L_max, Math.max(L_min, L));
 
-                // Step 3: Find the maximum chroma for the adjusted lightness and hue
-                let C_low = 0; // Lower bound (always in gamut for L in [0,1])
-                let C_high = 1.0; // Upper bound (sufficient for sRGB in Oklch)
-                const epsilon = 1e-6; // Precision for binary search
+                let C_low = 0;
+                let C_high = 1.0;
+                const epsilon = 1e-6;
 
                 while (C_high - C_low > epsilon) {
                     const C_mid = (C_low + C_high) / 2;
-                    const color = Color.in("oklch").setCoords([L_adjusted, C_mid, H]);
-                    if (color.isInGamut("srgb", { epsilon: 1e-5 })) {
-                        C_low = C_mid; // Color is in gamut, try a higher chroma
+                    const candidate_color = Color.in("oklch").setCoords([L_adjusted, C_mid, H, alpha]);
+
+                    if (candidate_color.isInGamut(targetGamut as Space, { epsilon: 1e-5 })) {
+                        C_low = C_mid;
                     } else {
-                        C_high = C_mid; // Color is out of gamut, try a lower chroma
+                        const clipped_coords = candidate_color.fit(model, "minmax");
+                        const clipped_color = Color.in(model).setCoords(clipped_coords);
+
+                        const deltaE = candidate_color.deltaEOK(clipped_color.to("oklch"));
+                        if (deltaE < 2) {
+                            // JND threshold
+                            clipped = clipped_coords;
+                            break;
+                        } else {
+                            C_high = C_mid;
+                        }
                     }
                 }
-                const C_max = C_low; // Return the maximum chroma found
 
-                // Step 4: Adjust chroma to be within the gamut
-                const C_adjusted = Math.min(C, C_max);
+                if (clipped.length === 0) {
+                    const final_color = Color.in("oklch").setCoords([L_adjusted, C_low, H, alpha]);
+                    clipped = final_color.in(model).getCoords();
+                }
 
-                // Step 5: Create the clipped color in Oklch
-                const clippedColor = Color.in("oklch").setCoords([L_adjusted, C_adjusted, H]);
-
-                // Step 6: Convert to the target format with precision
-                const newCoords = clippedColor.in(format).getCoords();
-                clippedCoords = newCoords.map((value, i) => {
+                return clipped.map((value, i) => {
                     const precision = componentProps[i]?.precision ?? 5;
                     return Number(value.toFixed(precision));
                 });
-                break;
             }
 
             default:
                 throw new Error(`Invalid gamut clipping method: ${method}`);
         }
 
-        return clippedCoords;
+        return clipped;
     }
 
     /**
@@ -787,8 +801,8 @@ class Color {
      */
     to(format: string, options?: ToOptions): string; // eslint-disable-line no-unused-vars
     to(format: Format | Space, options?: ToOptions): string; // eslint-disable-line no-unused-vars
-    to(format: Format | Space | string, options: ToOptions = { modern: false, gamutClipMethod: "minmax" }) {
-        const { modern, gamutClipMethod } = options;
+    to(format: Format | Space | string, options: ToOptions = { modern: false, fit: "minmax" }) {
+        const { modern, fit } = options;
         const converter = _converters[format as Format | Space];
         if (!converter) {
             throw new Error(
@@ -797,7 +811,7 @@ class Color {
         }
 
         if ("components" in converter) {
-            const coords = this.in(format).getCoords({ gamutClipMethod });
+            const coords = this.in(format).getCoords({ fit });
             return converter.fromComponents(coords, { modern });
         } else {
             return converter.fromXYZA(this.xyza);
@@ -886,9 +900,9 @@ class Color {
         const get = (component: Component<M>, options: GetOptions = {}) => {
             const coords = getCoords();
             const { index } = components[component as keyof typeof components];
-            const { gamutClipMethod } = options;
-            if (gamutClipMethod) {
-                const clipped = this.clip(model as M, gamutClipMethod);
+            const { fit } = options;
+            if (fit) {
+                const clipped = this.fit(model as M, fit);
                 return clipped[index];
             }
             return coords[index];
@@ -896,9 +910,9 @@ class Color {
 
         const getCoords = (options: GetOptions = {}) => {
             const coords = converter.fromXYZA(this.xyza);
-            const { gamutClipMethod } = options;
-            if (gamutClipMethod) {
-                const clipped = this.clip(model as M, gamutClipMethod);
+            const { fit } = options;
+            if (fit) {
+                const clipped = this.fit(model as M, fit);
                 return clipped;
             }
             return coords;
@@ -1103,6 +1117,15 @@ class Color {
      */
 
     /**
+     * Clones the current color instance.
+     *
+     * @returns A new `Color` instance with the same color values.
+     */
+    clone() {
+        return new Color(this.xyza, { originalString: this._originalString });
+    }
+
+    /**
      * Determines the type of the given color string based on predefined patterns.
      *
      * @returns The key corresponding to the matched color pattern.
@@ -1268,12 +1291,10 @@ class Color {
         const ΔH = Math.sqrt(Math.max(0, ΔA * ΔA + ΔB * ΔB - ΔC * ΔC));
 
         if (method === "76") {
-            // CIE76: Euclidean distance
             return Math.sqrt(ΔL * ΔL + ΔA * ΔA + ΔB * ΔB);
         }
 
         if (method === "94") {
-            // CIE94: Improved weighting
             const kL = 1;
             const kC = 1;
             const kH = 1;
@@ -1289,7 +1310,6 @@ class Color {
         }
 
         if (method === "2000") {
-            // CIEDE2000: Most accurate
             const C1 = Math.sqrt(a1 ** 2 + b1 ** 2);
             const C2 = Math.sqrt(a2 ** 2 + b2 ** 2);
 
@@ -1403,6 +1423,38 @@ class Color {
         const L_max = searchMaxL();
 
         return [L_min, L_max];
+    }
+
+    /**
+     * Generates an array of harmonious colors based on the specified harmony type.
+     *
+     * @param type - The type of harmony to generate.
+     * @returns An array of `Color` instances, including the base color and its harmonious counterparts.
+     * @throws {Error} If an unsupported harmony type is provided.
+     */
+    harmony(type: HarmonyType): Color[] {
+        const harmonyOffsets: Record<HarmonyType, number[]> = {
+            complementary: [180],
+            "split-complementary": [150, 210],
+            triadic: [120, 240],
+            tetradic: [60, 180, 240],
+            analogous: [-30, 30],
+        };
+
+        if (!(type in harmonyOffsets)) {
+            throw new Error(`Unsupported harmony type: ${type}. Supported: ${Object.keys(harmonyOffsets).join(", ")}`);
+        }
+
+        const [L, C, H] = this.in("oklch").getCoords();
+
+        const result: Color[] = [Color.in("oklch").setCoords([L, C, H])];
+
+        for (const offset of harmonyOffsets[type]) {
+            const newH = (H + offset + 360) % 360;
+            result.push(Color.in("oklch").setCoords([L, C, newH]));
+        }
+
+        return result;
     }
 
     /**

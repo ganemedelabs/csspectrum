@@ -182,7 +182,7 @@ export interface FormattingOptions {
 }
 
 export interface ToOptions extends FormattingOptions {
-    gamutClipMethod?: GamutClipMethod;
+    fit?: FitMethod;
 }
 
 /**
@@ -225,7 +225,7 @@ export type HueInterpolationMethod = "shorter" | "longer" | "increasing" | "decr
 
 export type Easing = keyof typeof EASINGS;
 
-export type GamutClipMethod = "minmax" | "oklch";
+export type FitMethod = "minmax" | "chroma-reduction";
 
 /**
  * Options for generating a color scale.
@@ -249,9 +249,11 @@ export interface IsInGamutOptions {
 }
 
 export interface GetOptions {
-    gamutClipMethod?: GamutClipMethod;
+    fit?: FitMethod;
 }
 
 export interface LightnessRangeOptions {
     epsilon?: number;
 }
+
+export type HarmonyType = "complementary" | "split-complementary" | "triadic" | "tetradic" | "analogous";
