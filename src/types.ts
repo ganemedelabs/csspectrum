@@ -77,7 +77,7 @@ export interface ConverterWithComponents {
     /** Regular expression to match the color string format. */
     pattern: RegExp;
 
-    targetGamut: string;
+    targetGamut: string | null;
 
     /** Component definitions for this format (e.g., 'r', 'g', 'b'). */
     components: Record<string, ComponentDefinition>;
@@ -163,7 +163,7 @@ export interface Interface<M extends Model> {
     setCoords: (array: number[]) => Color & Interface<M>;
 
     /** Mixes this color with another by a specified amount. */
-    mix: (color: string, amount?: number, hue?: HueInterpolationMethod) => Color & Interface<M>;
+    mix: (color: string, options?: MixOptions) => Color & Interface<M>;
 }
 
 /**
@@ -197,6 +197,7 @@ export interface ToNextColorOptions extends FormattingOptions {
  * Defines a color space’s transformation properties.
  */
 export type SpaceMatrixMap = {
+    targetGamut?: null;
     /** Names of components in this space. */
     components: string[];
 
@@ -225,7 +226,7 @@ export type HueInterpolationMethod = "shorter" | "longer" | "increasing" | "decr
 
 export type Easing = keyof typeof EASINGS;
 
-export type FitMethod = "minmax" | "chroma-reduction";
+export type FitMethod = "minmax" | "chroma-reduction" | "css-gamut-map";
 
 /**
  * Options for generating a color scale.
@@ -244,7 +245,7 @@ export interface ScaleOptions {
     hue?: HueInterpolationMethod;
 }
 
-export interface IsInGamutOptions {
+export interface InGamutOptions {
     epsilon?: number;
 }
 
@@ -257,3 +258,14 @@ export interface LightnessRangeOptions {
 }
 
 export type HarmonyType = "complementary" | "split-complementary" | "triadic" | "tetradic" | "analogous";
+
+export type MixOptions = {
+    /** Amount of the second color to mix in, between 0 and 1. */
+    amount?: number;
+
+    /** Method for interpolating hue values. */
+    hue?: HueInterpolationMethod;
+
+    /** Easing function to apply to the interpolation parameter. */
+    easing?: Easing | ((t: number) => number);
+};

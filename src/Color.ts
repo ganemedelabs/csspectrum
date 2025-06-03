@@ -19,30 +19,29 @@ import type {
     SpaceMatrixMap,
     HueInterpolationMethod,
     ScaleOptions,
-    IsInGamutOptions,
+    InGamutOptions,
     GetOptions,
     LightnessRangeOptions,
     FitMethod,
     ToOptions,
     HarmonyType,
+    MixOptions,
 } from "./types";
 
 /**
  * The `Color` class represents a dynamic CSS color object, allowing for the manipulation
  * and retrieval of colors in various formats (e.g., RGB, HEX, HSL). This class provides
  * methods to modify the color values, convert between formats, and interact with CSS properties.
+ *
+ * @example
+ * ```typescript
+ * const color = Color.from("rgb(255, 0, 0)");
+ * console.log(color.to("hex")); // Outputs: "#ff0000"
+ * ```
  */
 class Color {
     private _xyza: XYZA = [0, 0, 0, 1];
-
-    /**
-     * The name of the color.
-     */
     private _name: string | undefined;
-
-    /**
-     * The color's original string representation.
-     */
     private _originalString: string;
 
     constructor(xyza: XYZA, options: ColorOptions) {
@@ -50,21 +49,11 @@ class Color {
         this._originalString = options.originalString;
     }
 
-    /**
-     * Gets the XYZA color values.
-     *
-     * @returns A tuple containing the X, Y, Z, and A (alpha) color values.
-     */
     private get xyza(): [number, number, number, number] {
         const [x, y, z, a = 1] = this._xyza;
         return [x, y, z, a];
     }
 
-    /**
-     * Sets the XYZA color value and updates the corresponding RGB and color name.
-     *
-     * @param newValue An array representing the XYZA color value.
-     */
     private set xyza(newValue: XYZA) {
         this._xyza = newValue;
 
@@ -80,23 +69,24 @@ class Color {
     }
 
     /**
-     * ────────────────────────────────────────────────────────
-     * Private Methods
-     * ────────────────────────────────────────────────────────
-     */
-
-    /**
      * Maps the color to the target gamut using the specified method.
      *
-     * @param format - Target color space.
+     * @param model - Target color space (e.g., "srgb", "display-p3").
      * @param method - Gamut mapping method:
      *   - "minmax": Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
      *   - "chroma-reduction": Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
+     *   - "css-gamut-map": CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
      *
      * @see https://www.w3.org/TR/css-color-4/
      */
-    // TODO: Implement the RGB gamut mapping method (W3C Color 4, Section 13.2)
     private fit(model: Model, method: FitMethod = "minmax") {
+        const roundCoords = (coords: number[], componentProps: ComponentDefinition[]) => {
+            return coords.map((value, i) => {
+                const precision = componentProps[i]?.precision ?? 5;
+                return Number(value.toFixed(precision));
+            });
+        };
+
         const { targetGamut, components } = _converters[model] as ConverterWithComponents;
         const coords = this.in(model).getCoords();
 
@@ -105,84 +95,130 @@ class Color {
             componentProps[props.index] = props;
         }
 
-        if (this.isInGamut(targetGamut as Space, { epsilon: 1e-5 })) {
-            return coords.map((value, i) => {
-                const precision = componentProps[i]?.precision ?? 5;
-                return Number(value.toFixed(precision));
-            });
-        }
-
-        let clipped: number[] = [];
-
         switch (method) {
             case "minmax": {
-                clipped = coords.map((value, i) => {
+                const clipped = coords.map((value, i) => {
                     const props = componentProps[i];
                     if (!props) {
                         throw new Error(`Missing component properties for index ${i}`);
                     }
-
-                    let clipped: number;
                     if (props.loop) {
                         const range = props.max - props.min;
-                        clipped = props.min + ((((value - props.min) % range) + range) % range);
+                        return props.min + ((((value - props.min) % range) + range) % range);
                     } else {
-                        clipped = Math.min(props.max, Math.max(props.min, value));
+                        return Math.min(props.max, Math.max(props.min, value));
                     }
-
-                    const precision = props.precision ?? 5;
-                    return Number(clipped.toFixed(precision));
                 });
-                break;
+                return roundCoords(clipped, componentProps);
             }
 
             case "chroma-reduction": {
-                const [L, , H, alpha] = this.in("oklch").getCoords();
+                if (targetGamut === null || this.inGamut(targetGamut as Space, { epsilon: 1e-5 })) {
+                    return roundCoords(coords, componentProps);
+                }
 
+                const [L, , H, alpha] = this.in("oklch").getCoords();
                 const [L_min, L_max] = this.lightnessRange(targetGamut as Space);
                 const L_adjusted = Math.min(L_max, Math.max(L_min, L));
 
                 let C_low = 0;
                 let C_high = 1.0;
                 const epsilon = 1e-6;
+                let clipped: number[] = [];
 
                 while (C_high - C_low > epsilon) {
                     const C_mid = (C_low + C_high) / 2;
                     const candidate_color = Color.in("oklch").setCoords([L_adjusted, C_mid, H, alpha]);
 
-                    if (candidate_color.isInGamut(targetGamut as Space, { epsilon: 1e-5 })) {
+                    if (candidate_color.inGamut(targetGamut as Space, { epsilon: 1e-5 })) {
                         C_low = C_mid;
                     } else {
                         const clipped_coords = candidate_color.fit(model, "minmax");
                         const clipped_color = Color.in(model).setCoords(clipped_coords);
-
                         const deltaE = candidate_color.deltaEOK(clipped_color.to("oklch"));
                         if (deltaE < 2) {
-                            // JND threshold
                             clipped = clipped_coords;
-                            break;
+                            return roundCoords(clipped, componentProps);
                         } else {
                             C_high = C_mid;
                         }
                     }
                 }
 
-                if (clipped.length === 0) {
-                    const final_color = Color.in("oklch").setCoords([L_adjusted, C_low, H, alpha]);
-                    clipped = final_color.in(model).getCoords();
+                const finalColor = Color.in("oklch").setCoords([L_adjusted, C_low, H, alpha]);
+                clipped = finalColor.in(model).getCoords();
+                return roundCoords(clipped, componentProps);
+            }
+
+            case "css-gamut-map": {
+                if (targetGamut === null) {
+                    return roundCoords(coords, componentProps);
                 }
 
-                return clipped.map((value, i) => {
-                    const precision = componentProps[i]?.precision ?? 5;
-                    return Number(value.toFixed(precision));
-                });
+                const [L, C, H, alpha] = this.in("oklch").getCoords();
+
+                if (L >= 1.0) {
+                    const white = Color.in("oklab").setCoords([1, 0, 0, alpha]);
+                    return roundCoords(white.in(model).getCoords(), componentProps);
+                }
+
+                if (L <= 0.0) {
+                    const black = Color.in("oklab").setCoords([0, 0, 0, alpha]);
+                    return roundCoords(black.in(model).getCoords(), componentProps);
+                }
+
+                if (this.inGamut(targetGamut as Space, { epsilon: 1e-5 })) {
+                    return roundCoords(coords, componentProps);
+                }
+
+                const JND = 0.02;
+                const epsilon = 0.0001;
+
+                const current = Color.in("oklch").setCoords([L, C, H, alpha]);
+                let clipped: number[] = current.fit(model, "minmax");
+
+                const initialClippedColor = Color.in(model).setCoords(clipped);
+                const E = current.deltaEOK(initialClippedColor.to("oklch"));
+
+                if (E < JND) {
+                    return roundCoords(clipped, componentProps);
+                }
+
+                let min = 0;
+                let max = C;
+                let min_inGamut = true;
+
+                while (max - min > epsilon) {
+                    const chroma = (min + max) / 2;
+                    const candidate = Color.in("oklch").setCoords([L, chroma, H, alpha]);
+
+                    if (min_inGamut && candidate.inGamut(targetGamut as Space, { epsilon: 1e-5 })) {
+                        min = chroma;
+                    } else {
+                        const clippedCoords = candidate.fit(model, "minmax");
+                        clipped = clippedCoords;
+                        const clippedColor = Color.in(model).setCoords(clippedCoords);
+                        const deltaE = candidate.deltaEOK(clippedColor.to("oklch"));
+
+                        if (deltaE < JND) {
+                            if (JND - deltaE < epsilon) {
+                                return roundCoords(clipped, componentProps);
+                            } else {
+                                min_inGamut = false;
+                                min = chroma;
+                            }
+                        } else {
+                            max = chroma;
+                        }
+                    }
+                }
+
+                return roundCoords(clipped, componentProps);
             }
 
             default:
                 throw new Error(`Invalid gamut clipping method: ${method}`);
         }
-
-        return clipped;
     }
 
     /**
@@ -289,7 +325,7 @@ class Color {
 
             const weight2Prime = weight2 / (weight1 + weight2);
 
-            const colorInstance = Color.from(color1).in(model).mix(color2, weight2Prime, hue);
+            const colorInstance = Color.from(color1).in(model).mix(color2, { amount: weight2Prime, hue });
 
             // Create a new Color instance because .in(model) methods return chainable .in(model) methods.
             return new Color(colorInstance.xyza, { originalString: color });
@@ -940,14 +976,16 @@ class Color {
             return Object.assign(this, { ...this.in(model) }) as typeof this & Interface<M>;
         };
 
-        const mix = (color: string, amount = 0.5, hue: HueInterpolationMethod = "shorter") => {
+        const mix = (color: string, options: MixOptions = {}) => {
+            const { hue = "shorter", amount = 0.5, easing = "linear" } = options;
             const t = Math.max(0, Math.min(amount, 1));
+            const easedT = (typeof easing === "function" ? easing : EASINGS[easing])(t);
 
             const otherColor = Color.from(color);
             const otherCoords = otherColor.in(model).getCoords();
             const thisCoords = getCoords();
 
-            const mixedCoords = interpolateComponents(thisCoords, otherCoords, components, t, hue);
+            const mixedCoords = interpolateComponents(thisCoords, otherCoords, components, easedT, hue);
             setCoords(mixedCoords);
 
             return Object.assign(this, { ...this.in(model) }) as typeof this & Interface<M>;
@@ -1394,7 +1432,7 @@ class Color {
 
         function isInGamut(L: number): boolean {
             const color = Color.in("oklch").setCoords([L, C, hue]);
-            return color.isInGamut(gamut, { epsilon });
+            return color.inGamut(gamut, { epsilon });
         }
 
         const searchMinL = (): number => {
@@ -1816,10 +1854,12 @@ class Color {
      * @param options - Optional parameters, including epsilon for tolerance.
      * @returns `true` if the color is within the gamut, `false` otherwise.
      */
-    isInGamut(gamut: Space, options: IsInGamutOptions = {}) {
-        const { components } = _converters[gamut];
+    inGamut(gamut: Space, options: InGamutOptions = {}) {
+        const { components, targetGamut } = _converters[gamut];
         const coords = this.in(gamut).getCoords();
         const epsilon = options.epsilon ?? 1e-5;
+
+        if (targetGamut === null) return true;
 
         for (const [, props] of Object.entries(components)) {
             const [value, min, max] = [coords[props.index], props.min, props.max];

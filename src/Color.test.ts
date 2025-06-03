@@ -46,26 +46,22 @@ describe("Color", () => {
     });
 
     it("should return correct arrays of components", () => {
-        const gamutClipMethod = "minmax";
-        expect(Color.from("blanchedalmond").in("rgb").getCoords({ gamutClipMethod })).toEqual([255, 235, 205, 1]);
-        expect(Color.from("#7a7239").in("rgb").getCoords({ gamutClipMethod })).toEqual([122, 114, 57, 1]);
-        expect(Color.from("rgba(68%, 16%, 50%, 0.3)").in("rgb").getCoords({ gamutClipMethod })).toEqual([
-            173, 41, 128, 0.3,
-        ]);
-        expect(Color.from("hsla(182, 43%, 33%, 0.8)").in("hsl").getCoords({ gamutClipMethod })).toEqual([
-            182, 43, 33, 0.8,
-        ]);
-        expect(Color.from("hwb(228 6% 9% / 0.6)").in("hwb").getCoords({ gamutClipMethod })).toEqual([228, 6, 9, 0.6]);
-        expect(Color.from("lab(52.23% 40.16% 59.99% / 0.5)").in("lab").getCoords({ gamutClipMethod })).toEqual([
+        const fit = "minmax";
+        expect(Color.from("blanchedalmond").in("rgb").getCoords({ fit })).toEqual([255, 235, 205, 1]);
+        expect(Color.from("#7a7239").in("rgb").getCoords({ fit })).toEqual([122, 114, 57, 1]);
+        expect(Color.from("rgba(68%, 16%, 50%, 0.3)").in("rgb").getCoords({ fit })).toEqual([173, 41, 128, 0.3]);
+        expect(Color.from("hsla(182, 43%, 33%, 0.8)").in("hsl").getCoords({ fit })).toEqual([182, 43, 33, 0.8]);
+        expect(Color.from("hwb(228 6% 9% / 0.6)").in("hwb").getCoords({ fit })).toEqual([228, 6, 9, 0.6]);
+        expect(Color.from("lab(52.23% 40.16% 59.99% / 0.5)").in("lab").getCoords({ fit })).toEqual([
             52.23, 50.2, 74.9875, 0.5,
         ]);
-        expect(Color.from("lch(62.23% 59.2% 126.2 / 0.5)").in("lch").getCoords({ gamutClipMethod })).toEqual([
+        expect(Color.from("lch(62.23% 59.2% 126.2 / 0.5)").in("lch").getCoords({ fit })).toEqual([
             62.23, 88.8, 126.2, 0.5,
         ]);
-        expect(Color.from("oklab(42.1% 41% -25% / 0.5)").in("oklab").getCoords({ gamutClipMethod })).toEqual([
+        expect(Color.from("oklab(42.1% 41% -25% / 0.5)").in("oklab").getCoords({ fit })).toEqual([
             0.421, 0.164, -0.1, 0.5,
         ]);
-        expect(Color.from("oklch(72.32% 0.12% 247.99 / 0.5)").in("oklch").getCoords({ gamutClipMethod })).toEqual([
+        expect(Color.from("oklch(72.32% 0.12% 247.99 / 0.5)").in("oklch").getCoords({ fit })).toEqual([
             0.7232, 0.00048, 247.99, 0.5,
         ]);
     });
@@ -126,8 +122,8 @@ describe("Color", () => {
     });
 
     it("should return true if a color is in gamut", () => {
-        expect(Color.from("color(display-p3 1 0 0)").isInGamut("srgb")).toBe(false);
-        expect(Color.from("color(display-p3 1 0 0)").isInGamut("xyz")).toBe(true);
+        expect(Color.from("color(display-p3 1 0 0)").inGamut("srgb")).toBe(false);
+        expect(Color.from("color(display-p3 1 0 0)").inGamut("xyz")).toBe(true);
     });
 
     it("should handle none components correctly", () => {
@@ -282,17 +278,17 @@ describe("Color manipulation methods", () => {
     it("should return correct component values using get()", () => {
         const rgbColor = Color.from("rgb(0, 157, 255)");
         const rgbInterface = rgbColor.in("rgb");
-        const gamutClipMethod = "minmax";
-        expect(rgbInterface.get("r", { gamutClipMethod })).toBe(0);
-        expect(rgbInterface.get("g", { gamutClipMethod })).toBe(157);
-        expect(rgbInterface.get("b", { gamutClipMethod })).toBe(255);
-        expect(rgbInterface.get("alpha", { gamutClipMethod })).toBe(1);
+        const fit = "minmax";
+        expect(rgbInterface.get("r", { fit })).toBe(0);
+        expect(rgbInterface.get("g", { fit })).toBe(157);
+        expect(rgbInterface.get("b", { fit })).toBe(255);
+        expect(rgbInterface.get("alpha", { fit })).toBe(1);
     });
 
     it("should retrieve the correct array of components using getArray()", () => {
         const rgbColor = Color.from("rgb(0, 157, 255)");
         const rgbInterface = rgbColor.in("rgb");
-        expect(rgbInterface.getCoords({ gamutClipMethod: "minmax" })).toEqual([0, 157, 255, 1]);
+        expect(rgbInterface.getCoords({ fit: "minmax" })).toEqual([0, 157, 255, 1]);
     });
 
     it("should update multiple components with set()", () => {
@@ -312,15 +308,15 @@ describe("Color manipulation methods", () => {
     });
 
     it("should mix two colors correctly using mix()", () => {
-        const color1 = Color.from("red").in("hsl").mix("lime", 0.5, "shorter").to("named");
-        const color2 = Color.from("red").in("hsl").mix("lime", 0.5, "longer").to("named");
+        const color1 = Color.from("red").in("hsl").mix("lime", { hue: "shorter" }).to("named");
+        const color2 = Color.from("red").in("hsl").mix("lime", { hue: "longer" }).to("named");
         expect(color1).toBe("yellow");
         expect(color2).toBe("blue");
     });
 
     it("should clamp component values when getting components", () => {
         const rgbColor = Color.from("rgb(200, 100, 50)").in("rgb").set({ g: 400 });
-        const [, g] = rgbColor.getCoords({ gamutClipMethod: "minmax" });
+        const [, g] = rgbColor.getCoords({ fit: "minmax" });
         expect(g).toBe(255);
     });
 

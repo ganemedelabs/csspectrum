@@ -494,7 +494,7 @@ export const _formatConverters = (() => {
                 "i"
             ),
 
-            targetGamut: "xyz-d50",
+            targetGamut: null,
 
             components: {
                 l: { index: 0, min: 0, max: 100, precision: 5 },
@@ -559,7 +559,7 @@ export const _formatConverters = (() => {
                 "i"
             ),
 
-            targetGamut: "xyz-d50",
+            targetGamut: null,
 
             components: {
                 l: { index: 0, min: 0, max: 100, precision: 5 },
@@ -616,7 +616,7 @@ export const _formatConverters = (() => {
                 "i"
             ),
 
-            targetGamut: "xyz-d65",
+            targetGamut: null,
 
             components: {
                 l: { index: 0, min: 0, max: 1, precision: 5 },
@@ -695,7 +695,7 @@ export const _formatConverters = (() => {
                 "i"
             ),
 
-            targetGamut: "xyz-d65",
+            targetGamut: null,
 
             components: {
                 l: { index: 0, min: 0, max: 1, precision: 5 },
@@ -950,6 +950,7 @@ export const _spaceConverters = (() => {
         }),
 
         "xyz-d65": createSpaceConverter("xyz-d65", {
+            targetGamut: null,
             components: ["x", "y", "z"],
             toLinear: identity,
             fromLinear: identity,
@@ -959,6 +960,7 @@ export const _spaceConverters = (() => {
         }),
 
         "xyz-d50": createSpaceConverter("xyz-d50", {
+            targetGamut: null,
             components: ["x", "y", "z"],
             toLinear: identity,
             fromLinear: identity,
@@ -968,6 +970,7 @@ export const _spaceConverters = (() => {
         }),
 
         xyz: createSpaceConverter("xyz", {
+            targetGamut: null,
             components: ["x", "y", "z"],
             toLinear: identity,
             fromLinear: identity,

@@ -91,7 +91,7 @@ export function createSpaceConverter<T extends string, C extends readonly string
     return {
         pattern,
 
-        targetGamut: name,
+        targetGamut: space.targetGamut === null ? null : name,
 
         components: Object.fromEntries(
             space.components.map((comp, index) => [comp, { index, min: 0, max: 1, precision: 5 }])
