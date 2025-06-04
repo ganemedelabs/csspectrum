@@ -19,13 +19,13 @@ import Color from "./Color";
 // WATCH: Currently the css-gamut-map is the fastest method
 
 console.time("minmax");
-console.log(Color.in("rgb").setCoords([204, 45, 300]).to("rgb", { fit: "minmax" }));
+console.log(Color.in("rgb").setCoords([204, 45, 400]).to("rgb", { fit: "minmax" }));
 console.timeEnd("minmax");
 
 console.time("chroma-reduction");
-console.log(Color.in("rgb").setCoords([204, 45, 300]).to("rgb", { fit: "chroma-reduction" }));
+console.log(Color.in("rgb").setCoords([204, 45, 400]).to("rgb", { fit: "chroma-reduction" }));
 console.timeEnd("chroma-reduction");
 
 console.time("css-gamut-map");
-console.log(Color.in("rgb").setCoords([204, 45, 300]).to("rgb", { fit: "css-gamut-map" }));
+console.log(Color.in("rgb").setCoords([204, 45, 400]).to("rgb", { fit: "css-gamut-map" }));
 console.timeEnd("css-gamut-map");

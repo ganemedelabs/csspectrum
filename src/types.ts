@@ -157,13 +157,17 @@ export interface Interface<M extends Model> {
     getCoords: (options?: GetOptions) => number[];
 
     /** Sets component values using an object, supporting updater functions. */
-    set: (values: Partial<{ [K in Component<M>]: number | ((prev: number) => number) }>) => Color & Interface<M>;
+    set: (
+        values:
+            | Partial<{ [K in Component<M>]: number | ((prev: number) => number) }>
+            | ((components: { [K in Component<M>]: number }) => Partial<{ [K in Component<M>]?: number }>)
+    ) => Color & Interface<M>;
 
     /** Sets component values using an array. */
     setCoords: (array: number[]) => Color & Interface<M>;
 
     /** Mixes this color with another by a specified amount. */
-    mix: (color: string, options?: MixOptions) => Color & Interface<M>;
+    mix: (other: Color | string, options?: MixOptions) => Color & Interface<M>;
 }
 
 /**
@@ -269,3 +273,13 @@ export type MixOptions = {
     /** Easing function to apply to the interpolation parameter. */
     easing?: Easing | ((t: number) => number);
 };
+
+export interface EvaluateAccessibilityOptions {
+    /** WCAG level to test ("AA" or "AAA"). Defaults to "AA". */
+    level?: "AA" | "AAA";
+
+    /** Whether the text is large (≥18pt regular or ≥14pt bold). */
+    isLargeText?: boolean;
+}
+
+export type Pattern = keyof typeof Color.patterns;

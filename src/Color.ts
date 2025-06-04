@@ -26,27 +26,24 @@ import type {
     ToOptions,
     HarmonyType,
     MixOptions,
+    EvaluateAccessibilityOptions,
 } from "./types";
 
 /**
  * The `Color` class represents a dynamic CSS color object, allowing for the manipulation
- * and retrieval of colors in various formats (e.g., RGB, HEX, HSL). This class provides
- * methods to modify the color values, convert between formats, and interact with CSS properties.
- *
- * @example
- * ```typescript
- * const color = Color.from("rgb(255, 0, 0)");
- * console.log(color.to("hex")); // Outputs: "#ff0000"
- * ```
+ * and retrieval of colors in various formats (e.g., RGB, HEX, HSL).
  */
 class Color {
     private _xyza: XYZA = [0, 0, 0, 1];
     private _name: string | undefined;
     private _originalString: string;
+    private _cleanString: string;
 
     constructor(xyza: XYZA, options: ColorOptions) {
+        const { originalString } = options;
         this.xyza = xyza;
-        this._originalString = options.originalString;
+        this._originalString = originalString;
+        this._cleanString = this._clean(originalString);
     }
 
     private get xyza(): [number, number, number, number] {
@@ -68,6 +65,13 @@ class Color {
         }
     }
 
+    private _clean(string: string) {
+        return string
+            .replace(/\bnone\b/gi, "0")
+            .replace(/calc\(\s*([+-]?infinity)\s*\)/gi, "0")
+            .trim();
+    }
+
     /**
      * Maps the color to the target gamut using the specified method.
      *
@@ -79,8 +83,8 @@ class Color {
      *
      * @see https://www.w3.org/TR/css-color-4/
      */
-    private fit(model: Model, method: FitMethod = "minmax") {
-        const roundCoords = (coords: number[], componentProps: ComponentDefinition[]) => {
+    private _fit(model: Model, method: FitMethod = "minmax") {
+        const roundCoords = (coords: number[]) => {
             return coords.map((value, i) => {
                 const precision = componentProps[i]?.precision ?? 5;
                 return Number(value.toFixed(precision));
@@ -109,12 +113,12 @@ class Color {
                         return Math.min(props.max, Math.max(props.min, value));
                     }
                 });
-                return roundCoords(clipped, componentProps);
+                return roundCoords(clipped);
             }
 
             case "chroma-reduction": {
                 if (targetGamut === null || this.inGamut(targetGamut as Space, { epsilon: 1e-5 })) {
-                    return roundCoords(coords, componentProps);
+                    return roundCoords(coords);
                 }
 
                 const [L, , H, alpha] = this.in("oklch").getCoords();
@@ -133,12 +137,12 @@ class Color {
                     if (candidate_color.inGamut(targetGamut as Space, { epsilon: 1e-5 })) {
                         C_low = C_mid;
                     } else {
-                        const clipped_coords = candidate_color.fit(model, "minmax");
+                        const clipped_coords = candidate_color._fit(model, "minmax");
                         const clipped_color = Color.in(model).setCoords(clipped_coords);
-                        const deltaE = candidate_color.deltaEOK(clipped_color.to("oklch"));
+                        const deltaE = candidate_color.deltaEOK(clipped_color);
                         if (deltaE < 2) {
                             clipped = clipped_coords;
-                            return roundCoords(clipped, componentProps);
+                            return roundCoords(clipped);
                         } else {
                             C_high = C_mid;
                         }
@@ -147,41 +151,41 @@ class Color {
 
                 const finalColor = Color.in("oklch").setCoords([L_adjusted, C_low, H, alpha]);
                 clipped = finalColor.in(model).getCoords();
-                return roundCoords(clipped, componentProps);
+                return roundCoords(clipped);
             }
 
             case "css-gamut-map": {
                 if (targetGamut === null) {
-                    return roundCoords(coords, componentProps);
+                    return roundCoords(coords);
                 }
 
                 const [L, C, H, alpha] = this.in("oklch").getCoords();
 
                 if (L >= 1.0) {
                     const white = Color.in("oklab").setCoords([1, 0, 0, alpha]);
-                    return roundCoords(white.in(model).getCoords(), componentProps);
+                    return roundCoords(white.in(model).getCoords());
                 }
 
                 if (L <= 0.0) {
                     const black = Color.in("oklab").setCoords([0, 0, 0, alpha]);
-                    return roundCoords(black.in(model).getCoords(), componentProps);
+                    return roundCoords(black.in(model).getCoords());
                 }
 
                 if (this.inGamut(targetGamut as Space, { epsilon: 1e-5 })) {
-                    return roundCoords(coords, componentProps);
+                    return roundCoords(coords);
                 }
 
                 const JND = 0.02;
                 const epsilon = 0.0001;
 
                 const current = Color.in("oklch").setCoords([L, C, H, alpha]);
-                let clipped: number[] = current.fit(model, "minmax");
+                let clipped: number[] = current._fit(model, "minmax");
 
                 const initialClippedColor = Color.in(model).setCoords(clipped);
-                const E = current.deltaEOK(initialClippedColor.to("oklch"));
+                const E = current.deltaEOK(initialClippedColor);
 
                 if (E < JND) {
-                    return roundCoords(clipped, componentProps);
+                    return roundCoords(clipped);
                 }
 
                 let min = 0;
@@ -195,14 +199,14 @@ class Color {
                     if (min_inGamut && candidate.inGamut(targetGamut as Space, { epsilon: 1e-5 })) {
                         min = chroma;
                     } else {
-                        const clippedCoords = candidate.fit(model, "minmax");
+                        const clippedCoords = candidate._fit(model, "minmax");
                         clipped = clippedCoords;
                         const clippedColor = Color.in(model).setCoords(clippedCoords);
-                        const deltaE = candidate.deltaEOK(clippedColor.to("oklch"));
+                        const deltaE = candidate.deltaEOK(clippedColor);
 
                         if (deltaE < JND) {
                             if (JND - deltaE < epsilon) {
-                                return roundCoords(clipped, componentProps);
+                                return roundCoords(clipped);
                             } else {
                                 min_inGamut = false;
                                 min = chroma;
@@ -213,19 +217,13 @@ class Color {
                     }
                 }
 
-                return roundCoords(clipped, componentProps);
+                return roundCoords(clipped);
             }
 
             default:
                 throw new Error(`Invalid gamut clipping method: ${method}`);
         }
     }
-
-    /**
-     * ────────────────────────────────────────────────────────
-     * Static Variables
-     * ────────────────────────────────────────────────────────
-     */
 
     /**
      * A collection of regular expressions for parsing color strings.
@@ -265,18 +263,6 @@ class Color {
             "color-mix": colorMix,
         } as { [K in Format | Space | "relative" | "color-mix"]: RegExp }; // eslint-disable-line no-unused-vars
     })();
-
-    /**
-     * ────────────────────────────────────────────────────────
-     * Static Methods
-     * ────────────────────────────────────────────────────────
-     */
-
-    /**
-     * ────────────────────────────────────────────────────────
-     * Parsing Methods
-     * ────────────────────────────────────────────────────────
-     */
 
     /**
      * Creates a new `Color` instance from a given color string and optional format.
@@ -325,7 +311,7 @@ class Color {
 
             const weight2Prime = weight2 / (weight1 + weight2);
 
-            const colorInstance = Color.from(color1).in(model).mix(color2, { amount: weight2Prime, hue });
+            const colorInstance = color1.in(model).mix(color2, { amount: weight2Prime, hue });
 
             // Create a new Color instance because .in(model) methods return chainable .in(model) methods.
             return new Color(colorInstance.xyza, { originalString: color });
@@ -344,9 +330,7 @@ class Color {
             }
         }
 
-        throw new Error(
-            `Unsupported color format: ${color}\nSupported formats: ${Object.keys(_converters).join(", ")}`
-        );
+        throw new Error(`Unsupported color format: ${color}`);
     }
 
     /**
@@ -358,17 +342,11 @@ class Color {
     static in<M extends Model>(model: M): InterfaceWithSetOnly<Interface<M>>; // eslint-disable-line no-unused-vars
     static in(model: string): InterfaceWithSetOnly<Interface<any>>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
     static in<M extends Model>(model: string | M): InterfaceWithSetOnly<Interface<M>> {
-        const originalString = model in _formatConverters ? `${model}(0 0 0 1)` : `color(${model} 0 0 0 1)`;
+        const originalString = _converters[model as Model].fromComponents([0, 0, 0, 1]);
         const color = new Color([0, 0, 0, 1], { originalString });
         const result = Object.fromEntries(Object.entries(color.in(model)).filter(([key]) => key.startsWith("set")));
         return result as InterfaceWithSetOnly<Interface<M>>;
     }
-
-    /**
-     * ────────────────────────────────────────────────────────
-     * Static Utility Methods
-     * ────────────────────────────────────────────────────────
-     */
 
     /**
      * Registers a new named color in the system.
@@ -626,10 +604,7 @@ class Color {
             const startIndex = fullMatch.indexOf(type) + type.length;
             componentsStr = fullMatch.substring(startIndex, fullMatch.length - 1).trim();
 
-            if (!(type in _spaceConverters))
-                throw new Error(
-                    `Invalid space for color(): ${type}\nSupported spaces are: ${Object.keys(_spaceConverters).join(", ")}`
-                );
+            if (!(type in _spaceConverters)) throw new Error(`Invalid space for color(): ${type}`);
         } else {
             const match = color.match(new RegExp(`^${funcName}\\(from\\s+(?<color>${colorPatterns}) (.*)\\)$`));
             if (!match) throw new Error(`"${color}" is not a valid relative format.`);
@@ -643,10 +618,7 @@ class Color {
             const startIndex = fullMatch.indexOf(baseColor) + baseColor.length;
             componentsStr = fullMatch.substring(startIndex, fullMatch.length - 1).trim();
 
-            if (!(type in _formatConverters))
-                throw new Error(
-                    `Invalid function name for relative format: ${type}\nSupported function names are: ${Object.keys(_formatConverters).join(", ")}`
-                );
+            if (!(type in _formatConverters)) throw new Error(`Invalid function name for relative format: ${type}`);
         }
 
         const tokens: string[] = [];
@@ -809,24 +781,12 @@ class Color {
         return {
             model,
             hue,
-            color1: colorInstance1.to(firstColorModel),
+            color1: colorInstance1,
             weight1: firstColorData.weight,
-            color2: colorInstance2.to(secondColorModel),
+            color2: colorInstance2,
             weight2: secondColorData.weight,
         };
     }
-
-    /**
-     * ────────────────────────────────────────────────────────
-     * Instance Methods
-     * ────────────────────────────────────────────────────────
-     */
-
-    /**
-     * ────────────────────────────────────────────────────────
-     * Convertion Methods
-     * ────────────────────────────────────────────────────────
-     */
 
     /**
      * Converts the current color to the specified format.
@@ -841,9 +801,7 @@ class Color {
         const { modern, fit } = options;
         const converter = _converters[format as Format | Space];
         if (!converter) {
-            throw new Error(
-                `Unsupported color format: ${format}\nSupported formats: ${Object.keys(_converters).join(", ")}`
-            );
+            throw new Error(`Unsupported color format: ${format}`);
         }
 
         if ("components" in converter) {
@@ -904,24 +862,10 @@ class Color {
     }
 
     /**
-     * ────────────────────────────────────────────────────────
-     * Manipulation Methods
-     * ────────────────────────────────────────────────────────
-     */
-
-    /**
      * Allows access to the raw values of the color in a specified model.
      *
      * @param model - The target color model.
      * @returns An object containing methods to get, set, and mix color components in the specified color model.
-     *
-     * @example
-     * ```typescript
-     * Color.from("red")
-     *     .in("hsl")
-     *     .set({ s: (s) => s += 20 })
-     *     .to("rgb");
-     * ```
      */
     in<M extends Model>(model: M): Interface<M>; // eslint-disable-line no-unused-vars
     in(model: string): Interface<any>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
@@ -937,27 +881,44 @@ class Color {
             const coords = getCoords();
             const { index } = components[component as keyof typeof components];
             const { fit } = options;
+
             if (fit) {
-                const clipped = this.fit(model as M, fit);
+                const clipped = this._fit(model as M, fit);
                 return clipped[index];
             }
+
             return coords[index];
         };
 
         const getCoords = (options: GetOptions = {}) => {
             const coords = converter.fromXYZA(this.xyza);
             const { fit } = options;
+
             if (fit) {
-                const clipped = this.fit(model as M, fit);
+                const clipped = this._fit(model as M, fit);
                 return clipped;
             }
+
             return coords;
         };
 
-        // eslint-disable-next-line no-unused-vars
-        const set = (values: Partial<{ [K in Component<M>]: number | ((prev: number) => number) }>) => {
+        const set = (
+            values:
+                | Partial<{ [K in Component<M>]: number | ((prev: number) => number) }> // eslint-disable-line no-unused-vars
+                | ((components: { [K in Component<M>]: number }) => Partial<{ [K in Component<M>]?: number }>) // eslint-disable-line no-unused-vars
+        ) => {
             const coords = getCoords();
             const compNames = Object.keys(components) as Component<M>[];
+
+            if (typeof values === "function") {
+                const currentComponents = {} as { [K in Component<M>]: number }; // eslint-disable-line no-unused-vars
+                compNames.forEach((comp) => {
+                    const { index } = components[comp as keyof typeof components] as ComponentDefinition;
+                    currentComponents[comp] = coords[index];
+                });
+                values = values(currentComponents);
+            }
+
             compNames.forEach((comp) => {
                 if (comp in values) {
                     const { index } = components[comp as keyof typeof components] as ComponentDefinition;
@@ -967,6 +928,7 @@ class Color {
                     coords[index] = newValue as number;
                 }
             });
+
             this.xyza = converter.toXYZA(coords);
             return Object.assign(this, { ...this.in(model) }) as typeof this & Interface<M>;
         };
@@ -976,12 +938,12 @@ class Color {
             return Object.assign(this, { ...this.in(model) }) as typeof this & Interface<M>;
         };
 
-        const mix = (color: string, options: MixOptions = {}) => {
+        const mix = (other: Color | string, options: MixOptions = {}) => {
             const { hue = "shorter", amount = 0.5, easing = "linear" } = options;
             const t = Math.max(0, Math.min(amount, 1));
             const easedT = (typeof easing === "function" ? easing : EASINGS[easing])(t);
 
-            const otherColor = Color.from(color);
+            const otherColor = typeof other === "string" ? Color.from(other) : other;
             const otherCoords = otherColor.in(model).getCoords();
             const thisCoords = getCoords();
 
@@ -995,182 +957,13 @@ class Color {
     }
 
     /**
-     * ────────────────────────────────────────────────────────
-     * CSS Filter Functions
-     * ────────────────────────────────────────────────────────
-     */
-
-    /**
-     * Adjusts the opacity of the color instance.
-     *
-     * @param amount - A number between 0 and 1 (inclusive) representing the desired opacity level.
-     * @returns A new `Color` instance with the adjusted opacity.
-     * @throws {Error} If the `amount` is not between 0 and 1 (inclusive).
-     */
-    opacity(amount: number) {
-        if (amount < 0 || amount > 1) {
-            throw new Error("Amount must be between 0 and 1 (inclusive).");
-        }
-
-        const instance = this.in("rgb").set({ alpha: (a) => a * amount });
-        return new Color(instance.xyza, { originalString: this._originalString });
-    }
-
-    /**
-     * Increases the saturation of the color by a given amount.
-     *
-     * @param amount - The factor by which to increase the saturation. Must be 0 or greater.
-     * @returns A new `Color` instance with the increased saturation.
-     * @throws {Error} If the amount is less than 0.
-     */
-    saturate(amount: number) {
-        if (amount < 0) {
-            throw new Error("Amount must be 0 or greater.");
-        }
-
-        const instance = this.in("hsl").set({ s: (s) => s * amount });
-        return new Color(instance.xyza, { originalString: this._originalString });
-    }
-
-    /**
-     * Rotates the hue of the color by the specified amount.
-     *
-     * @param amount - The amount to rotate the hue, in degrees.
-     * @returns A new `Color` instance with the hue rotated by the specified amount.
-     */
-    hueRotate(amount: number) {
-        const instance = this.in("hsl").set({ h: (h) => h + amount });
-        return new Color(instance.xyza, { originalString: this._originalString });
-    }
-
-    /**
-     * Adjusts the contrast of the color by a given amount.
-     *
-     * @param amount - The amount to adjust the contrast by. Must be 0 or greater.
-     * @returns A new `Color` instance with the adjusted contrast.
-     * @throws {Error} If the amount is less than 0.
-     */
-    contrast(amount: number) {
-        if (amount < 0) {
-            throw new Error("Amount must be 0 or greater.");
-        }
-
-        const instance = this.in("rgb").set({
-            r: (r) => Math.round((r - 128) * amount + 128),
-            g: (g) => Math.round((g - 128) * amount + 128),
-            b: (b) => Math.round((b - 128) * amount + 128),
-        });
-
-        return new Color(instance.xyza, { originalString: this._originalString });
-    }
-
-    /**
-     * Applies a sepia filter to the current color instance.
-     *
-     * @param amount - The intensity of the sepia effect, must be between 0 and 1 (inclusive).
-     * @returns A new `Color` instance with the sepia effect applied.
-     * @throws {Error} If the `amount` is not between 0 and 1 (inclusive).
-     */
-    sepia(amount: number) {
-        if (amount < 0 || amount > 1) {
-            throw new Error("Amount must be between 0 and 1 (inclusive).");
-        }
-
-        const inRGB = this.in("rgb");
-
-        const [r, g, b] = inRGB.getCoords();
-
-        const sepiaR = 0.393 * r + 0.769 * g + 0.189 * b;
-        const sepiaG = 0.349 * r + 0.686 * g + 0.168 * b;
-        const sepiaB = 0.272 * r + 0.534 * g + 0.131 * b;
-
-        const instance = inRGB.set({
-            r: r + (sepiaR - r) * amount,
-            g: g + (sepiaG - g) * amount,
-            b: b + (sepiaB - b) * amount,
-        });
-
-        return new Color(instance.xyza, { originalString: this._originalString });
-    }
-
-    /**
-     * Adjusts the brightness of the color by a given amount.
-     *
-     * @param amount - The factor by which to adjust the brightness. Must be 0 or greater.
-     * @returns A new Color instance with the adjusted brightness.
-     * @throws {Error} If the amount is less than 0.
-     */
-    brightness(amount: number) {
-        if (amount < 0) {
-            throw new Error("Amount must be 0 or greater.");
-        }
-
-        const instance = this.in("hsl").set({ l: (l) => l * amount });
-        return new Color(instance.xyza, { originalString: this._originalString });
-    }
-
-    /**
-     * Adjusts the saturation of the color to create a grayscale effect.
-     *
-     * @param amount - A number between 0 and 1 (inclusive) representing the degree of desaturation.
-     *                 0 means no change, and 1 means fully desaturated (grayscale).
-     * @returns A new `Color` instance with the adjusted saturation.
-     * @throws {Error} If the amount is not between 0 and 1 (inclusive).
-     */
-    grayscale(amount: number) {
-        if (amount < 0 || amount > 1) {
-            throw new Error("Amount must be between 0 and 1 (inclusive).");
-        }
-
-        const instance = this.in("hsl").set({ s: (s) => s * (1 - amount) });
-        return new Color(instance.xyza, { originalString: this._originalString });
-    }
-
-    /**
-     * Inverts the color by a given amount.
-     *
-     * @param amount - A number between 0 and 1 (inclusive) representing the amount of inversion.
-     *                 0 means no inversion, 1 means full inversion.
-     * @returns A new `Color` instance with the inverted color.
-     * @throws {Error} If the amount is not between 0 and 1 (inclusive).
-     */
-    invert(amount: number) {
-        if (amount < 0 || amount > 1) {
-            throw new Error("Amount must be between 0 and 1 (inclusive).");
-        }
-
-        const instance = this.in("rgb").set({
-            r: (r) => Math.round(r * (1 - amount) + (255 - r) * amount),
-            g: (g) => Math.round(g * (1 - amount) + (255 - g) * amount),
-            b: (b) => Math.round(b * (1 - amount) + (255 - b) * amount),
-        });
-
-        return new Color(instance.xyza, { originalString: this._originalString });
-    }
-
-    /**
-     * ────────────────────────────────────────────────────────
-     * Instance Utility Methods
-     * ────────────────────────────────────────────────────────
-     */
-
-    /**
-     * Clones the current color instance.
-     *
-     * @returns A new `Color` instance with the same color values.
-     */
-    clone() {
-        return new Color(this.xyza, { originalString: this._originalString });
-    }
-
-    /**
      * Determines the type of the given color string based on predefined patterns.
      *
      * @returns The key corresponding to the matched color pattern.
+     * @throws {Error} If the color format is unsupported.
      */
     type(): Format | Space {
-        const color = this._originalString;
-        const error = `Unsupported color format: ${color}\nSupported formats: ${Object.keys(Color.patterns).join(", ")}`;
+        const color = this._cleanString;
 
         if (this.isRelative()) {
             const { type } = Color.parseRelative(color);
@@ -1183,28 +976,32 @@ class Color {
         }
 
         for (const [key, pattern] of Object.entries(Color.patterns)) {
-            if (pattern.test(color.trim())) {
+            if (pattern.test(color)) {
                 return key as Format;
             }
         }
 
-        throw new Error(error);
+        throw new Error(`Unsupported color format: ${this._originalString}`);
+    }
+
+    contrastColor() {
+        return this.luminance() > 0.5 ? Color.in("srgb").setCoords([0, 0, 0]) : Color.in("srgb").setCoords([]);
     }
 
     /**
      * Calculates the luminance of the color.
      *
-     * @param background - The background color used if the color is not fully opaque. Defaults to white ("rgb(255, 255, 255)").
+     * @param background - The background color used if the color is not fully opaque. Defaults to white.
      * @returns The luminance value of the color, a number between 0 and 1.
      */
-    luminance(background: string = "rgb(255, 255, 255)") {
+    luminance(background: Color | string = Color.in("srgb").setCoords([1, 1, 1])) {
         const [, Y, , alpha] = this.xyza;
 
         if (alpha === 1) {
             return Y;
         }
 
-        const bgXYZ = Color.from(background).in("xyz").getCoords();
+        const bgXYZ = (typeof background === "string" ? Color.from(background) : background).in("xyz").getCoords();
         const blendedY = (1 - alpha) * bgXYZ[1] + alpha * Y;
 
         return blendedY;
@@ -1217,8 +1014,8 @@ class Color {
      * @returns The contrast ratio as a number. A higher value indicates greater contrast.
      *          The ratio ranges from 1 (no contrast) to 21 (maximum contrast).
      */
-    contrastRatio(background: string) {
-        const L_bg = Color.from(background).luminance();
+    contrastRatio(background: Color | string) {
+        const L_bg = (typeof background === "string" ? Color.from(background) : background).luminance();
         const L_text = this.luminance(background);
         return (Math.max(L_text, L_bg) + 0.05) / (Math.min(L_text, L_bg) + 0.05);
     }
@@ -1227,12 +1024,11 @@ class Color {
      * Evaluates the accessibility of the current color against another color using WCAG 2.x contrast guidelines.
      *
      * @param background - The background color to evaluate against.
-     * @param level - WCAG level to test ("AA" or "AAA"). Defaults to "AA".
-     * @param isLargeText - Whether the text is large (≥18pt regular or ≥14pt bold).
      * @returns An object with accessibility status, ratio, required ratio, and helpful info.
      */
-    evaluateAccessibility(background: string, level: "AA" | "AAA" = "AA", isLargeText = false) {
+    evaluateAccessibility(background: Color | string, options: EvaluateAccessibilityOptions = {}) {
         const contrastRatio = this.contrastRatio(background);
+        const { level = "AA", isLargeText = false } = options;
 
         const requiredRatio = {
             AA: isLargeText ? 3.0 : 4.5,
@@ -1250,7 +1046,7 @@ class Color {
 
         const colorType = this.type();
         const textColor = this.to(colorType);
-        const backgroundColor = Color.from(background).to(colorType);
+        const backgroundColor = (typeof background === "string" ? Color.from(background) : background).to(colorType);
 
         const textType = isLargeText ? "large text" : "normal text";
 
@@ -1284,9 +1080,12 @@ class Color {
      *
      * @see https://www.w3.org/TR/css-color-4/
      */
-    deltaEOK(other: string): number {
+    deltaEOK(other: Color | string): number {
         const [L1, a1, b1] = this.in("oklab").getCoords().slice(0, 3);
-        const [L2, a2, b2] = Color.from(other).in("oklab").getCoords().slice(0, 3);
+        const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other)
+            .in("oklab")
+            .getCoords()
+            .slice(0, 3);
 
         const ΔL = L1 - L2;
         const Δa = a1 - a2;
@@ -1313,9 +1112,9 @@ class Color {
      *
      * @see https://www.w3.org/TR/css-color-4/
      */
-    deltaE(other: string, method: "76" | "94" | "2000" = "94"): number {
+    deltaE(other: Color | string, method: "76" | "94" | "2000" = "94"): number {
         const lab1 = this.in("lab").getCoords();
-        const lab2 = Color.from(other).in("lab").getCoords();
+        const lab2 = (typeof other === "string" ? Color.from(other) : other).in("lab").getCoords();
 
         const [L1, a1, b1] = lab1;
         const [L2, a2, b2] = lab2;
@@ -1480,7 +1279,7 @@ class Color {
         };
 
         if (!(type in harmonyOffsets)) {
-            throw new Error(`Unsupported harmony type: ${type}. Supported: ${Object.keys(harmonyOffsets).join(", ")}`);
+            throw new Error(`Unsupported harmony type: ${type}`);
         }
 
         const [L, C, H] = this.in("oklch").getCoords();
@@ -1502,13 +1301,13 @@ class Color {
      * @param options - Options for the scale generation.
      * @returns An array of `Color` instances representing the interpolated scale.
      */
-    scale(target: string, { steps = 10, model = "lab", easing = "linear", hue = "shorter" }: ScaleOptions) {
+    scale(target: Color | string, { steps = 10, model = "lab", easing = "linear", hue = "shorter" }: ScaleOptions) {
         if (steps < 2) {
             throw new Error("Scale must include at least 2 steps.");
         }
 
         const fromInterface = this.in(model);
-        const toInterface = Color.from(target).in(model);
+        const toInterface = (typeof target === "string" ? Color.from(target) : target).in(model);
         const converter = _converters[model];
         const components = converter.components;
 
@@ -1750,19 +1549,13 @@ class Color {
     }
 
     /**
-     * ────────────────────────────────────────────────────────
-     * Instance Validation Methods
-     * ────────────────────────────────────────────────────────
-     */
-
-    /**
      * Compares the current color object with another color string.
      *
-     * @param color - The color string to compare with the current color object.
+     * @param other - The color string to compare with the current color object.
      * @returns Whether the two colors are equal.
      */
-    equals(color: string) {
-        return this.to("xyz") === Color.from(color).to("xyz");
+    equals(other: Color | string) {
+        return this.to("xyz") === (typeof other === "string" ? Color.from(other) : other).to("xyz");
     }
 
     /**
@@ -1777,13 +1570,9 @@ class Color {
     }
 
     /**
-     * Determines if a color string is a relative color format.
+     * Determines if a color string is a relative color format (e.g., rgb(from red r g b)).
      *
      * @returns True if the color is a relative color format, false otherwise
-     *
-     * @example
-     * Color.from("rgb(from red 255 0 0)").isRelative() // returns true
-     * Color.from("rgb(255 0 0)").isRelative() // returns false
      */
     isRelative() {
         const color = this._originalString.toLowerCase().trim();
@@ -1791,60 +1580,13 @@ class Color {
     }
 
     /**
-     * Determines if a color string is a color-mix() format.
+     * Determines if a color string is a color-mix() format (e.g., color-mix(in srgb, plum, red)).
      *
      * @returns True if the string is a valid color-mix() format, false otherwise
-     *
-     * @example
-     * Color.from("color-mix(in srgb, plum, #f00)").isColorMix() // returns true
-     * Color.from("hsl(200deg 90% 60%)").isColorMix() // returns false
      */
     isColorMix() {
         const color = this._originalString.toLowerCase().trim();
         return Color.patterns["color-mix"].test(color);
-    }
-
-    /**
-     * Determines if the color is considered "cool".
-     * A color is considered cool if its hue (in HSL format) is between 60 and 300 degrees.
-     *
-     * @returns True if the color is cool, false otherwise.
-     */
-    isCool() {
-        const [h] = (this.to("hsl") as string).match(/\d+/g)!.map(Number);
-        return h > 60 && h < 300;
-    }
-
-    /**
-     * Determines if the color is warm based on its hue value in the HSL color space.
-     * A color is considered warm if its hue is less than or equal to 60 degrees
-     * or greater than or equal to 300 degrees.
-     *
-     * @returns True if the color is warm, false otherwise.
-     */
-    isWarm() {
-        const [h] = (this.to("hsl") as string).match(/\d+/g)!.map(Number);
-        return h <= 60 || h >= 300;
-    }
-
-    /**
-     * Determines if the given background color is considered dark.
-     *
-     * @param background - The background color. Defaults to "rgb(255, 255, 255)".
-     * @returns Whether the color is considered dark.
-     */
-    isDark(background: string = "rgb(255, 255, 255)") {
-        return this.luminance(background) < 0.5;
-    }
-
-    /**
-     * Determines if the given background color is considered light.
-     *
-     * @param background - The background color. Defaults to "rgb(255, 255, 255)".
-     * @returns Whether the color is considered light.
-     */
-    isLight(background: string = "rgb(255, 255, 255)") {
-        return !this.isDark(background);
     }
 
     /**

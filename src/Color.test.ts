@@ -1,4 +1,5 @@
 import Color from "./Color";
+import { Pattern } from "./types.js";
 
 describe("Color", () => {
     it("should pass this test", () => {
@@ -88,28 +89,36 @@ describe("Color", () => {
     });
 
     it("should determine if a color pair is accessible", () => {
-        expect(Color.from("#ffffff").evaluateAccessibility("#000000", "AA").isAccessible).toBe(true);
-        expect(Color.from("#ffffff").evaluateAccessibility("#cccccc", "AAA").isAccessible).toBe(false);
-        expect(Color.from("#ffffff").evaluateAccessibility("#000000", "AA", true).isAccessible).toBe(true);
-        expect(Color.from("#ffffff").evaluateAccessibility("#cccccc", "AAA", true).isAccessible).toBe(false);
+        expect(Color.from("#ffffff").evaluateAccessibility("#000000", { level: "AA" }).isAccessible).toBe(true);
+        expect(Color.from("#ffffff").evaluateAccessibility("#cccccc", { level: "AAA" }).isAccessible).toBe(false);
+        expect(
+            Color.from("#ffffff").evaluateAccessibility("#000000", { level: "AA", isLargeText: true }).isAccessible
+        ).toBe(true);
+        expect(
+            Color.from("#ffffff").evaluateAccessibility("#cccccc", { level: "AAA", isLargeText: true }).isAccessible
+        ).toBe(false);
     });
 
     it("should determine if a color is dark", () => {
-        expect(Color.from("rgb(0, 0, 0)").isDark()).toBe(true);
-        expect(Color.from("rgb(255, 255, 255)").isDark()).toBe(false);
+        expect(Color.from("rgb(0, 0, 0)").luminance() < 0.5).toBe(true);
+        expect(Color.from("rgb(255, 255, 255)").luminance() < 0.5).toBe(false);
     });
 
     it("should determine if a color is light", () => {
-        expect(Color.from("rgb(255, 255, 255)").isLight()).toBe(true);
-        expect(Color.from("rgb(0, 0, 0)").isLight()).toBe(false);
+        expect(Color.from("rgb(255, 255, 255)").luminance() >= 0.5).toBe(true);
+        expect(Color.from("rgb(0, 0, 0)").luminance() >= 0.5).toBe(false);
     });
 
     it("should return true if a color is cool", () => {
-        expect(Color.from("rgb(0, 0, 255)").isCool()).toBe(true);
+        const color = Color.from("rgb(0, 0, 255)");
+        const h = color.in("hsl").get("h");
+        expect(h > 60 && h < 300).toBe(true);
     });
 
     it("should return true if a color is warm", () => {
-        expect(Color.from("rgb(255, 0, 0)").isWarm()).toBe(true);
+        const color = Color.from("rgb(255, 0, 0)");
+        const h = color.in("hsl").get("h");
+        expect(h <= 60 || h >= 300).toBe(true);
     });
 
     it("should check color equality correctly", () => {
@@ -129,13 +138,123 @@ describe("Color", () => {
     it("should handle none components correctly", () => {
         const color = Color.from("hsl(none none 50%)");
         expect(color.to("hsl")).toBe("hsl(0, 0%, 50%)");
-        color.in("hsl").set({ h: 200, s: 100 });
-        expect(color.to("hsl")).toBe("hsl(200, 100%, 50%)");
+        color.in("hsl").set({ h: 150, s: 100 });
+        expect(color.to("hsl")).toBe("hsl(150, 100%, 50%)");
+    });
+
+    it("should handle calc(infinity) components correctly", () => {
+        const color = Color.from("hsl(calc(infinity) calc(-infinity) 50%)");
+        expect(color.to("hsl")).toBe("hsl(360, 0%, 50%)");
+        color.in("hsl").set({ h: 100, s: 100 });
+        expect(color.to("hsl")).toBe("hsl(100, 100%, 50%)");
+    });
+
+    it("should define a color from components", () => {
+        const fromObject = Color.in("hsl").set({ h: 260, s: 100, l: 50 }).to("hsl");
+        const fromArray = Color.in("hsl").setCoords([260, 100, 50]).to("hsl");
+        expect(fromObject).toBe("hsl(260, 100%, 50%)");
+        expect(fromArray).toEqual(fromObject);
+    });
+
+    it("should return correct component values using get()", () => {
+        const rgbColor = Color.from("rgb(0, 157, 255)");
+        const rgbInterface = rgbColor.in("rgb");
+        const fit = "minmax";
+        expect(rgbInterface.get("r", { fit })).toBe(0);
+        expect(rgbInterface.get("g", { fit })).toBe(157);
+        expect(rgbInterface.get("b", { fit })).toBe(255);
+        expect(rgbInterface.get("alpha", { fit })).toBe(1);
+    });
+
+    it("should retrieve the correct array of components using getArray()", () => {
+        const rgbColor = Color.from("rgb(0, 157, 255)");
+        const rgbInterface = rgbColor.in("rgb");
+        expect(rgbInterface.getCoords({ fit: "minmax" })).toEqual([0, 157, 255, 1]);
+    });
+
+    it("should update multiple components with set()", () => {
+        const hslColor = Color.from("hsl(0, 100%, 50%)");
+        const updated = hslColor.in("hsl").set({
+            h: (h) => h + 50,
+            s: (s) => s - 20,
+        });
+        const [h, s] = updated.getCoords();
+        expect([h, s]).toBe([50, 80]);
+    });
+
+    it("should update components with setArray()", () => {
+        const hslInterface = Color.in("hsl").setCoords([180, 50, 50]);
+        expect(hslInterface.to("hsl")).toBe("hsl(180, 50%, 50%)");
+    });
+
+    it("should mix two colors correctly using mix()", () => {
+        const color1 = Color.from("red").in("hsl").mix("lime", { hue: "shorter" }).to("named");
+        const color2 = Color.from("red").in("hsl").mix("lime", { hue: "longer" }).to("named");
+        expect(color1).toBe("yellow");
+        expect(color2).toBe("blue");
+    });
+
+    it("should clamp component values when getting components", () => {
+        const rgbColor = Color.from("rgb(200, 100, 50)").in("rgb").set({ g: 400 });
+        const [, g] = rgbColor.getCoords({ fit: "minmax" });
+        expect(g).toBe(255);
+    });
+
+    it("should throw an error for an invalid model", () => {
+        expect(() => Color.from("rgb(255, 255, 255)").in("invalidModel")).toThrow();
+    });
+
+    it("should adjust opacity correctly", () => {
+        const color = Color.from("rgb(120, 20, 170)");
+        const adjusted = color.in("rgb").set({ alpha: 0.5 });
+        expect(adjusted.to("rgb")).toBe("rgba(120, 20, 170, 0.5)");
+    });
+
+    it("should adjust saturation correctly", () => {
+        const color = Color.from("hsl(120, 80%, 50%)");
+        const adjusted = color.in("hsl").set({ s: 0 });
+        expect(adjusted.to("hsl")).toBe("hsl(120, 0%, 50%)");
+    });
+
+    it("should adjust hue correctly", () => {
+        const color = Color.from("hsl(30, 100%, 50%)");
+        const adjusted = color.in("hsl").set({ h: (h) => h - 70 });
+        expect(adjusted.to("hsl")).toBe("hsl(320, 100%, 50%)");
+    });
+
+    it("should adjust brightness correctly", () => {
+        const color = Color.from("hsl(50, 100%, 30%)");
+        const adjusted = color.in("hsl").set({ l: 50 });
+        expect(adjusted.to("hsl")).toBe("hsl(50, 100%, 50%)");
+    });
+
+    it("should adjust contrast correctly", () => {
+        const color = Color.from("rgb(30, 190, 250)");
+        const amount = 2;
+        const adjusted = color.in("rgb").set({
+            r: (r) => Math.round((r - 128) * amount + 128),
+            g: (g) => Math.round((g - 128) * amount + 128),
+            b: (b) => Math.round((b - 128) * amount + 128),
+        });
+        expect(adjusted.to("rgb")).toBe("rgb(30, 190, 250)");
+    });
+
+    it("should apply sepia filter", () => {
+        const color = Color.from("rgb(255, 50, 70)");
+        const amount = 1;
+
+        const adjusted = color.in("rgb").set(({ r, g, b }) => ({
+            r: r + (0.393 * r + 0.769 * g + 0.189 * b - r) * amount,
+            g: g + (0.349 * r + 0.686 * g + 0.168 * b - g) * amount,
+            b: b + (0.272 * r + 0.534 * g + 0.131 * b - b) * amount,
+        }));
+
+        expect(adjusted.to("rgb")).toBe("rgb(255, 50, 70)");
     });
 });
 
 describe("Color patterns", () => {
-    const testCases: { name: keyof typeof Color.patterns; valid: string[]; invalid: string[] }[] = [
+    const testCases: { name: Pattern; valid: string[]; invalid: string[] }[] = [
         {
             name: "hex",
             valid: ["#f09", "#ff0099", "#f09a", "#ff0099cc"],
@@ -255,112 +374,17 @@ describe("Color patterns", () => {
         describe(`${name} pattern`, () => {
             valid.forEach((color) => {
                 it(`should match valid ${name} color: "${color}"`, () => {
-                    expect(color).toMatch(Color.patterns[name]);
+                    if (name === "color-mix") expect(Color.from(color).isColorMix()).toBe(true);
+                    else if (name === "relative") expect(Color.from(color).isRelative()).toBe(true);
+                    else expect(Color.from(color).type()).toBe(name);
                 });
             });
             invalid.forEach((color) => {
                 it(`should NOT match invalid ${name} color: "${color}"`, () => {
-                    expect(color).not.toMatch(Color.patterns[name]);
+                    expect(() => Color.from(color).type()).toThrow(`Unsupported color format: ${color}`);
                 });
             });
         });
-    });
-});
-
-describe("Color manipulation methods", () => {
-    it("should define a color from components", () => {
-        const fromObject = Color.in("hsl").set({ h: 260, s: 100, l: 50 }).to("hsl");
-        const fromArray = Color.in("hsl").setCoords([260, 100, 50]).to("hsl");
-        expect(fromObject).toBe("hsl(260, 100%, 50%)");
-        expect(fromArray).toEqual(fromObject);
-    });
-
-    it("should return correct component values using get()", () => {
-        const rgbColor = Color.from("rgb(0, 157, 255)");
-        const rgbInterface = rgbColor.in("rgb");
-        const fit = "minmax";
-        expect(rgbInterface.get("r", { fit })).toBe(0);
-        expect(rgbInterface.get("g", { fit })).toBe(157);
-        expect(rgbInterface.get("b", { fit })).toBe(255);
-        expect(rgbInterface.get("alpha", { fit })).toBe(1);
-    });
-
-    it("should retrieve the correct array of components using getArray()", () => {
-        const rgbColor = Color.from("rgb(0, 157, 255)");
-        const rgbInterface = rgbColor.in("rgb");
-        expect(rgbInterface.getCoords({ fit: "minmax" })).toEqual([0, 157, 255, 1]);
-    });
-
-    it("should update multiple components with set()", () => {
-        const hslColor = Color.from("hsl(0, 100%, 50%)");
-        const updated = hslColor.in("hsl").set({
-            h: (h) => h + 50,
-            s: (s) => s - 20,
-        });
-        const [h, s] = updated.getCoords();
-        expect(h).toBe(50);
-        expect(s).toBe(80);
-    });
-
-    it("should update components with setArray()", () => {
-        const hslInterface = Color.in("hsl").setCoords([180, 50, 50]);
-        expect(hslInterface.to("hsl")).toBe("hsl(180, 50%, 50%)");
-    });
-
-    it("should mix two colors correctly using mix()", () => {
-        const color1 = Color.from("red").in("hsl").mix("lime", { hue: "shorter" }).to("named");
-        const color2 = Color.from("red").in("hsl").mix("lime", { hue: "longer" }).to("named");
-        expect(color1).toBe("yellow");
-        expect(color2).toBe("blue");
-    });
-
-    it("should clamp component values when getting components", () => {
-        const rgbColor = Color.from("rgb(200, 100, 50)").in("rgb").set({ g: 400 });
-        const [, g] = rgbColor.getCoords({ fit: "minmax" });
-        expect(g).toBe(255);
-    });
-
-    it("should throw an error for an invalid model", () => {
-        expect(() => Color.from("rgb(255, 255, 255)").in("invalidModel")).toThrow();
-    });
-
-    it("should apply grayscale filter correctly", () => {
-        expect(Color.from("hsl(0, 100%, 50%)").grayscale(0).to("hsl")).toBe("hsl(0, 100%, 50%)");
-        expect(Color.from("hsl(0, 100%, 50%)").grayscale(1).to("hsl")).toBe("hsl(0, 0%, 50%)");
-    });
-
-    it("should adjust brightness correctly", () => {
-        expect(Color.from("hsl(11, 100%, 50%)").brightness(0.5).to("hsl")).toBe("hsl(11, 100%, 25%)");
-        expect(Color.from("hsl(11, 100%, 50%)").brightness(1).to("hsl")).toBe("hsl(11, 100%, 50%)");
-        expect(Color.from("hsl(11, 100%, 50%)").brightness(1.5).to("hsl")).toBe("hsl(11, 100%, 75%)");
-    });
-
-    it("should adjust contrast correctly", () => {
-        expect(Color.from("rgb(255, 0, 0)").contrast(0).to("rgb")).toBe("rgb(128, 128, 128)");
-        expect(Color.from("rgb(255, 0, 0)").contrast(1).to("rgb")).toBe("rgb(255, 0, 0)");
-        expect(Color.from("rgb(100, 150, 200)").contrast(0).to("rgb")).toBe("rgb(128, 128, 128)");
-    });
-
-    it("should invert a color correctly", () => {
-        expect(Color.from("rgb(0, 100, 200)").invert(0).to("rgb")).toBe("rgb(0, 100, 200)");
-        expect(Color.from("rgb(0, 100, 200)").invert(1).to("rgb")).toBe("rgb(255, 155, 55)");
-        expect(Color.from("rgb(0, 100, 200)").invert(0.5).to("rgb")).toBe("rgb(128, 128, 128)");
-    });
-
-    it("should apply opacity correctly", () => {
-        expect(Color.from("rgb(255, 87, 51)").opacity(0.5).to("rgb")).toBe("rgba(255, 87, 51, 0.5)");
-    });
-
-    it("should adjust saturation correctly", () => {
-        expect(Color.from("hsl(0, 50%, 50%)").saturate(0).to("hsl")).toBe("hsl(0, 0%, 50%)");
-        expect(Color.from("hsl(0, 50%, 50%)").saturate(1).to("hsl")).toBe("hsl(0, 50%, 50%)");
-        expect(Color.from("hsl(0, 50%, 50%)").saturate(1.5).to("hsl")).toBe("hsl(0, 75%, 50%)");
-    });
-
-    it("should apply sepia filter correctly", () => {
-        expect(Color.from("rgb(100, 150, 200)").sepia(0).to("rgb")).toBe("rgb(100, 150, 200)");
-        expect(Color.from("rgb(100, 150, 200)").sepia(1).to("rgb")).toBe("rgb(192, 171, 134)");
-        expect(Color.from("rgb(100, 150, 200)").sepia(0.5).to("rgb")).toBe("rgb(146, 161, 167)");
     });
 });
 

@@ -2,6 +2,12 @@ import { ComponentDefinition, Converters, FormattingOptions, Name, RGBA, XYZA } 
 import { createSpaceConverter, D50, multiplyMatrices } from "./utils";
 
 // FIXME: all regex should accept any number and should not have limits
+/** TODO: Add device-cmyk
+ * @example
+ * Color.from("device-cmyk(0% 100% 100% 0%, red)").to("rgb"); -> rgb(255, 0, 0)
+ * Color.from("device-cmyk(0% 100% 100% 0%)").to("rgb"); -> rgb(0, 0, 0)
+ * Color.from("red").to("device-cmyk"); -> "undefined"
+ */
 
 /**
  * A collection of named colors and their RGBA values.
@@ -166,19 +172,12 @@ export const _namedColors = {
  * @see https://www.w3.org/TR/css-color-4/
  */
 export const _formatConverters = (() => {
-    const percentage = "(?:none|(?:100(?:\\.0+)?|(?:\\d{1,2}(?:\\.\\d+)?|\\.[0-9]+))%)";
-    const percentageOptional = "(?:none|(?:100(?:\\.0+)?|(?:\\d{1,2}(?:\\.\\d+)?|\\.[0-9]+))(?:%)?)";
-    const rgbNum = "(?:25[0-5]|2[0-4]\\d|1\\d\\d|\\d{1,2})(?:\\.\\d+)?";
-    const rgbComponent = `(?:${rgbNum}|${percentage})`;
+    const numberOrPercent = "([-+]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:%)?)";
+    const hue = "([-+]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:deg)?)";
+    const alpha = "((?:\\s*\\/\\s*[-+]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:%)?)?)";
     const spaceOrComma = "\\s*(?:,\\s*|\\s+)";
     const slashOrComma = "(?:\\s*(?:,\\s*|\\s+|\\/\\s*)";
     const slashOptional = "(?:\\s*(?:\\s*\\/\\s*)";
-    const hue = "(none|[-+]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:deg)?)";
-    const alphaNum = "(?:0|1|0?\\.\\d+)";
-    const alpha = `(?:(?:${alphaNum})|(?:${percentage})|(?:none))`;
-    const labComponent = "(-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)%?|none)";
-    const lchChroma = "((?:\\d+(?:\\.\\d+)?|\\.\\d+)%?|none)";
-    const lchPercentage = "(" + percentage + "|" + labComponent.replace(/^\(|\|none\)$/g, "") + "|none)";
 
     const toLRGB = (value: number) => {
         const v = value / 255;
@@ -204,7 +203,7 @@ export const _formatConverters = (() => {
     const converters = {
         rgb: {
             pattern: new RegExp(
-                `^rgba?\\(\\s*${rgbComponent}${spaceOrComma}${rgbComponent}${spaceOrComma}${rgbComponent}${slashOrComma}(${alpha}))?\\s*\\)$`,
+                `^rgba?\\(\\s*${numberOrPercent}${spaceOrComma}${numberOrPercent}${spaceOrComma}${numberOrPercent}${slashOrComma}${alpha})?\\s*\\)$`,
                 ""
             ),
 
@@ -322,7 +321,7 @@ export const _formatConverters = (() => {
 
         hsl: {
             pattern: new RegExp(
-                `^hsla?\\(\\s*${hue}${spaceOrComma}${percentageOptional}${spaceOrComma}${percentageOptional}${slashOrComma}(${alpha}))?\\s*\\)$`,
+                `^hsla?\\(\\s*${hue}${spaceOrComma}${numberOrPercent}${spaceOrComma}${numberOrPercent}${slashOrComma}${alpha})?\\s*\\)$`,
                 "i"
             ),
 
@@ -410,7 +409,7 @@ export const _formatConverters = (() => {
 
         hwb: {
             pattern: new RegExp(
-                `^hwb\\(\\s*${hue}\\s+${percentageOptional}\\s+${percentageOptional}${slashOptional}(${alpha}))?\\s*\\)$`,
+                `^hwb\\(\\s*${hue}\\s+${numberOrPercent}\\s+${numberOrPercent}${slashOptional}${alpha})?\\s*\\)$`,
                 "i"
             ),
 
@@ -490,7 +489,7 @@ export const _formatConverters = (() => {
 
         lab: {
             pattern: new RegExp(
-                `^lab\\(\\s*${labComponent}\\s+${labComponent}\\s+${labComponent}${slashOptional}(${alpha}))?\\s*\\)$`,
+                `^lab\\(\\s*${numberOrPercent}\\s+${numberOrPercent}\\s+${numberOrPercent}${slashOptional}${alpha})?\\s*\\)$`,
                 "i"
             ),
 
@@ -555,7 +554,7 @@ export const _formatConverters = (() => {
 
         lch: {
             pattern: new RegExp(
-                `^lch\\(\\s*${lchPercentage}\\s+${lchChroma}\\s+${hue}${slashOptional}(${alpha}))?\\s*\\)$`,
+                `^lch\\(\\s*${numberOrPercent}\\s+${numberOrPercent}\\s+${hue}${slashOptional}${alpha})?\\s*\\)$`,
                 "i"
             ),
 
@@ -612,7 +611,7 @@ export const _formatConverters = (() => {
 
         oklab: {
             pattern: new RegExp(
-                `^oklab\\(\\s*${labComponent}\\s+${labComponent}\\s+${labComponent}${slashOptional}(${alpha}))?\\s*\\)$`,
+                `^oklab\\(\\s*${numberOrPercent}\\s+${numberOrPercent}\\s+${numberOrPercent}${slashOptional}${alpha})?\\s*\\)$`,
                 "i"
             ),
 
@@ -691,7 +690,7 @@ export const _formatConverters = (() => {
 
         oklch: {
             pattern: new RegExp(
-                `^oklch\\(\\s*${lchPercentage}\\s+${lchChroma}\\s+${hue}${slashOptional}(${alpha}))?\\s*\\)$`,
+                `^oklch\\(\\s*${numberOrPercent}\\s+${numberOrPercent}\\s+${hue}${slashOptional}${alpha})?\\s*\\)$`,
                 "i"
             ),
 
