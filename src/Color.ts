@@ -27,7 +27,12 @@ import type {
     HarmonyType,
     MixOptions,
     EvaluateAccessibilityOptions,
+    Pattern,
+    VisionDeficiencyType,
+    ClusterOptions,
 } from "./types";
+import { normalize } from "path";
+import { assert } from "console";
 
 /**
  * The `Color` class represents a dynamic CSS color object, allowing for the manipulation
@@ -43,7 +48,7 @@ class Color {
         const { originalString } = options;
         this.xyza = xyza;
         this._originalString = originalString;
-        this._cleanString = this._clean(originalString);
+        this._cleanString = normalize(originalString);
     }
 
     private get xyza(): [number, number, number, number] {
@@ -65,13 +70,6 @@ class Color {
         }
     }
 
-    private _clean(string: string) {
-        return string
-            .replace(/\bnone\b/gi, "0")
-            .replace(/calc\(\s*([+-]?infinity)\s*\)/gi, "0")
-            .trim();
-    }
-
     /**
      * Maps the color to the target gamut using the specified method.
      *
@@ -81,7 +79,7 @@ class Color {
      *   - "chroma-reduction": Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
      *   - "css-gamut-map": CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
      *
-     * @see https://www.w3.org/TR/css-color-4/
+     * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
      */
     private _fit(model: Model, method: FitMethod = "minmax") {
         const roundCoords = (coords: number[]) => {
@@ -274,9 +272,8 @@ class Color {
     static from(color: string): Color; // eslint-disable-line no-unused-vars
     static from(color: Name | string) {
         const instance = new Color([0, 0, 0, 1], { originalString: color });
-        color = color?.toLowerCase();
 
-        if (instance.isRelative()) {
+        if (instance.isValid("relative")) {
             const { type, components } = Color.parseRelative(color);
 
             const colorString =
@@ -289,7 +286,7 @@ class Color {
             return new Color(xyza, { originalString: colorString });
         }
 
-        if (instance.isColorMix()) {
+        if (instance.isValid("color-mix")) {
             const parsed = Color.parseColorMix(color);
             const { model, hue, color1, color2 } = parsed;
             let { weight1, weight2 } = parsed;
@@ -311,14 +308,11 @@ class Color {
 
             const weight2Prime = weight2 / (weight1 + weight2);
 
-            const colorInstance = color1.in(model).mix(color2, { amount: weight2Prime, hue });
-
-            // Create a new Color instance because .in(model) methods return chainable .in(model) methods.
-            return new Color(colorInstance.xyza, { originalString: color });
+            return color1.in(model).mix(color2, { amount: weight2Prime, hue });
         }
 
         for (const [, converter] of Object.entries(_converters)) {
-            if (converter.pattern.test(color)) {
+            if (converter.pattern.test(normalize(color))) {
                 let xyza;
                 if ("toComponents" in converter) {
                     const components = converter.toComponents(color);
@@ -468,7 +462,7 @@ class Color {
      * @throws {Error} If the relative color string format is invalid
      */
     static parseRelative(color: string) {
-        function parseAngle(angleStr: string): number {
+        const parseAngle = (angleStr: string) => {
             const match = angleStr.match(/^(-?\d*\.?\d+)(deg|rad|grad|turn)?$/);
             if (!match) throw new Error(`Invalid angle format: ${angleStr}`);
             const value = parseFloat(match[1]);
@@ -486,14 +480,9 @@ class Color {
                 default:
                     throw new Error(`Unknown angle unit: ${unit}`);
             }
-        }
+        };
 
-        const parseComponent = <M extends Model>(
-            component: string,
-            colorInstance: Color,
-            model: M,
-            index: number
-        ): number => {
+        const parseComponent = <M extends Model>(component: string, colorInstance: Color, model: M, index: number) => {
             const componentDef = Object.values(_converters[model].components).find((c) => c.index === index);
             if (!componentDef) throw new Error(`Invalid component index for ${model}: ${index}`);
             const isAngle = componentDef.loop === true;
@@ -789,6 +778,160 @@ class Color {
     }
 
     /**
+     * Extracts the dominant colors from a given palette using k-means clustering in OKLAB color space.
+     *
+     * @param paletteArray - An array of Color objects or color strings to cluster.
+     * @param options - Clustering options.
+     * @returns An array of `k` dominant Color instances.
+     *
+     * @see {@link http://ilpubs.stanford.edu:8090/778/1/2006-13.pdf|k-means++: The Advantages of Careful Seeding}
+     * @see {@link https://www.sciencedirect.com/science/article/abs/pii/S0167865509002323|Data clustering: 50 years beyond K-means}
+     * @see {@link https://link.springer.com/book/10.1007/978-1-4757-0450-1|Pattern Recognition with Fuzzy Objective Function Algorithms}
+     */
+    static cluster(paletteArray: (Color | string)[], options: ClusterOptions) {
+        const { k } = options;
+
+        const squaredEuclidean = (p1: number[], p2: number[]) => {
+            return p1.reduce((sum, val, i) => sum + (val - p2[i]) ** 2, 0);
+        };
+
+        const arraysEqual = (a: number[], b: number[]) => {
+            return a.length === b.length && a.every((val, i) => val === b[i]);
+        };
+
+        const initializeCentroids = (coords: number[][]) => {
+            const centroids: number[][] = [];
+            const n = coords.length;
+            const firstIndex = Math.floor(Math.random() * n);
+            centroids.push(coords[firstIndex]);
+            const selectedIndices = new Set([firstIndex]);
+
+            while (centroids.length < k) {
+                const distances: number[] = [];
+                for (let i = 0; i < n; i++) {
+                    if (selectedIndices.has(i)) {
+                        distances.push(0);
+                    } else {
+                        let minDist = Infinity;
+                        for (const centroid of centroids) {
+                            const dist = squaredEuclidean(coords[i], centroid);
+                            if (dist < minDist) minDist = dist;
+                        }
+                        distances.push(minDist);
+                    }
+                }
+                const total = distances.reduce((sum, d) => sum + d, 0);
+                if (total === 0) {
+                    throw new Error("All points are already selected");
+                }
+                const r = Math.random() * total;
+                let cumulative = 0;
+                for (let i = 0; i < n; i++) {
+                    cumulative += distances[i];
+                    if (cumulative >= r && !selectedIndices.has(i)) {
+                        centroids.push(coords[i]);
+                        selectedIndices.add(i);
+                        break;
+                    }
+                }
+            }
+            return centroids;
+        };
+
+        const runKMeans = (
+            coords: number[][],
+            initialCentroids: number[][],
+            maxIterations: number
+        ): { centroids: number[][]; variance: number } => {
+            const k = initialCentroids.length;
+            const n = coords.length;
+            const centroids = initialCentroids.map((c) => [...c]);
+            const assignments = new Array(n).fill(-1);
+            let prevAssignments = new Array(n).fill(-1);
+            let iterations = 0;
+
+            while (iterations < maxIterations) {
+                for (let i = 0; i < n; i++) {
+                    const color = coords[i];
+                    let minDist = Infinity;
+                    let minIndex = -1;
+                    for (let j = 0; j < k; j++) {
+                        const centroid = centroids[j];
+                        const dist = squaredEuclidean(color, centroid);
+                        if (dist < minDist) {
+                            minDist = dist;
+                            minIndex = j;
+                        }
+                    }
+                    assignments[i] = minIndex;
+                }
+
+                if (arraysEqual(assignments, prevAssignments)) {
+                    break;
+                }
+                prevAssignments = [...assignments];
+
+                const sums = Array.from({ length: k }, () => [0, 0, 0]);
+                const counts = Array(k).fill(0);
+                for (let i = 0; i < n; i++) {
+                    const cluster = assignments[i];
+                    for (let d = 0; d < 3; d++) {
+                        sums[cluster][d] += coords[i][d];
+                    }
+                    counts[cluster]++;
+                }
+                for (let j = 0; j < k; j++) {
+                    if (counts[j] > 0) {
+                        centroids[j] = sums[j].map((sum) => sum / counts[j]);
+                    }
+                }
+                iterations++;
+            }
+
+            let variance = 0;
+            for (let i = 0; i < n; i++) {
+                const cluster = assignments[i];
+                variance += squaredEuclidean(coords[i], centroids[cluster]);
+            }
+
+            return { centroids, variance };
+        };
+
+        const colors = paletteArray.map((c) => (typeof c === "string" ? Color.from(c) : c));
+
+        if (k > colors.length) {
+            throw new Error("k cannot be greater than the number of colors in the palette");
+        }
+
+        const oklabCoords = colors.map((c) => c.in("oklab").getCoords().slice(0, 3));
+
+        const numRuns = 5;
+        const maxIterations = 100;
+        let bestCentroids: number[][] | null = null;
+        let minVariance = Infinity;
+
+        for (let run = 0; run < numRuns; run++) {
+            const initialCentroids = initializeCentroids(oklabCoords);
+            const { centroids, variance } = runKMeans(oklabCoords, initialCentroids, maxIterations);
+            if (variance < minVariance) {
+                minVariance = variance;
+                bestCentroids = centroids.map((c) => [...c]);
+            }
+        }
+
+        if (bestCentroids === null) {
+            throw new Error("Failed to cluster");
+        }
+
+        const dominantColors = bestCentroids.map((centroid) => {
+            const [L, a, b] = centroid;
+            return Color.in("oklab").setCoords([L, a, b, 1]);
+        });
+
+        return dominantColors;
+    }
+
+    /**
      * Converts the current color to the specified format.
      *
      * @param format - The target color format.
@@ -878,7 +1021,7 @@ class Color {
         }
 
         const get = (component: Component<M>, options: GetOptions = {}) => {
-            const coords = getCoords();
+            const coords = converter.fromXYZA(this.xyza);
             const { index } = components[component as keyof typeof components];
             const { fit } = options;
 
@@ -907,7 +1050,7 @@ class Color {
                 | Partial<{ [K in Component<M>]: number | ((prev: number) => number) }> // eslint-disable-line no-unused-vars
                 | ((components: { [K in Component<M>]: number }) => Partial<{ [K in Component<M>]?: number }>) // eslint-disable-line no-unused-vars
         ) => {
-            const coords = getCoords();
+            const coords = converter.fromXYZA(this.xyza);
             const compNames = Object.keys(components) as Component<M>[];
 
             if (typeof values === "function") {
@@ -945,7 +1088,7 @@ class Color {
 
             const otherColor = typeof other === "string" ? Color.from(other) : other;
             const otherCoords = otherColor.in(model).getCoords();
-            const thisCoords = getCoords();
+            const thisCoords = converter.fromXYZA(this.xyza);
 
             const mixedCoords = interpolateComponents(thisCoords, otherCoords, components, easedT, hue);
             setCoords(mixedCoords);
@@ -954,6 +1097,10 @@ class Color {
         };
 
         return { get, getCoords, set, setCoords, mix };
+    }
+
+    contrastColor() {
+        return Color.in("srgb").setCoords(this.luminance() > 0.5 ? [0, 0, 0] : [1, 1, 1]);
     }
 
     /**
@@ -965,12 +1112,12 @@ class Color {
     type(): Format | Space {
         const color = this._cleanString;
 
-        if (this.isRelative()) {
+        if (this.isValid("relative")) {
             const { type } = Color.parseRelative(color);
             return type;
         }
 
-        if (this.isColorMix()) {
+        if (this.isValid("color-mix")) {
             const { model } = Color.parseColorMix(color);
             return model;
         }
@@ -982,10 +1129,6 @@ class Color {
         }
 
         throw new Error(`Unsupported color format: ${this._originalString}`);
-    }
-
-    contrastColor() {
-        return this.luminance() > 0.5 ? Color.in("srgb").setCoords([0, 0, 0]) : Color.in("srgb").setCoords([]);
     }
 
     /**
@@ -1078,14 +1221,11 @@ class Color {
      * OKLAB's perceptual uniformity allows for a straightforward distance calculation without additional weighting.
      * The result is normalized by a factor of 100 to align with OKLAB's L range (0-1) and approximate the JND scale.
      *
-     * @see https://www.w3.org/TR/css-color-4/
+     * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
      */
-    deltaEOK(other: Color | string): number {
-        const [L1, a1, b1] = this.in("oklab").getCoords().slice(0, 3);
-        const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other)
-            .in("oklab")
-            .getCoords()
-            .slice(0, 3);
+    deltaEOK(other: Color | string) {
+        const [L1, a1, b1] = this.in("oklab").getCoords();
+        const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("oklab").getCoords();
 
         const ΔL = L1 - L2;
         const Δa = a1 - a2;
@@ -1110,9 +1250,9 @@ class Color {
      * - CIEDE2000: Most accurate, accounting for hue, chroma, and lightness interactions.
      * The choice of method affects the accuracy and computational complexity, with CIEDE2000 being the most sophisticated.
      *
-     * @see https://www.w3.org/TR/css-color-4/
+     * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
      */
-    deltaE(other: Color | string, method: "76" | "94" | "2000" = "94"): number {
+    deltaE(other: Color | string, method: "76" | "94" | "2000" = "94") {
         const lab1 = this.in("lab").getCoords();
         const lab2 = (typeof other === "string" ? Color.from(other) : other).in("lab").getCoords();
 
@@ -1224,6 +1364,7 @@ class Color {
         throw new Error(`Unsupported Delta E method: ${method}`);
     }
 
+    // WATCH: This method is experimental.
     lightnessRange(gamut: Space, options: LightnessRangeOptions = {}) {
         const C = 0.05;
         const epsilon = options.epsilon || 1e-5;
@@ -1234,7 +1375,7 @@ class Color {
             return color.inGamut(gamut, { epsilon });
         }
 
-        const searchMinL = (): number => {
+        const searchMinL = () => {
             let low = 0,
                 high = 1;
             while (high - low > epsilon) {
@@ -1245,7 +1386,7 @@ class Color {
             return high;
         };
 
-        const searchMaxL = (): number => {
+        const searchMaxL = () => {
             let low = 0,
                 high = 1;
             while (high - low > epsilon) {
@@ -1263,45 +1404,15 @@ class Color {
     }
 
     /**
-     * Generates an array of harmonious colors based on the specified harmony type.
-     *
-     * @param type - The type of harmony to generate.
-     * @returns An array of `Color` instances, including the base color and its harmonious counterparts.
-     * @throws {Error} If an unsupported harmony type is provided.
-     */
-    harmony(type: HarmonyType): Color[] {
-        const harmonyOffsets: Record<HarmonyType, number[]> = {
-            complementary: [180],
-            "split-complementary": [150, 210],
-            triadic: [120, 240],
-            tetradic: [60, 180, 240],
-            analogous: [-30, 30],
-        };
-
-        if (!(type in harmonyOffsets)) {
-            throw new Error(`Unsupported harmony type: ${type}`);
-        }
-
-        const [L, C, H] = this.in("oklch").getCoords();
-
-        const result: Color[] = [Color.in("oklch").setCoords([L, C, H])];
-
-        for (const offset of harmonyOffsets[type]) {
-            const newH = (H + offset + 360) % 360;
-            result.push(Color.in("oklch").setCoords([L, C, newH]));
-        }
-
-        return result;
-    }
-
-    /**
      * Generates a color scale between the current color and a target color.
      *
      * @param target - The target color to interpolate to.
      * @param options - Options for the scale generation.
      * @returns An array of `Color` instances representing the interpolated scale.
      */
-    scale(target: Color | string, { steps = 10, model = "lab", easing = "linear", hue = "shorter" }: ScaleOptions) {
+    scale(target: Color | string, options: ScaleOptions = {}) {
+        const { steps = 10, model = "lab", easing = "linear", hue = "shorter" } = options;
+
         if (steps < 2) {
             throw new Error("Scale must include at least 2 steps.");
         }
@@ -1335,217 +1446,57 @@ class Color {
      * @returns A new `Color` instance representing the simulated color.
      * @throws {Error} If an unsupported type is passed or severity is out of range.
      *
-     * @see https://www.inf.ufrgs.br/~oliveira/pubs_files/CVD_Simulation/CVD_Simulation.html
+     * @see {@link https://www.inf.ufrgs.br/~oliveira/pubs_files/CVD_Simulation/Machado_Oliveira_Fernandes_CVD_Vis2009_final.pdf|A Physiologically-based Model for Simulation of Color Vision Deficiency}
      */
-    simulate(type: "protanopia" | "deuteranopia" | "tritanopia", severity: number = 1) {
-        const PROTAN_MATRICES: Record<number, number[][]> = {
-            0.0: [
-                [1.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0],
-                [0.0, 0.0, 1.0],
-            ],
-            0.1: [
-                [0.856167, 0.182038, -0.038205],
-                [0.029342, 0.955115, 0.015544],
-                [-0.00288, -0.001563, 1.004443],
-            ],
-            0.2: [
-                [0.734766, 0.334872, -0.069637],
-                [0.05184, 0.919198, 0.028963],
-                [-0.004928, -0.004209, 1.009137],
-            ],
-            0.3: [
-                [0.627937, 0.477713, -0.10565],
-                [0.070376, 0.886046, 0.043578],
-                [-0.006605, -0.008261, 1.014866],
-            ],
-            0.4: [
-                [0.534006, 0.615339, -0.149345],
-                [0.086674, 0.853618, 0.059708],
-                [-0.008083, -0.013923, 1.022006],
-            ],
-            0.5: [
-                [0.450676, 0.750106, -0.200782],
-                [0.101469, 0.821429, 0.077102],
-                [-0.00951, -0.021058, 1.030568],
-            ],
-            0.6: [
-                [0.375797, 0.882083, -0.25788],
-                [0.115319, 0.789693, 0.094988],
-                [-0.010668, -0.030508, 1.041177],
-            ],
-            0.7: [
-                [0.308256, 1.011047, -0.319303],
-                [0.128298, 0.757721, 0.113981],
-                [-0.011652, -0.041842, 1.053494],
-            ],
-            0.8: [
-                [0.247513, 1.138565, -0.386078],
-                [0.140636, 0.725206, 0.134158],
-                [-0.012514, -0.055316, 1.06783],
-            ],
-            0.9: [
-                [0.192793, 1.265779, -0.458572],
-                [0.15246, 0.691576, 0.155965],
-                [-0.013267, -0.071196, 1.084463],
-            ],
-            1.0: [
-                [0.152286, 1.052583, -0.204868],
-                [0.114503, 0.786281, 0.099216],
-                [-0.003882, -0.048116, 1.051998],
-            ],
-        };
-
-        const DEUTAN_MATRICES: Record<number, number[][]> = {
-            0.0: [
-                [1.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0],
-                [0.0, 0.0, 1.0],
-            ],
-            0.1: [
-                [0.86679, 0.163186, -0.029976],
-                [0.046022, 0.924631, 0.029347],
-                [-0.005363, -0.00263, 1.007993],
-            ],
-            0.2: [
-                [0.747405, 0.312895, -0.0603],
-                [0.085624, 0.854517, 0.059859],
-                [-0.00927, -0.006336, 1.015606],
-            ],
-            0.3: [
-                [0.639318, 0.458675, -0.097993],
-                [0.120706, 0.787744, 0.09155],
-                [-0.012406, -0.011875, 1.024281],
-            ],
-            0.4: [
-                [0.541088, 0.603389, -0.144477],
-                [0.152987, 0.722898, 0.124115],
-                [-0.015186, -0.019259, 1.034445],
-            ],
-            0.5: [
-                [0.451195, 0.747835, -0.19903],
-                [0.183117, 0.658991, 0.157892],
-                [-0.017691, -0.028735, 1.046426],
-            ],
-            0.6: [
-                [0.368516, 0.893108, -0.261624],
-                [0.211636, 0.5953, 0.193064],
-                [-0.020011, -0.040316, 1.060327],
-            ],
-            0.7: [
-                [0.292093, 1.040203, -0.332296],
-                [0.238835, 0.531311, 0.229854],
-                [-0.022177, -0.054517, 1.076694],
-            ],
-            0.8: [
-                [0.221629, 1.189945, -0.411574],
-                [0.265298, 0.466293, 0.268409],
-                [-0.024162, -0.071463, 1.095625],
-            ],
-            0.9: [
-                [0.156616, 1.343101, -0.499717],
-                [0.291265, 0.39968, 0.309055],
-                [-0.025974, -0.091679, 1.117653],
-            ],
-            1.0: [
-                [0.367322, 0.860646, -0.227968],
-                [0.280085, 0.672501, 0.047413],
-                [-0.01182, 0.04294, 0.968881],
-            ],
-        };
-
-        const TRITAN_MATRICES: Record<number, number[][]> = {
-            0.0: [
-                [1.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0],
-                [0.0, 0.0, 1.0],
-            ],
-            0.1: [
-                [1.0, 0.0, 0.0],
-                [0.0, 0.991366, 0.008634],
-                [0.0, 0.058058, 0.941942],
-            ],
-            0.2: [
-                [0.999508, 0.000492, 0.0],
-                [0.0, 0.982752, 0.017248],
-                [0.0, 0.115829, 0.884171],
-            ],
-            0.3: [
-                [0.998516, 0.001484, 0.0],
-                [0.0, 0.974172, 0.025828],
-                [0.0, 0.173016, 0.826984],
-            ],
-            0.4: [
-                [0.996987, 0.003013, 0.0],
-                [0.0, 0.965617, 0.034383],
-                [0.0, 0.230336, 0.769664],
-            ],
-            0.5: [
-                [0.994911, 0.005089, 0.0],
-                [0.0, 0.957091, 0.042909],
-                [0.0, 0.287776, 0.712224],
-            ],
-            0.6: [
-                [0.992374, 0.007626, 0.0],
-                [0.0, 0.948592, 0.051408],
-                [0.0, 0.345336, 0.654664],
-            ],
-            0.7: [
-                [0.989351, 0.010649, 0.0],
-                [0.0, 0.940116, 0.059884],
-                [0.0, 0.402991, 0.597009],
-            ],
-            0.8: [
-                [0.985764, 0.014236, 0.0],
-                [0.0, 0.931663, 0.068337],
-                [0.0, 0.46075, 0.53925],
-            ],
-            0.9: [
-                [0.981608, 0.018392, 0.0],
-                [0.0, 0.923233, 0.076767],
-                [0.0, 0.518627, 0.481373],
-            ],
-            1.0: [
-                [1.255528, -0.076749, -0.178779],
-                [-0.078411, 0.930809, 0.147602],
-                [0.004733, 0.691367, 0.3039],
-            ],
-        };
-
-        const MATRICES: Record<string, Record<number, number[][]>> = {
-            protanopia: PROTAN_MATRICES,
-            deuteranopia: DEUTAN_MATRICES,
-            tritanopia: TRITAN_MATRICES,
-        };
-
-        if (severity < 0 || severity > 1) {
-            throw new Error("Severity must be between 0 and 1");
+    simulate(type: VisionDeficiencyType, severity = 1) {
+        if (typeof severity !== "number" || severity < 0 || severity > 1) {
+            throw new Error("Severity must be a number between 0 and 1");
         }
 
-        const typeMatrices = MATRICES[type];
-        if (!typeMatrices) {
-            throw new Error(`Unsupported simulation type: ${type}`);
-        }
+        const RGB2LMS = [
+            [0.4002, 0.7075, -0.0807],
+            [-0.228, 1.15, 0.0612],
+            [0.0, 0.0, 0.9184],
+        ];
+        const LMS2RGB = [
+            [3.2406, -1.5372, -0.4986],
+            [-0.9689, 1.8758, 0.0415],
+            [0.0557, -0.204, 1.057],
+        ];
 
-        const s1 = Math.floor(severity * 10) / 10;
-        const s2 = Math.min(s1 + 0.1, 1.0);
+        const P = {
+            protanopia: [
+                [0, 0, 0],
+                [0, 1, 0],
+                [0, 0, 1],
+            ],
+            deuteranopia: [
+                [1, 0, 0],
+                [0, 0, 0],
+                [0, 0, 1],
+            ],
+            tritanopia: [
+                [1, 0, 0],
+                [0, 1, 0],
+                [0, 0, 0],
+            ],
+        }[type];
 
-        let matrix: number[][];
-        if (s1 === s2) {
-            matrix = typeMatrices[s1];
-        } else {
-            const w = (severity - s1) / (s2 - s1);
-            const m1 = typeMatrices[s1];
-            const m2 = typeMatrices[s2];
-            matrix = m1.map((row, i) => row.map((val, j) => (1 - w) * val + w * m2[i][j]));
-        }
+        const M_dich = multiplyMatrices(LMS2RGB, multiplyMatrices(P, RGB2LMS));
 
-        const inSRGB = this.in("srgb");
-        const coords = inSRGB.getCoords();
-        const simCoords = multiplyMatrices(matrix, coords);
-        const instance = inSRGB.setCoords(multiplyMatrices(matrix, simCoords));
+        const I = [
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1],
+        ];
 
-        return new Color(instance.xyza, { originalString: this._originalString });
+        const M_sim = I.map((row, i) => row.map((_, j) => (1 - severity) * I[i][j] + severity * M_dich[i][j]));
+
+        return this.in("srgb").set(({ r, g, b }) => ({
+            r: M_sim[0][0] * r + M_sim[0][1] * g + M_sim[0][2] * b,
+            g: M_sim[1][0] * r + M_sim[1][1] * g + M_sim[1][2] * b,
+            b: M_sim[2][0] * r + M_sim[2][1] * g + M_sim[2][2] * b,
+        }));
     }
 
     /**
@@ -1564,29 +1515,8 @@ class Color {
      * @param type - The type of pattern to validate against.
      * @returns Whether the value matches the pattern for the specified type.
      */
-    isValid(type: Format | Space) {
-        const color = this._originalString.toLowerCase().trim();
-        return Color.patterns[type].test(color);
-    }
-
-    /**
-     * Determines if a color string is a relative color format (e.g., rgb(from red r g b)).
-     *
-     * @returns True if the color is a relative color format, false otherwise
-     */
-    isRelative() {
-        const color = this._originalString.toLowerCase().trim();
-        return Color.patterns.relative.test(color);
-    }
-
-    /**
-     * Determines if a color string is a color-mix() format (e.g., color-mix(in srgb, plum, red)).
-     *
-     * @returns True if the string is a valid color-mix() format, false otherwise
-     */
-    isColorMix() {
-        const color = this._originalString.toLowerCase().trim();
-        return Color.patterns["color-mix"].test(color);
+    isValid(type: Pattern) {
+        return Color.patterns[type].test(this._cleanString);
     }
 
     /**
@@ -1598,8 +1528,8 @@ class Color {
      */
     inGamut(gamut: Space, options: InGamutOptions = {}) {
         const { components, targetGamut } = _converters[gamut];
+        const { epsilon = 1e-5 } = options;
         const coords = this.in(gamut).getCoords();
-        const epsilon = options.epsilon ?? 1e-5;
 
         if (targetGamut === null) return true;
 

@@ -102,9 +102,6 @@ export interface ConverterWithoutComponents {
     /** Regular expression to match the color string format. */
     pattern: RegExp;
 
-    /** Identifier for the color model this converter applies to. */
-    model: string;
-
     /** Converts a color string directly to XYZA color space. */
     toXYZA: (colorString: string) => XYZA;
 
@@ -237,7 +234,7 @@ export type FitMethod = "minmax" | "chroma-reduction" | "css-gamut-map";
  */
 export interface ScaleOptions {
     /** Number of colors to include in the scale (including endpoints). */
-    steps: number;
+    steps?: number;
 
     /** The color model to interpolate in (e.g. `"lab"`, `"rgb"`, `"hsl"`, etc.). */
     model?: Model;
@@ -283,3 +280,7 @@ export interface EvaluateAccessibilityOptions {
 }
 
 export type Pattern = keyof typeof Color.patterns;
+
+export type VisionDeficiencyType = "protanopia" | "deuteranopia" | "tritanopia";
+
+export type ClusterOptions = { k: number };

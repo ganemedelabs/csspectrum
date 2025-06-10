@@ -1,4 +1,7 @@
 import Color from "./Color";
+import { _namedColors } from "./converters.js";
+import { VisionDeficiencyType } from "./types.js";
+import { multiplyMatrices } from "./utils.js";
 
 // FIXME: all regex should accept any number and should not have limits
 // console.time("in");
@@ -18,14 +21,24 @@ import Color from "./Color";
 
 // WATCH: Currently the css-gamut-map is the fastest method
 
-console.time("minmax");
-console.log(Color.in("rgb").setCoords([204, 45, 400]).to("rgb", { fit: "minmax" }));
-console.timeEnd("minmax");
+// console.time("minmax");
+// console.log(Color.in("rgb").setCoords([204, 45, 400]).to("rgb", { fit: "minmax" }));
+// console.timeEnd("minmax");
 
-console.time("chroma-reduction");
-console.log(Color.in("rgb").setCoords([204, 45, 400]).to("rgb", { fit: "chroma-reduction" }));
-console.timeEnd("chroma-reduction");
+// console.time("chroma-reduction");
+// console.log(Color.in("rgb").setCoords([204, 45, 400]).to("rgb", { fit: "chroma-reduction" }));
+// console.timeEnd("chroma-reduction");
 
-console.time("css-gamut-map");
-console.log(Color.in("rgb").setCoords([204, 45, 400]).to("rgb", { fit: "css-gamut-map" }));
-console.timeEnd("css-gamut-map");
+// console.time("css-gamut-map");
+// console.log(Color.in("rgb").setCoords([204, 45, 400]).to("rgb", { fit: "css-gamut-map" }));
+// console.timeEnd("css-gamut-map");
+
+// console.time("regex");
+// console.log(Color.patterns.named.test("sss"));
+// console.timeEnd("regex");
+
+// console.time("in");
+// console.log("sss" in _namedColors);
+// console.timeEnd("in");
+
+console.log(Color.from("rebeccapurple").simulate("protanopia", 1).to("rgb"));

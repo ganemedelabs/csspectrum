@@ -84,7 +84,7 @@ export function createSpaceConverter<T extends string, C extends readonly string
     const fromXYZMatrix = isD50 ? multiplyMatrices(space.fromXYZMatrix, D65_to_D50) : space.fromXYZMatrix;
 
     const pattern = new RegExp(
-        `^color\\(\\s*${name}\\s+(none|[\\d.]+%?)\\s+(none|[\\d.]+%?)\\s+(none|[\\d.]+%?)(?:\\s*\\/\\s*(none|[\\d.]+%?))?\\s*\\)$`,
+        `^color\\(\\s*${name}\\s+(-?\\d*\\.?\\d+%?)\\s+(-?\\d*\\.?\\d+%?)\\s+(-?\\d*\\.?\\d+%?)\\s*(?:\\/\\s*(-?\\d*\\.?\\d+%?))?\\s*\\)$`,
         "i"
     );
 
@@ -200,4 +200,12 @@ export function interpolateComponents(
 
         return start + (to[index] - start) * t;
     });
+}
+
+export function normalize(string: string) {
+    return string
+        .toLowerCase()
+        .replace(/\bnone\b/gi, "0")
+        .replace(/calc\(\s*([+-]?infinity)\s*\)/gi, "0")
+        .trim();
 }

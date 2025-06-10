@@ -1,18 +1,11 @@
+import Color from "./Color.js";
 import { ComponentDefinition, Converters, FormattingOptions, Name, RGBA, XYZA } from "./types";
 import { createSpaceConverter, D50, multiplyMatrices } from "./utils";
-
-// FIXME: all regex should accept any number and should not have limits
-/** TODO: Add device-cmyk
- * @example
- * Color.from("device-cmyk(0% 100% 100% 0%, red)").to("rgb"); -> rgb(255, 0, 0)
- * Color.from("device-cmyk(0% 100% 100% 0%)").to("rgb"); -> rgb(0, 0, 0)
- * Color.from("red").to("device-cmyk"); -> "undefined"
- */
 
 /**
  * A collection of named colors and their RGBA values.
  *
- * @see https://www.w3.org/TR/css-color-4/
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
  */
 export const _namedColors = {
     aliceblue: [240, 248, 255],
@@ -169,16 +162,9 @@ export const _namedColors = {
 /**
  * A collection of color format converters and utilities for handling various color spaces.
  *
- * @see https://www.w3.org/TR/css-color-4/
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
  */
 export const _formatConverters = (() => {
-    const numberOrPercent = "([-+]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:%)?)";
-    const hue = "([-+]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:deg)?)";
-    const alpha = "((?:\\s*\\/\\s*[-+]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:%)?)?)";
-    const spaceOrComma = "\\s*(?:,\\s*|\\s+)";
-    const slashOrComma = "(?:\\s*(?:,\\s*|\\s+|\\/\\s*)";
-    const slashOptional = "(?:\\s*(?:\\s*\\/\\s*)";
-
     const toLRGB = (value: number) => {
         const v = value / 255;
         return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
@@ -202,10 +188,8 @@ export const _formatConverters = (() => {
 
     const converters = {
         rgb: {
-            pattern: new RegExp(
-                `^rgba?\\(\\s*${numberOrPercent}${spaceOrComma}${numberOrPercent}${spaceOrComma}${numberOrPercent}${slashOrComma}${alpha})?\\s*\\)$`,
-                ""
-            ),
+            pattern:
+                /^rgba?\(\s*(-?\d*\.?\d+%?)\s*[,\s]+\s*(-?\d*\.?\d+%?)\s*[,\s]+\s*(-?\d*\.?\d+%?)\s*(?:[,/]\s*(-?\d*\.?\d+%?))?\s*\)$/i,
 
             targetGamut: "srgb",
 
@@ -269,8 +253,6 @@ export const _formatConverters = (() => {
         named: {
             pattern: new RegExp(`^\\b(${Object.keys(_namedColors).join("|")})\\b$`, "i"),
 
-            model: "rgb",
-
             toXYZA: (name: string): XYZA => {
                 const key = name.replace(/[\s-]/g, "").toLowerCase() as Name;
                 const rgb = _namedColors[key];
@@ -291,8 +273,6 @@ export const _formatConverters = (() => {
 
         hex: {
             pattern: /^#(?:[A-Fa-f0-9]{3,4}|[A-Fa-f0-9]{6}|[A-Fa-f0-9]{8})\b$/,
-
-            model: "rgb",
 
             toXYZA: (str: string): XYZA => {
                 const HEX = str.slice(1);
@@ -320,10 +300,8 @@ export const _formatConverters = (() => {
         },
 
         hsl: {
-            pattern: new RegExp(
-                `^hsla?\\(\\s*${hue}${spaceOrComma}${numberOrPercent}${spaceOrComma}${numberOrPercent}${slashOrComma}${alpha})?\\s*\\)$`,
-                "i"
-            ),
+            pattern:
+                /^hsla?\(\s*(-?\d*\.?\d+(?:deg|rad|grad|turn)?)\s*[,\s]+\s*(-?\d*\.?\d+%?)\s*[,\s]+\s*(-?\d*\.?\d+%?)\s*(?:[,/]\s*(-?\d*\.?\d+%?))?\s*\)$/i,
 
             targetGamut: "srgb",
 
@@ -408,10 +386,8 @@ export const _formatConverters = (() => {
         },
 
         hwb: {
-            pattern: new RegExp(
-                `^hwb\\(\\s*${hue}\\s+${numberOrPercent}\\s+${numberOrPercent}${slashOptional}${alpha})?\\s*\\)$`,
-                "i"
-            ),
+            pattern:
+                /^hwb\(\s*(-?\d*\.?\d+(?:deg|rad|grad|turn)?)\s+(-?\d*\.?\d+%?)\s+(-?\d*\.?\d+%?)\s*(?:\/\s*(-?\d*\.?\d+%?))?\s*\)$/i,
 
             targetGamut: "srgb",
 
@@ -488,10 +464,7 @@ export const _formatConverters = (() => {
         },
 
         lab: {
-            pattern: new RegExp(
-                `^lab\\(\\s*${numberOrPercent}\\s+${numberOrPercent}\\s+${numberOrPercent}${slashOptional}${alpha})?\\s*\\)$`,
-                "i"
-            ),
+            pattern: /^lab\(\s*(-?\d*\.?\d+%?)\s+(-?\d*\.?\d+%?)\s+(-?\d*\.?\d+%?)\s*(?:\/\s*(-?\d*\.?\d+%?))?\s*\)$/i,
 
             targetGamut: null,
 
@@ -553,10 +526,8 @@ export const _formatConverters = (() => {
         },
 
         lch: {
-            pattern: new RegExp(
-                `^lch\\(\\s*${numberOrPercent}\\s+${numberOrPercent}\\s+${hue}${slashOptional}${alpha})?\\s*\\)$`,
-                "i"
-            ),
+            pattern:
+                /^lch\(\s*(-?\d*\.?\d+%?)\s+(-?\d*\.?\d+%?)\s+(-?\d*\.?\d+(?:deg|rad|grad|turn)?)\s*(?:\/\s*(-?\d*\.?\d+%?))?\s*\)$/i,
 
             targetGamut: null,
 
@@ -610,10 +581,8 @@ export const _formatConverters = (() => {
         },
 
         oklab: {
-            pattern: new RegExp(
-                `^oklab\\(\\s*${numberOrPercent}\\s+${numberOrPercent}\\s+${numberOrPercent}${slashOptional}${alpha})?\\s*\\)$`,
-                "i"
-            ),
+            pattern:
+                /^oklab\(\s*(-?\d*\.?\d+%?)\s+(-?\d*\.?\d+%?)\s+(-?\d*\.?\d+%?)\s*(?:\/\s*(-?\d*\.?\d+%?))?\s*\)$/i,
 
             targetGamut: null,
 
@@ -689,10 +658,8 @@ export const _formatConverters = (() => {
         },
 
         oklch: {
-            pattern: new RegExp(
-                `^oklch\\(\\s*${numberOrPercent}\\s+${numberOrPercent}\\s+${hue}${slashOptional}${alpha})?\\s*\\)$`,
-                "i"
-            ),
+            pattern:
+                /^oklch\(\s*(-?\d*\.?\d+%?)\s+(-?\d*\.?\d+%?)\s+(-?\d*\.?\d+(?:deg|rad|grad|turn)?)\s*(?:\/\s*(-?\d*\.?\d+%?))?\s*\)$/i,
 
             targetGamut: null,
 
@@ -757,6 +724,25 @@ export const _formatConverters = (() => {
                 return [L, C, H, alpha];
             },
         },
+
+        "device-cmyk": {
+            pattern: /device-cmyk\(\s*((\d+%?|\d*\.\d+%?)\s+){3}(\d+%?|\d*\.\d+%?)(\s*,\s*.+?)?\s*\)/i,
+
+            toXYZA: (str: string): XYZA => {
+                const match = str.match(/device-cmyk\([^)]*?,\s*(.+?)\s*\)$/i);
+                if (match && match[1]) {
+                    try {
+                        return Color.from(match[1]).in("xyz").getCoords() as XYZA;
+                    } catch {
+                        return [0, 0, 0, 1];
+                    }
+                }
+
+                return [0, 0, 0, 1];
+            },
+
+            fromXYZA: () => "undefined",
+        },
     };
 
     return converters;
@@ -765,7 +751,7 @@ export const _formatConverters = (() => {
 /**
  * A collection of color space converters for various color spaces.
  *
- * @see https://www.w3.org/TR/css-color-4/
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
  */
 export const _spaceConverters = (() => {
     const identity = (c: number) => c;
