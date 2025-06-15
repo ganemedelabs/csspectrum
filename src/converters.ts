@@ -7,7 +7,7 @@ import { createSpaceConverter, D50, multiplyMatrices } from "./utils";
  *
  * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
  */
-export const _namedColors = {
+export const namedColors = {
     aliceblue: [240, 248, 255],
     antiquewhite: [250, 235, 215],
     aqua: [0, 255, 255],
@@ -164,7 +164,7 @@ export const _namedColors = {
  *
  * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
  */
-export const _formatConverters = (() => {
+export const formatConverters = (() => {
     const toLRGB = (value: number) => {
         const v = value / 255;
         return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
@@ -251,11 +251,11 @@ export const _formatConverters = (() => {
         },
 
         named: {
-            pattern: new RegExp(`^\\b(${Object.keys(_namedColors).join("|")})\\b$`, "i"),
+            pattern: new RegExp(`^\\b(${Object.keys(namedColors).join("|")})\\b$`, "i"),
 
             toXYZA: (name: string): XYZA => {
                 const key = name.replace(/[\s-]/g, "").toLowerCase() as Name;
-                const rgb = _namedColors[key];
+                const rgb = namedColors[key];
                 if (!rgb) throw new Error(`Invalid named color: ${name}`);
                 return converters.rgb.toXYZA([...rgb, rgb[3] ?? 1]);
             },
@@ -264,7 +264,7 @@ export const _formatConverters = (() => {
                 const [r, g, b, a] = converters.rgb
                     .fromXYZA(xyza)
                     .map((v, i) => (i < 3 ? Math.round(Math.min(255, Math.max(0, v))) : v));
-                for (const [name, [nr, ng, nb, na = 1]] of Object.entries(_namedColors)) {
+                for (const [name, [nr, ng, nb, na = 1]] of Object.entries(namedColors)) {
                     if (r === nr && g === ng && b === nb && a === na) return name;
                 }
                 return "undefined";
@@ -753,7 +753,7 @@ export const _formatConverters = (() => {
  *
  * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
  */
-export const _spaceConverters = (() => {
+export const spaceConverters = (() => {
     const identity = (c: number) => c;
     const identityMatrix = [
         [1, 0, 0],
@@ -969,8 +969,8 @@ export const _spaceConverters = (() => {
 /**
  * A collection of color format and color space converters with added alpha component.
  */
-export const _converters = (() => {
-    const converterObjects = { ..._formatConverters, ..._spaceConverters };
+export const converters = (() => {
+    const converterObjects = { ...formatConverters, ...spaceConverters };
 
     Object.values(converterObjects).forEach((converter) => {
         if ("components" in converter) {

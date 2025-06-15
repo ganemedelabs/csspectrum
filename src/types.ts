@@ -1,5 +1,5 @@
 import Color from "./Color";
-import { _formatConverters, _namedColors, _spaceConverters, _converters } from "./converters";
+import { formatConverters, namedColors, spaceConverters, converters } from "./converters";
 import { EASINGS } from "./utils";
 
 /* eslint-disable no-unused-vars */
@@ -25,29 +25,29 @@ export interface ColorOptions {
 }
 
 /**
- * The supported color format names, derived from the keys of the `_formatConverters` object.
+ * The supported color format names, derived from the keys of the `formatConverters` object.
  * For example, valid values might include "hex", "rgb", "hsl", etc.
  */
-export type Format = keyof typeof _formatConverters;
+export type Format = keyof typeof formatConverters;
 
 /**
- * The supported color space names, derived from the keys of the `_spaceConverters` object.
+ * The supported color space names, derived from the keys of the `spaceConverters` object.
  * Examples include "srgb", "display-p3", "rec2020", etc.
  */
-export type Space = keyof typeof _spaceConverters;
+export type Space = keyof typeof spaceConverters;
 
 /**
- * Represents a named color identifier, derived from the keys of the `__namedColors` object.
+ * Represents a named color identifier, derived from the keys of the `_namedColors` object.
  * Examples include "red", "darkslategrey", "mediumvioletred", etc.
  */
-export type Name = keyof typeof _namedColors;
+export type Name = keyof typeof namedColors;
 
 /**
  * Represents a color model, which can be either a `Space` or a `Format` that has a converter with components.
  * Filters `Format` to only include those with `ConverterWithComponents`.
  */
 export type Model = {
-    [K in Format | Space]: (typeof _converters)[K] extends ConverterWithComponents ? K : never;
+    [K in Format | Space]: (typeof converters)[K] extends ConverterWithComponents ? K : never;
 }[Format | Space];
 
 /**
@@ -110,13 +110,13 @@ export interface ConverterWithoutComponents {
 }
 
 /**
- * Union export type for all possible color _converters.
+ * Union export type for all possible color converters.
  */
 export type ColorConverter = ConverterWithComponents | ConverterWithoutComponents;
 
 /**
  * Maps each `Format` to its corresponding converter.
- * Keys are specific format strings (e.g., 'rgb', 'hsl'), values are _converters.
+ * Keys are specific format strings (e.g., 'rgb', 'hsl'), values are converters.
  */
 export interface Converters {
     [key: string]: ColorConverter;
@@ -139,16 +139,16 @@ export type ComponentNames<T> = T extends {
  *
  * @template M - The color model type.
  */
-export type Component<M extends Model> = (typeof _converters)[M] extends ConverterWithComponents
-    ? ComponentNames<(typeof _converters)[M]>
+export type Component<M extends Model> = (typeof converters)[M] extends ConverterWithComponents
+    ? ComponentNames<(typeof converters)[M]>
     : never;
 
 /**
  * Defines operations on a color within a specific `Model`, enabling method chaining.
  */
 export interface Interface<M extends Model> {
-    /** Gets the value of a specific component. */
-    get: (component: Component<M>, options?: GetOptions) => number;
+    /** Gets all component values as an object. */
+    get: (options?: GetOptions) => { [key in Component<M>]: number };
 
     /** Gets all component values as an array. */
     getCoords: (options?: GetOptions) => number[];
@@ -258,8 +258,6 @@ export interface LightnessRangeOptions {
     epsilon?: number;
 }
 
-export type HarmonyType = "complementary" | "split-complementary" | "triadic" | "tetradic" | "analogous";
-
 export type MixOptions = {
     /** Amount of the second color to mix in, between 0 and 1. */
     amount?: number;
@@ -269,14 +267,33 @@ export type MixOptions = {
 
     /** Easing function to apply to the interpolation parameter. */
     easing?: Easing | ((t: number) => number);
+
+    gamma?: number;
 };
 
 export interface EvaluateAccessibilityOptions {
-    /** WCAG level to test ("AA" or "AAA"). Defaults to "AA". */
+    /** The element type: "text" (default) or "non-text" (e.g., UI components per WCAG 1.4.11). */
+    type?: "text" | "non-text";
+
+    /** WCAG level to test ("AA" (default) or "AAA"). Ignored for non-WCAG algorithms. */
     level?: "AA" | "AAA";
 
-    /** Whether the text is large (≥18pt regular or ≥14pt bold). */
-    isLargeText?: boolean;
+    /** Font size in points (pt) for text elements. Ignored for non-text. Default: 12. */
+    fontSize?: number;
+
+    /** Font weight (e.g., 400 for normal, 700 for bold, or CSS strings "normal", "bold"). Ignored for non-text. Default: 400. */
+    fontWeight?: number;
+
+    /**
+     * The contrast algorithm to use: "wcag21" (default), "apca", or "oklab".
+     * - "wcag21": Follows WCAG 2.1 but has limitations (e.g., sRGB-based, poor hue handling).
+     * - "apca": Uses APCA-W3 (WCAG 3.0 draft), font-size/weight dependent. See https://git.myndex.com.
+     * - "oklab": Uses OKLab lightness difference for perceptual uniformity.
+     *
+     * @remarks
+     * "wcag21" follows WCAG 2.1 guidelines but has limitations. Consider "apca" or "oklab" for better perceptual accuracy.
+     */
+    algorithm?: "wcag21" | "apca" | "oklab";
 }
 
 export type Pattern = keyof typeof Color.patterns;

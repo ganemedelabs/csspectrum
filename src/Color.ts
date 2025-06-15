@@ -1,4 +1,4 @@
-import { _converters, _formatConverters, _namedColors, _spaceConverters } from "./converters";
+import { converters, formatConverters, namedColors, spaceConverters } from "./converters";
 import { createSpaceConverter, EASINGS, interpolateComponents, multiplyMatrices } from "./utils";
 import type {
     XYZA,
@@ -24,15 +24,12 @@ import type {
     LightnessRangeOptions,
     FitMethod,
     ToOptions,
-    HarmonyType,
     MixOptions,
     EvaluateAccessibilityOptions,
     Pattern,
     VisionDeficiencyType,
     ClusterOptions,
 } from "./types";
-import { normalize } from "path";
-import { assert } from "console";
 
 /**
  * The `Color` class represents a dynamic CSS color object, allowing for the manipulation
@@ -40,15 +37,13 @@ import { assert } from "console";
  */
 class Color {
     private _xyza: XYZA = [0, 0, 0, 1];
-    private _name: string | undefined;
-    private _originalString: string;
-    private _cleanString: string;
+    private name: string | undefined;
+    private originalString: string;
 
     constructor(xyza: XYZA, options: ColorOptions) {
         const { originalString } = options;
         this.xyza = xyza;
-        this._originalString = originalString;
-        this._cleanString = normalize(originalString);
+        this.originalString = originalString;
     }
 
     private get xyza(): [number, number, number, number] {
@@ -61,13 +56,51 @@ class Color {
 
         const [r1, g1, b1, a1 = 1] = this.in("rgb").getCoords();
 
-        for (const [name, rgb] of Object.entries(_namedColors)) {
+        for (const [name, rgb] of Object.entries(namedColors)) {
             const [r2, g2, b2, a2 = 1] = rgb;
             if (r1 === r2 && g1 === g2 && b1 === b2 && a1 === a2) {
-                this._name = name;
+                this.name = name;
                 break;
             }
         }
+    }
+
+    private lightnessRange(gamut: Space, options: LightnessRangeOptions = {}) {
+        const C = 0.05;
+        const epsilon = options.epsilon || 1e-5;
+        const { h: hue } = this.in("oklch").get();
+
+        function isInGamut(L: number): boolean {
+            const color = Color.in("oklch").setCoords([L, C, hue]);
+            return color.inGamut(gamut, { epsilon });
+        }
+
+        const searchMinL = () => {
+            let low = 0,
+                high = 1;
+            while (high - low > epsilon) {
+                const mid = (low + high) / 2;
+                if (isInGamut(mid)) high = mid;
+                else low = mid;
+            }
+            return high;
+        };
+
+        const searchMaxL = () => {
+            let low = 0,
+                high = 1;
+            while (high - low > epsilon) {
+                const mid = (low + high) / 2;
+                if (isInGamut(mid)) low = mid;
+                else high = mid;
+            }
+            return low;
+        };
+
+        const L_min = searchMinL();
+        const L_max = searchMaxL();
+
+        return [L_min, L_max];
     }
 
     /**
@@ -81,7 +114,7 @@ class Color {
      *
      * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
      */
-    private _fit(model: Model, method: FitMethod = "minmax") {
+    private fit(model: Model, method: FitMethod = "minmax") {
         const roundCoords = (coords: number[]) => {
             return coords.map((value, i) => {
                 const precision = componentProps[i]?.precision ?? 5;
@@ -89,7 +122,7 @@ class Color {
             });
         };
 
-        const { targetGamut, components } = _converters[model] as ConverterWithComponents;
+        const { targetGamut, components } = converters[model] as ConverterWithComponents;
         const coords = this.in(model).getCoords();
 
         const componentProps: ComponentDefinition[] = [];
@@ -135,7 +168,7 @@ class Color {
                     if (candidate_color.inGamut(targetGamut as Space, { epsilon: 1e-5 })) {
                         C_low = C_mid;
                     } else {
-                        const clipped_coords = candidate_color._fit(model, "minmax");
+                        const clipped_coords = candidate_color.fit(model, "minmax");
                         const clipped_color = Color.in(model).setCoords(clipped_coords);
                         const deltaE = candidate_color.deltaEOK(clipped_color);
                         if (deltaE < 2) {
@@ -177,7 +210,7 @@ class Color {
                 const epsilon = 0.0001;
 
                 const current = Color.in("oklch").setCoords([L, C, H, alpha]);
-                let clipped: number[] = current._fit(model, "minmax");
+                let clipped: number[] = current.fit(model, "minmax");
 
                 const initialClippedColor = Color.in(model).setCoords(clipped);
                 const E = current.deltaEOK(initialClippedColor);
@@ -197,7 +230,7 @@ class Color {
                     if (min_inGamut && candidate.inGamut(targetGamut as Space, { epsilon: 1e-5 })) {
                         min = chroma;
                     } else {
-                        const clippedCoords = candidate._fit(model, "minmax");
+                        const clippedCoords = candidate.fit(model, "minmax");
                         clipped = clippedCoords;
                         const clippedColor = Color.in(model).setCoords(clippedCoords);
                         const deltaE = candidate.deltaEOK(clippedColor);
@@ -226,41 +259,55 @@ class Color {
     /**
      * A collection of regular expressions for parsing color strings.
      */
+    // TODO: fix relative and color-mix regex
     // eslint-disable-next-line no-unused-vars
-    static patterns: { [K in Format | Space | "relative" | "color-mix"]: RegExp } = (() => {
-        const formatPatterns = Object.values(_formatConverters)
-            .map((fc) => fc.pattern.source.replace(/^\^|\$$/g, ""))
-            .join("|");
-        const spacePatterns = Object.values(_spaceConverters)
-            .map((sc) => sc.pattern.source.replace(/^\^|\$$/g, ""))
-            .join("|");
-        const color = `(?:${formatPatterns}|${spacePatterns})`;
+    static patterns: { [K in Format | Space | "relative" | "color-mix" | "contrast-color" | "light-dark"]: RegExp } =
+        (() => {
+            const formatPatterns = Object.values(formatConverters)
+                .map((fc) => fc.pattern.source.replace(/^\^|\$$/g, ""))
+                .join("|");
+            const spacePatterns = Object.values(spaceConverters)
+                .map((sc) => sc.pattern.source.replace(/^\^|\$$/g, ""))
+                .join("|");
+            const color = `(?:${formatPatterns}|${spacePatterns})`;
 
-        const relative = (() => {
-            const funcNames = "color|" + Object.keys(_formatConverters).join("|");
-            const spaceNames = Object.keys(_spaceConverters).join("|");
-            const numberOrCalc = "([a-z]+|calc\\((?:[^()]+|\\([^()]*\\))*\\)|[+-]?\\d*\\.?\\d+(?:%|[a-z]+)?)";
-            const components = `${numberOrCalc}(?:\\s+${numberOrCalc}){2,3}`;
-            const alpha = `(?:\\s*\\/\\s*${numberOrCalc})?`;
-            const pattern = `^(${funcNames})\\(\\s*from\\s+(${color})((?:\\s+(${spaceNames}))?\\s+${components}${alpha})\\s*\\)$`;
-            return new RegExp(pattern, "i");
+            const relative = (() => {
+                const funcNames = "color|" + Object.keys(formatConverters).join("|");
+                const spaceNames = Object.keys(spaceConverters).join("|");
+                const numberOrCalc = "([a-z]+|calc\\((?:[^()]+|\\([^()]*\\))*\\)|[+-]?\\d*\\.?\\d+(?:%|[a-z]+)?)";
+                const components = `${numberOrCalc}(?:\\s+${numberOrCalc}){2,3}`;
+                const alpha = `(?:\\s*\\/\\s*${numberOrCalc})?`;
+                const pattern = `^(${funcNames})\\(\\s*from\\s+(${color})((?:\\s+(${spaceNames}))?\\s+${components}${alpha})\\s*\\)$`;
+                return new RegExp(pattern, "i");
+            })();
+
+            const colorMix = (() => {
+                const modelNames = Object.keys(converters).join("|");
+                const percentage = "(?:(?:100(?:\\.0+)?|(?:\\d{1,2}(?:\\.\\d+)?|\\.[0-9]+))%)";
+                const hueInterpolationMethods = "shorter|longer|increasing|decreasing";
+                const colorWithOptionalPercentage = `${color}(?:\\s+${percentage})?`;
+                const pattern = `^color-mix\\(\\s*in\\s+(${modelNames})(?:\\s+(${hueInterpolationMethods})\\s+hue)?\\s*,\\s*${colorWithOptionalPercentage}\\s*,\\s*${colorWithOptionalPercentage}\\s*\\)$`;
+                return new RegExp(pattern, "i");
+            })();
+
+            const contrastColor = (() => {
+                const pattern = `^contrast-color\\(\\s*(${color})\\s*\\)$`;
+                return new RegExp(pattern, "i");
+            })();
+
+            const lightDark = (() => {
+                const pattern = `^light-dark\\(\\s*(${color})\\s*,\\s*(${color})\\s*\\)$`;
+                return new RegExp(pattern, "i");
+            })();
+
+            return {
+                ...Object.fromEntries(Object.entries(converters).map(([key, value]) => [key, value.pattern])),
+                relative,
+                "color-mix": colorMix,
+                "contrast-color": contrastColor,
+                "light-dark": lightDark,
+            } as { [K in Format | Space | "relative" | "color-mix" | "contrast-color" | "light-dark"]: RegExp }; // eslint-disable-line no-unused-vars
         })();
-
-        const colorMix = (() => {
-            const modelNames = Object.keys(_converters).join("|");
-            const percentage = "(?:(?:100(?:\\.0+)?|(?:\\d{1,2}(?:\\.\\d+)?|\\.[0-9]+))%)";
-            const hueInterpolationMethods = "shorter|longer|increasing|decreasing";
-            const colorWithOptionalPercentage = `${color}(?:\\s+${percentage})?`;
-            const pattern = `^color-mix\\(\\s*in\\s+(${modelNames})(?:\\s+(${hueInterpolationMethods})\\s+hue)?\\s*,\\s*${colorWithOptionalPercentage}\\s*,\\s*${colorWithOptionalPercentage}\\s*\\)$`;
-            return new RegExp(pattern, "i");
-        })();
-
-        return {
-            ...Object.fromEntries(Object.entries(_converters).map(([key, value]) => [key, value.pattern])),
-            relative,
-            "color-mix": colorMix,
-        } as { [K in Format | Space | "relative" | "color-mix"]: RegExp }; // eslint-disable-line no-unused-vars
-    })();
 
     /**
      * Creates a new `Color` instance from a given color string and optional format.
@@ -271,22 +318,30 @@ class Color {
     static from(color: Name): Color; // eslint-disable-line no-unused-vars
     static from(color: string): Color; // eslint-disable-line no-unused-vars
     static from(color: Name | string) {
-        const instance = new Color([0, 0, 0, 1], { originalString: color });
+        if (this.type(color) === "contrast-color") {
+            const { color: parsed } = this.parseContrastColor(color);
+            const luminance = parsed.luminance();
+            return Color.in("srgb").setCoords(luminance > 0.5 ? [0, 0, 0] : [1, 1, 1]);
+        }
 
-        if (instance.isValid("relative")) {
+        if (this.type(color) === "light-dark") {
+            return this.parseLightDark(color).color;
+        }
+
+        if (this.type(color) === "relative") {
             const { type, components } = Color.parseRelative(color);
 
             const colorString =
-                type in _formatConverters
+                type in formatConverters
                     ? `${type}(${components.join(" ")})`
                     : `color(${type} ${components.join(" ")})`;
 
-            const xyza = _converters[type].toXYZA(components);
+            const xyza = converters[type].toXYZA(components);
 
             return new Color(xyza, { originalString: colorString });
         }
 
-        if (instance.isValid("color-mix")) {
+        if (this.type(color) === "color-mix") {
             const parsed = Color.parseColorMix(color);
             const { model, hue, color1, color2 } = parsed;
             let { weight1, weight2 } = parsed;
@@ -311,8 +366,14 @@ class Color {
             return color1.in(model).mix(color2, { amount: weight2Prime, hue });
         }
 
-        for (const [, converter] of Object.entries(_converters)) {
-            if (converter.pattern.test(normalize(color))) {
+        const cleaned = color
+            .toLowerCase()
+            .replace(/\bnone\b/gi, "0")
+            .replace(/calc\(\s*([+-]?infinity)\s*\)/gi, "0")
+            .trim();
+
+        for (const [, converter] of Object.entries(converters)) {
+            if (converter.pattern.test(cleaned)) {
                 let xyza;
                 if ("toComponents" in converter) {
                     const components = converter.toComponents(color);
@@ -336,10 +397,41 @@ class Color {
     static in<M extends Model>(model: M): InterfaceWithSetOnly<Interface<M>>; // eslint-disable-line no-unused-vars
     static in(model: string): InterfaceWithSetOnly<Interface<any>>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
     static in<M extends Model>(model: string | M): InterfaceWithSetOnly<Interface<M>> {
-        const originalString = _converters[model as Model].fromComponents([0, 0, 0, 1]);
+        const originalString = converters[model as Model].fromComponents([0, 0, 0, 1]);
         const color = new Color([0, 0, 0, 1], { originalString });
         const result = Object.fromEntries(Object.entries(color.in(model)).filter(([key]) => key.startsWith("set")));
         return result as InterfaceWithSetOnly<Interface<M>>;
+    }
+
+    /**
+     * Determines the type of a given color string.
+     *
+     * @param color - The color string to analyze.
+     * @param resolve - Whether to resolve color formats like "relative" and "color-mix" into their specific underlying color model.
+     * @returns The detected color format if resolve is true, otherwise the detected color pattern type.
+     * @throws {Error} If the color format is unsupported.
+     */
+    static type<R extends boolean = false>(color: string, resolve?: R): R extends true ? Format | Space : Pattern {
+        let type: Pattern | undefined = undefined;
+        for (const [key, pattern] of Object.entries(Color.patterns)) {
+            if (pattern.test(color)) {
+                type = key as Pattern;
+            }
+        }
+
+        if (!type) throw new Error(`Unsupported color format: ${color}`);
+
+        if (resolve) {
+            if (type === "relative")
+                return Color.parseRelative(color).type as R extends true ? Format | Space : Pattern;
+            if (type === "color-mix")
+                return Color.parseColorMix(color).model as R extends true ? Format | Space : Pattern;
+            if (type === "contrast-color")
+                return Color.parseContrastColor(color).type as R extends true ? Format | Space : Pattern;
+            if (type === "light-dark")
+                return Color.parseLightDark(color).type as R extends true ? Format | Space : Pattern;
+        }
+        return type as R extends true ? Format | Space : Pattern;
     }
 
     /**
@@ -351,11 +443,11 @@ class Color {
      */
     static registerNamedColor(name: string, rgba: RGBA) {
         const cleanedName = name.replace(/(?:\s+|-)/g, "").toLowerCase();
-        if ((_namedColors as Record<Name, RGBA>)[cleanedName as Name]) {
+        if ((namedColors as Record<Name, RGBA>)[cleanedName as Name]) {
             throw new Error(`Color name "${name}" is already registered.`);
         }
 
-        (_namedColors as Record<Name, RGBA>)[cleanedName as Name] = rgba;
+        (namedColors as Record<Name, RGBA>)[cleanedName as Name] = rgba;
     }
 
     /**
@@ -370,7 +462,7 @@ class Color {
      * The alpha component is added automatically with a range of 0-1 and precision of 3.
      */
     static registerFormat(formatName: string, converter: ConverterWithComponents | ConverterWithoutComponents) {
-        (_formatConverters as Record<Format, ConverterWithComponents | ConverterWithoutComponents>)[
+        (formatConverters as Record<Format, ConverterWithComponents | ConverterWithoutComponents>)[
             formatName as Format
         ] = converter;
 
@@ -384,7 +476,7 @@ class Color {
             };
         }
 
-        (_converters as Record<string, ColorConverter>)[formatName] = converter;
+        (converters as Record<string, ColorConverter>)[formatName] = converter;
     }
 
     /**
@@ -398,7 +490,7 @@ class Color {
      */
     static registerSpace(spaceName: string, spaceMatrix: SpaceMatrixMap) {
         const spaceConverter = createSpaceConverter(spaceName, spaceMatrix);
-        (_spaceConverters as Record<Space, ConverterWithComponents>)[spaceName as Space] = spaceConverter;
+        (spaceConverters as Record<Space, ConverterWithComponents>)[spaceName as Space] = spaceConverter;
 
         const components = spaceConverter.components as Record<string, ComponentDefinition>;
         components["alpha"] = {
@@ -408,7 +500,7 @@ class Color {
             precision: 3,
         };
 
-        (_converters as Record<string, ColorConverter>)[spaceName] = spaceConverter;
+        (converters as Record<string, ColorConverter>)[spaceName] = spaceConverter;
     }
 
     /**
@@ -417,7 +509,7 @@ class Color {
      * @returns An array of supported color format names.
      */
     static getSupportedFormats() {
-        return Array.from(Object.keys(_formatConverters)) as Format[];
+        return Array.from(Object.keys(formatConverters)) as Format[];
     }
 
     /**
@@ -426,7 +518,7 @@ class Color {
      * @returns An array of supported color space names.
      */
     static getSupportedSpaces() {
-        return Array.from(Object.keys(_spaceConverters)) as Space[];
+        return Array.from(Object.keys(spaceConverters)) as Space[];
     }
 
     /**
@@ -441,12 +533,12 @@ class Color {
     static random(type?: Format | Space): string; // eslint-disable-line no-unused-vars
     static random(type?: Format | Space | string) {
         if (!type) {
-            const types = Object.keys(_formatConverters).concat(Object.keys(_spaceConverters));
+            const types = Object.keys(formatConverters).concat(Object.keys(spaceConverters));
             type = types[Math.floor(Math.random() * types.length)];
         }
 
         if (type === "named") {
-            return Object.keys(_namedColors)[Math.floor(Math.random() * Object.keys(_namedColors).length)];
+            return Object.keys(namedColors)[Math.floor(Math.random() * Object.keys(namedColors).length)];
         }
 
         const randomChannel = () => Math.floor(Math.random() * 200 + 30);
@@ -483,7 +575,7 @@ class Color {
         };
 
         const parseComponent = <M extends Model>(component: string, colorInstance: Color, model: M, index: number) => {
-            const componentDef = Object.values(_converters[model].components).find((c) => c.index === index);
+            const componentDef = Object.values(converters[model].components).find((c) => c.index === index);
             if (!componentDef) throw new Error(`Invalid component index for ${model}: ${index}`);
             const isAngle = componentDef.loop === true;
 
@@ -503,9 +595,9 @@ class Color {
                 // Case 3: Calc expression (e.g., "calc(r * 2)")
                 const expression = component.slice(5, -1).trim();
                 return parseCalc(expression, model);
-            } else if (component in _converters[model].components) {
+            } else if (component in converters[model].components) {
                 // Case 4: Component name (e.g., "h", "s")
-                return colorInstance.in(model).get(component as Component<M>);
+                return colorInstance.in(model).get()[component as Component<M>];
             } else if (isAngle) {
                 // Case 5: Angle with unit (e.g., "30deg", "0.5turn")
                 return parseAngle(component);
@@ -519,7 +611,7 @@ class Color {
                 .split("")
                 .map((char) => {
                     if (/[a-zA-Z]/.test(char)) {
-                        const value = colorInstance.in(model).get(char as Component<Model>);
+                        const value = colorInstance.in(model).get()[char as Component<Model>];
                         return isNaN(value) ? char : value;
                     }
                     return char;
@@ -569,14 +661,14 @@ class Color {
 
         let baseColor: string, type: Model, componentsStr: string;
 
-        const formatPatterns = Object.values(_formatConverters)
+        const formatPatterns = Object.values(formatConverters)
             .map((fc) => fc.pattern.source.replace(/^\^|\$$/g, ""))
             .join("|");
-        const spacePatterns = Object.values(_spaceConverters)
+        const spacePatterns = Object.values(spaceConverters)
             .map((sc) => sc.pattern.source.replace(/^\^|\$$/g, ""))
             .join("|");
         const colorPatterns = `(?:${formatPatterns}|${spacePatterns})`;
-        const spaceNames = Object.keys(_spaceConverters).join("|");
+        const spaceNames = Object.keys(spaceConverters).join("|");
 
         if (funcName === "color") {
             const match = color.match(
@@ -593,7 +685,7 @@ class Color {
             const startIndex = fullMatch.indexOf(type) + type.length;
             componentsStr = fullMatch.substring(startIndex, fullMatch.length - 1).trim();
 
-            if (!(type in _spaceConverters)) throw new Error(`Invalid space for color(): ${type}`);
+            if (!(type in spaceConverters)) throw new Error(`Invalid space for color(): ${type}`);
         } else {
             const match = color.match(new RegExp(`^${funcName}\\(from\\s+(?<color>${colorPatterns}) (.*)\\)$`));
             if (!match) throw new Error(`"${color}" is not a valid relative format.`);
@@ -607,7 +699,7 @@ class Color {
             const startIndex = fullMatch.indexOf(baseColor) + baseColor.length;
             componentsStr = fullMatch.substring(startIndex, fullMatch.length - 1).trim();
 
-            if (!(type in _formatConverters)) throw new Error(`Invalid function name for relative format: ${type}`);
+            if (!(type in formatConverters)) throw new Error(`Invalid function name for relative format: ${type}`);
         }
 
         const tokens: string[] = [];
@@ -748,13 +840,13 @@ class Color {
         const firstColorData = parseColorAndWeight(parts[0]);
         const secondColorData = parseColorAndWeight(parts[1]);
 
-        const firstColorModel = Color.from(firstColorData.colorComponent).type();
-        const secondColorModel = Color.from(secondColorData.colorComponent).type();
+        const firstColorModel = this.type(firstColorData.colorComponent, true);
+        const secondColorModel = this.type(firstColorData.colorComponent, true);
 
         if (
             firstColorModel === secondColorModel &&
-            "components" in _converters[firstColorModel] &&
-            "components" in _converters[secondColorModel]
+            "components" in converters[firstColorModel] &&
+            "components" in converters[secondColorModel]
         ) {
             const parsedColor1 = parseColorString(firstColorData.colorComponent);
             const parsedColor2 = parseColorString(secondColorData.colorComponent);
@@ -774,6 +866,29 @@ class Color {
             weight1: firstColorData.weight,
             color2: colorInstance2,
             weight2: secondColorData.weight,
+        };
+    }
+
+    static parseContrastColor(color: string) {
+        const cleaned = color.trim().replace(/^contrast-color\(\s*|\s*\)$/gi, "");
+        const luminance = this.from(cleaned).luminance();
+        const finalColor = this.in("srgb").setCoords(luminance > 0.5 ? [0, 0, 0] : [1, 1, 1]);
+        return { color: finalColor, type: "named" };
+    }
+
+    static parseLightDark(color: string) {
+        const match = color.match(this.patterns["light-dark"]);
+        console.log(match);
+        if (!match) {
+            throw new Error(`"${color}" is not a valid light-dark format.`);
+        }
+        const lightColor = match[1];
+        const darkColor = match[2];
+        return {
+            color: Color.from(lightColor),
+            type: Color.type(lightColor, true) as Format | Space,
+            light: Color.from(lightColor),
+            dark: Color.from(darkColor),
         };
     }
 
@@ -942,7 +1057,7 @@ class Color {
     to(format: Format | Space, options?: ToOptions): string; // eslint-disable-line no-unused-vars
     to(format: Format | Space | string, options: ToOptions = { modern: false, fit: "minmax" }) {
         const { modern, fit } = options;
-        const converter = _converters[format as Format | Space];
+        const converter = converters[format as Format | Space];
         if (!converter) {
             throw new Error(`Unsupported color format: ${format}`);
         }
@@ -962,7 +1077,7 @@ class Color {
      * @returns An object where the keys are the format names and the values are the color representations in those formats.
      */
     toAll(exclude: (Format | Space)[] = []): Record<Format | Space, string> {
-        const formats = (Object.keys(_converters) as (Format | Space)[]).filter((format) => !exclude.includes(format));
+        const formats = (Object.keys(converters) as (Format | Space)[]).filter((format) => !exclude.includes(format));
 
         return formats.reduce(
             (acc, format) => {
@@ -979,16 +1094,16 @@ class Color {
      * @returns A tuple containing the next color as a string and the updated index.
      */
     toNext(options: ToNextColorOptions = { modern: false, exclude: [] }) {
-        const color = this._originalString.toLowerCase();
-        const type = Color.from(color).type();
+        const color = this.originalString.toLowerCase();
+        const type = Color.type(color, true);
 
-        let formats = Object.keys(_converters);
+        let formats = Object.keys(converters);
 
         if (options.exclude?.length) {
             formats = formats.filter((format) => !options.exclude?.includes(format as Format));
         }
 
-        if (!this._name) {
+        if (!this.name) {
             formats = formats.filter((format) => format !== "named");
         }
 
@@ -1013,24 +1128,29 @@ class Color {
     in<M extends Model>(model: M): Interface<M>; // eslint-disable-line no-unused-vars
     in(model: string): Interface<any>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
     in<M extends Model>(model: string | M): Interface<M> {
-        const converter = _converters[model as M];
+        const converter = converters[model as M];
         const { components } = converter;
 
         if (!components) {
             throw new Error(`Model ${model} does not have defined components.`);
         }
 
-        const get = (component: Component<M>, options: GetOptions = {}) => {
+        const get = (options: GetOptions = {}) => {
             const coords = converter.fromXYZA(this.xyza);
-            const { index } = components[component as keyof typeof components];
             const { fit } = options;
 
-            if (fit) {
-                const clipped = this._fit(model as M, fit);
-                return clipped[index];
+            const result: { [key in Component<M>]: number } = {} as { [key in Component<M>]: number };
+
+            for (const [comp, { index }] of Object.entries(components)) {
+                if (fit) {
+                    const clipped = this.fit(model as M, fit);
+                    result[comp as Component<M>] = clipped[index];
+                } else {
+                    result[comp as Component<M>] = coords[index];
+                }
             }
 
-            return coords[index];
+            return result;
         };
 
         const getCoords = (options: GetOptions = {}) => {
@@ -1038,7 +1158,7 @@ class Color {
             const { fit } = options;
 
             if (fit) {
-                const clipped = this._fit(model as M, fit);
+                const clipped = this.fit(model as M, fit);
                 return clipped;
             }
 
@@ -1082,7 +1202,8 @@ class Color {
         };
 
         const mix = (other: Color | string, options: MixOptions = {}) => {
-            const { hue = "shorter", amount = 0.5, easing = "linear" } = options;
+            const { hue = "shorter", amount = 0.5, easing = "linear", gamma = 1.0 } = options;
+
             const t = Math.max(0, Math.min(amount, 1));
             const easedT = (typeof easing === "function" ? easing : EASINGS[easing])(t);
 
@@ -1090,7 +1211,9 @@ class Color {
             const otherCoords = otherColor.in(model).getCoords();
             const thisCoords = converter.fromXYZA(this.xyza);
 
-            const mixedCoords = interpolateComponents(thisCoords, otherCoords, components, easedT, hue);
+            const gammaCorrectedT = Math.pow(easedT, 1 / gamma);
+
+            const mixedCoords = interpolateComponents(thisCoords, otherCoords, components, gammaCorrectedT, hue);
             setCoords(mixedCoords);
 
             return Object.assign(this, { ...this.in(model) }) as typeof this & Interface<M>;
@@ -1100,113 +1223,208 @@ class Color {
     }
 
     contrastColor() {
-        return Color.in("srgb").setCoords(this.luminance() > 0.5 ? [0, 0, 0] : [1, 1, 1]);
-    }
-
-    /**
-     * Determines the type of the given color string based on predefined patterns.
-     *
-     * @returns The key corresponding to the matched color pattern.
-     * @throws {Error} If the color format is unsupported.
-     */
-    type(): Format | Space {
-        const color = this._cleanString;
-
-        if (this.isValid("relative")) {
-            const { type } = Color.parseRelative(color);
-            return type;
-        }
-
-        if (this.isValid("color-mix")) {
-            const { model } = Color.parseColorMix(color);
-            return model;
-        }
-
-        for (const [key, pattern] of Object.entries(Color.patterns)) {
-            if (pattern.test(color)) {
-                return key as Format;
-            }
-        }
-
-        throw new Error(`Unsupported color format: ${this._originalString}`);
+        return this.luminance() > 0.5 ? "black" : "white";
     }
 
     /**
      * Calculates the luminance of the color.
      *
      * @param background - The background color used if the color is not fully opaque. Defaults to white.
+     * @param space - The color space to use for luminance calculation. Can be "xyz" (default) or "oklab".
      * @returns The luminance value of the color, a number between 0 and 1.
      */
-    luminance(background: Color | string = Color.in("srgb").setCoords([1, 1, 1])) {
-        const [, Y, , alpha] = this.xyza;
-
-        if (alpha === 1) {
-            return Y;
+    luminance(
+        background: string | Color = Color.in("srgb").setCoords([1, 1, 1]),
+        space: "xyz" | "oklab" = "xyz"
+    ): number {
+        const bgColor = typeof background === "string" ? Color.from(background) : background;
+        switch (space) {
+            case "xyz": {
+                const [, Y, , alpha] = this.xyza;
+                if (alpha === 1) return Y;
+                const [, bgY] = bgColor.in("xyz").getCoords();
+                const blendedY = (1 - alpha) * bgY + alpha * Y;
+                return blendedY;
+            }
+            case "oklab": {
+                const [L, , , alpha] = this.in("oklab").getCoords();
+                if (alpha === 1) return L;
+                const [bgL] = bgColor.in("oklab").getCoords();
+                const blendedL = (1 - alpha) * bgL + alpha * L;
+                return blendedL;
+            }
+            default:
+                throw new Error(`"${space} color space is not supported for luminance.`);
         }
-
-        const bgXYZ = (typeof background === "string" ? Color.from(background) : background).in("xyz").getCoords();
-        const blendedY = (1 - alpha) * bgXYZ[1] + alpha * Y;
-
-        return blendedY;
     }
 
     /**
      * Calculates the contrast ratio between the current color and a given color.
      *
-     * @param color - The color to compare against, represented as a string (e.g., hex, RGB, etc.).
-     * @returns The contrast ratio as a number. A higher value indicates greater contrast.
-     *          The ratio ranges from 1 (no contrast) to 21 (maximum contrast).
+     * @param background - The color to compare against, represented as a string (e.g., hex, RGB, etc.).
+     * @param algorithm - The contrast algorithm to use: "wcag21" (default), "apca", or "oklab".
+     *                  - "wcag21": Uses WCAG 2.1 contrast ratio (1 to 21). Limited by sRGB assumptions and poor hue handling.
+     *                  - "apca": Uses APCA-W3 (Lc 0 to ~100), better for perceptual accuracy. See https://git.myndex.com.
+     *                  - "oklab": Uses lightness difference in OKLab (0 to 1) for perceptual uniformity.
+     *                  Note: WCAG 2.1 is standard but limited; consider APCA or OKLab for modern displays and test visually.
+     * @returns The contrast value:
+     *          - "wcag21": Ratio from 1 to 21.
+     *          - "apca": Lc value (positive for light text on dark background, negative for dark text).
+     *          - "oklab": Lightness difference (0 to 1).
+     * @throws {Error} if the algorithm or background is invalid.
      */
-    contrastRatio(background: Color | string) {
-        const L_bg = (typeof background === "string" ? Color.from(background) : background).luminance();
-        const L_text = this.luminance(background);
-        return (Math.max(L_text, L_bg) + 0.05) / (Math.min(L_text, L_bg) + 0.05);
+    contrastRatio(background: string | Color, algorithm: "wcag21" | "apca" | "oklab" = "wcag21"): number {
+        const bgColor = typeof background === "string" ? Color.from(background) : background;
+        if (!bgColor) throw new Error("Invalid background color");
+
+        if (algorithm === "wcag21") {
+            const L_bg = bgColor.luminance(undefined, "xyz");
+            const L_text = this.luminance(background, "xyz");
+            return (Math.max(L_text, L_bg) + 0.05) / (Math.min(L_text, L_bg) + 0.05);
+        } else if (algorithm === "oklab") {
+            const oklab1 = this.in("oklab").getCoords();
+            const oklab2 = bgColor.in("oklab").getCoords();
+            return Math.abs(oklab1[0] - oklab2[0]);
+        } else if (algorithm === "apca") {
+            const L_text = this.luminance(background, "xyz");
+            const L_bg = bgColor.luminance(undefined, "xyz");
+
+            const Ntx = 0.57;
+            const Nbg = 0.56;
+            const Rtx = 0.62;
+            const Rbg = 0.65;
+            const W_scale = 1.14;
+            const W_offset = 0.027;
+            const W_clamp = 0.1;
+            const B_thrsh = 0.022;
+            const B_clip = 1.414;
+
+            const yText = Math.max(L_text, 0);
+            const yBg = Math.max(L_bg, 0);
+
+            const yTextClamped = yText < B_thrsh ? yText + Math.pow(B_thrsh - yText, B_clip) : yText;
+            const yBgClamped = yBg < B_thrsh ? yBg + Math.pow(B_thrsh - yBg, B_clip) : yBg;
+
+            let S_apc: number;
+            if (yBg > yText) S_apc = (Math.pow(yBgClamped, Nbg) - Math.pow(yTextClamped, Ntx)) * W_scale;
+            else S_apc = (Math.pow(yBgClamped, Rbg) - Math.pow(yTextClamped, Rtx)) * W_scale;
+
+            if (Math.abs(S_apc) < W_clamp) return 0;
+
+            return S_apc > 0 ? (S_apc - W_offset) * 100 : (S_apc + W_offset) * 100;
+        }
+        throw new Error("Unsupported contrast algorithm");
     }
 
     /**
-     * Evaluates the accessibility of the current color against another color using WCAG 2.x contrast guidelines.
+     * Evaluates the accessibility of the current color against another color using WCAG 2.x or alternative contrast guidelines.
      *
      * @param background - The background color to evaluate against.
-     * @returns An object with accessibility status, ratio, required ratio, and helpful info.
+     * @param options - The accessibility options.
+     * @returns An object with accessibility status, contrast, required contrast, and helpful info.
+     * @throws {Error} if the algorithm, background, level, or font parameters are invalid.
      */
-    evaluateAccessibility(background: Color | string, options: EvaluateAccessibilityOptions = {}) {
-        const contrastRatio = this.contrastRatio(background);
-        const { level = "AA", isLargeText = false } = options;
+    evaluateAccessibility(background: string | Color, options: EvaluateAccessibilityOptions = {}) {
+        const { type = "text", level = "AA", fontSize = 12, fontWeight = 400, algorithm = "wcag21" } = options;
 
-        const requiredRatio = {
-            AA: isLargeText ? 3.0 : 4.5,
-            AAA: isLargeText ? 4.5 : 7.0,
-        }[level];
+        if (!["AA", "AAA"].includes(level)) {
+            throw new Error("Invalid level: must be 'AA' or 'AAA'");
+        }
+        if (type === "text" && (fontSize <= 0 || !isFinite(fontSize))) {
+            throw new Error("Invalid fontSize: must be a positive number");
+        }
 
-        const isAccessible = contrastRatio >= requiredRatio;
+        if (type === "text" && (fontWeight < 100 || fontWeight > 900)) {
+            throw new Error("Invalid fontWeight: must be 100-900");
+        }
+        const backgroundColor = typeof background === "string" ? Color.from(background) : background;
 
-        const wcagSuccessCriterion = {
-            AA: "1.4.3",
-            AAA: "1.4.6",
-        }[level];
+        const contrast = this.contrastRatio(background, algorithm);
+        let requiredContrast: number, wcagSuccessCriterion: string, message: string;
 
-        const impact = !isAccessible ? (level === "AAA" ? "minor" : isLargeText ? "moderate" : "serious") : "none";
+        if (algorithm === "wcag21") {
+            if (type === "text") {
+                const isLargeText = fontSize >= 18 || (fontSize >= 14 && fontWeight >= 700);
+                requiredContrast = { AA: isLargeText ? 3.0 : 4.5, AAA: isLargeText ? 4.5 : 7.0 }[level];
+                wcagSuccessCriterion = { AA: "1.4.3", AAA: "1.4.6" }[level];
+                message =
+                    contrast >= requiredContrast
+                        ? `Contrast ratio ${contrast.toFixed(2)} meets WCAG ${level} for ${isLargeText ? "large" : "normal"} text (${fontSize}pt, weight ${fontWeight}).`
+                        : `Contrast ratio ${contrast.toFixed(2)} fails WCAG ${level} (needs at least ${requiredContrast} for ${fontSize}pt, weight ${fontWeight}).`;
+            } else {
+                requiredContrast = 3.0;
+                wcagSuccessCriterion = "1.4.11";
+                message =
+                    contrast >= requiredContrast
+                        ? `Contrast ratio ${contrast.toFixed(2)} meets WCAG ${level} for non-text elements.`
+                        : `Contrast ratio ${contrast.toFixed(2)} fails WCAG ${level} for non-text (needs at least 3.0).`;
+            }
+        } else if (algorithm === "apca") {
+            if (type === "text") {
+                let lcThreshold: number;
+                if (fontSize >= 24 || (fontSize >= 18 && fontWeight >= 700)) {
+                    lcThreshold = level === "AA" ? 60 : 75;
+                } else if (fontSize >= 16 || (fontSize >= 14 && fontWeight >= 700)) {
+                    lcThreshold = level === "AA" ? 75 : 90;
+                } else {
+                    lcThreshold = level === "AA" ? 90 : 100;
+                }
+                requiredContrast = lcThreshold;
+                wcagSuccessCriterion = "APCA (WCAG 3.0 draft)";
+                message =
+                    Math.abs(contrast) >= requiredContrast
+                        ? `APCA contrast ${Math.abs(contrast).toFixed(2)} meets level ${level} for text (${fontSize}pt, weight ${fontWeight}).`
+                        : `APCA contrast ${Math.abs(contrast).toFixed(2)} fails level ${level} (needs at least ${requiredContrast} for ${fontSize}pt, weight ${fontWeight}).`;
+            } else {
+                requiredContrast = 60;
+                wcagSuccessCriterion = "APCA (WCAG 3.0 draft)";
+                message =
+                    Math.abs(contrast) >= requiredContrast
+                        ? `APCA contrast ${Math.abs(contrast).toFixed(2)} meets level ${level} for non-text elements.`
+                        : `APCA contrast ${Math.abs(contrast).toFixed(2)} fails level ${level} for non-text (needs at least ${requiredContrast}).`;
+            }
+        } else if (algorithm === "oklab") {
+            if (type === "text") {
+                requiredContrast = fontSize >= 18 || (fontSize >= 14 && fontWeight >= 700) ? 0.2 : 0.3;
+                wcagSuccessCriterion = "OKLab (experimental)";
+                message =
+                    contrast >= requiredContrast
+                        ? `OKLab lightness difference ${contrast.toFixed(2)} meets requirements for text (${fontSize}pt, weight ${fontWeight}).`
+                        : `OKLab lightness difference ${contrast.toFixed(2)} fails requirements (needs at least ${requiredContrast} for ${fontSize}pt, weight ${fontWeight}).`;
+            } else {
+                requiredContrast = 0.25;
+                wcagSuccessCriterion = "OKLab (experimental)";
+                message =
+                    contrast >= requiredContrast
+                        ? `OKLab lightness difference ${contrast.toFixed(2)} meets requirements for non-text elements.`
+                        : `OKLab lightness difference ${contrast.toFixed(2)} fails requirements (needs at least ${requiredContrast}).`;
+            }
+        } else {
+            throw new Error("Unsupported contrast algorithm");
+        }
 
-        const colorType = this.type();
-        const textColor = this.to(colorType);
-        const backgroundColor = (typeof background === "string" ? Color.from(background) : background).to(colorType);
-
-        const textType = isLargeText ? "large text" : "normal text";
+        const isAccessible = Math.abs(contrast) >= requiredContrast;
+        const impact = !isAccessible
+            ? algorithm === "wcag21" && level === "AAA"
+                ? "minor"
+                : type === "text" && (fontSize >= 18 || (fontSize >= 14 && fontWeight >= 700))
+                  ? "moderate"
+                  : "serious"
+            : "none";
 
         return {
             isAccessible,
-            contrastRatio: +contrastRatio.toFixed(2),
-            requiredRatio,
+            contrast: +Math.abs(contrast).toFixed(2),
+            requiredContrast,
             level,
-            isLargeText,
-            textColor,
+            fontSize: type === "text" ? fontSize : undefined,
+            fontWeight: type === "text" ? fontWeight : undefined,
+            textColor: this as Color,
             backgroundColor,
             wcagSuccessCriterion,
             impact,
-            tags: [`wcag2${level.toLowerCase()}`, `wcag21${level.toLowerCase()}`],
-            message: isAccessible
-                ? `Contrast ratio ${contrastRatio.toFixed(2)} meets WCAG ${level} for ${textType}.`
-                : `Contrast ratio ${contrastRatio.toFixed(2)} fails WCAG ${level} (needs at least ${requiredRatio}).`,
+            algorithm,
+            message,
         };
     }
 
@@ -1253,11 +1471,8 @@ class Color {
      * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
      */
     deltaE(other: Color | string, method: "76" | "94" | "2000" = "94") {
-        const lab1 = this.in("lab").getCoords();
-        const lab2 = (typeof other === "string" ? Color.from(other) : other).in("lab").getCoords();
-
-        const [L1, a1, b1] = lab1;
-        const [L2, a2, b2] = lab2;
+        const [L1, a1, b1] = this.in("lab").getCoords();
+        const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("lab").getCoords();
 
         const ΔL = L1 - L2;
         const ΔA = a1 - a2;
@@ -1364,45 +1579,6 @@ class Color {
         throw new Error(`Unsupported Delta E method: ${method}`);
     }
 
-    // WATCH: This method is experimental.
-    lightnessRange(gamut: Space, options: LightnessRangeOptions = {}) {
-        const C = 0.05;
-        const epsilon = options.epsilon || 1e-5;
-        const hue = this.in("oklch").get("h");
-
-        function isInGamut(L: number): boolean {
-            const color = Color.in("oklch").setCoords([L, C, hue]);
-            return color.inGamut(gamut, { epsilon });
-        }
-
-        const searchMinL = () => {
-            let low = 0,
-                high = 1;
-            while (high - low > epsilon) {
-                const mid = (low + high) / 2;
-                if (isInGamut(mid)) high = mid;
-                else low = mid;
-            }
-            return high;
-        };
-
-        const searchMaxL = () => {
-            let low = 0,
-                high = 1;
-            while (high - low > epsilon) {
-                const mid = (low + high) / 2;
-                if (isInGamut(mid)) low = mid;
-                else high = mid;
-            }
-            return low;
-        };
-
-        const L_min = searchMinL();
-        const L_max = searchMaxL();
-
-        return [L_min, L_max];
-    }
-
     /**
      * Generates a color scale between the current color and a target color.
      *
@@ -1419,7 +1595,7 @@ class Color {
 
         const fromInterface = this.in(model);
         const toInterface = (typeof target === "string" ? Color.from(target) : target).in(model);
-        const converter = _converters[model];
+        const converter = converters[model];
         const components = converter.components;
 
         const fromCoords = fromInterface.getCoords();
@@ -1510,16 +1686,6 @@ class Color {
     }
 
     /**
-     * Checks if the given value matches the pattern for the specified type.
-     *
-     * @param type - The type of pattern to validate against.
-     * @returns Whether the value matches the pattern for the specified type.
-     */
-    isValid(type: Pattern) {
-        return Color.patterns[type].test(this._cleanString);
-    }
-
-    /**
      * Checks if the current color is within the specified gamut.
      *
      * @param gamut - The color space to check against.
@@ -1527,7 +1693,7 @@ class Color {
      * @returns `true` if the color is within the gamut, `false` otherwise.
      */
     inGamut(gamut: Space, options: InGamutOptions = {}) {
-        const { components, targetGamut } = _converters[gamut];
+        const { components, targetGamut } = converters[gamut];
         const { epsilon = 1e-5 } = options;
         const coords = this.in(gamut).getCoords();
 

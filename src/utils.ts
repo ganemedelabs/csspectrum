@@ -201,11 +201,3 @@ export function interpolateComponents(
         return start + (to[index] - start) * t;
     });
 }
-
-export function normalize(string: string) {
-    return string
-        .toLowerCase()
-        .replace(/\bnone\b/gi, "0")
-        .replace(/calc\(\s*([+-]?infinity)\s*\)/gi, "0")
-        .trim();
-}

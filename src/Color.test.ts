@@ -91,11 +91,11 @@ describe("Color", () => {
     it("should determine if a color pair is accessible", () => {
         expect(Color.from("#ffffff").evaluateAccessibility("#000000", { level: "AA" }).isAccessible).toBe(true);
         expect(Color.from("#ffffff").evaluateAccessibility("#cccccc", { level: "AAA" }).isAccessible).toBe(false);
+        expect(Color.from("#ffffff").evaluateAccessibility("#000000", { level: "AA", fontSize: 20 }).isAccessible).toBe(
+            true
+        );
         expect(
-            Color.from("#ffffff").evaluateAccessibility("#000000", { level: "AA", isLargeText: true }).isAccessible
-        ).toBe(true);
-        expect(
-            Color.from("#ffffff").evaluateAccessibility("#cccccc", { level: "AAA", isLargeText: true }).isAccessible
+            Color.from("#ffffff").evaluateAccessibility("#cccccc", { level: "AAA", fontSize: 20 }).isAccessible
         ).toBe(false);
     });
 
