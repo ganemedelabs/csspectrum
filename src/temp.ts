@@ -1,5 +1,3 @@
-import Color from "./Color";
+import Color from "./Color.js";
 
-// console.log(Color.from("rebeccapurple").simulate("protanopia", 1).to("rgb"));
-
-console.log(Color.from("light-dark(#fff, #000)").to("hex"));
+console.log(Color.from("red"));

@@ -1,10 +1,4 @@
-import type {
-    ComponentDefinition,
-    ConverterWithComponents,
-    HueInterpolationMethod,
-    SpaceMatrixMap,
-    XYZA,
-} from "./types.js";
+import type { ComponentDefinition, HueInterpolationMethod, SpaceMatrixMap, XYZ } from "./types.js";
 
 export const D50_to_D65 = [
     [0.955473421488075, -0.02309845494876471, 0.06325924320057072],
@@ -70,80 +64,6 @@ export function multiplyMatrices<A extends number[] | number[][], B extends numb
 }
 
 /**
- * Creates a color space converter for a given color space.
- *
- * @returns A converter with components object.
- * @throws {Error} When invalid color string is provided to toComponents.
- */
-export function createSpaceConverter<T extends string, C extends readonly string[]>(
-    name: T,
-    space: SpaceMatrixMap & { components: C; whitePoint?: "D50" | "D65" }
-) {
-    const isD50 = space.whitePoint === "D50";
-    const toXYZMatrix = isD50 ? multiplyMatrices(D50_to_D65, space.toXYZMatrix) : space.toXYZMatrix;
-    const fromXYZMatrix = isD50 ? multiplyMatrices(space.fromXYZMatrix, D65_to_D50) : space.fromXYZMatrix;
-
-    const pattern = new RegExp(
-        `^color\\(\\s*${name}\\s+(-?\\d*\\.?\\d+%?)\\s+(-?\\d*\\.?\\d+%?)\\s+(-?\\d*\\.?\\d+%?)\\s*(?:\\/\\s*(-?\\d*\\.?\\d+%?))?\\s*\\)$`,
-        "i"
-    );
-
-    return {
-        pattern,
-
-        targetGamut: space.targetGamut === null ? null : name,
-
-        components: Object.fromEntries(
-            space.components.map((comp, index) => [comp, { index, min: 0, max: 1, precision: 5 }])
-        ) as { [K in C[number]]: ComponentDefinition }, // eslint-disable-line no-unused-vars
-
-        toComponents: (colorString: string): number[] => {
-            const match = colorString.match(pattern);
-            if (!match) {
-                throw new Error(`Invalid ${name} color: ${colorString}`);
-            }
-            const parseComponent = (s: string): number => {
-                if (s === "none") return 0;
-                if (s.endsWith("%")) return parseFloat(s.slice(0, -1)) / 100;
-                return parseFloat(s);
-            };
-            const parseAlpha = (s: string | undefined): number => {
-                if (s == null) return 1;
-                if (s === "none") return 0;
-                if (s.endsWith("%")) return parseFloat(s) / 100;
-                return parseFloat(s);
-            };
-            const components = [1, 2, 3].map((i) => parseComponent(match[i]));
-            const alpha = parseAlpha(match[4]);
-            return [...components, alpha];
-        },
-
-        fromComponents: (colorArray: (number | undefined)[]): string => {
-            const [comp1, comp2, comp3, alpha = 1] = colorArray;
-            const compStr = [comp1, comp2, comp3].join(" ");
-            const alphaStr = alpha !== 1 ? ` / ${alpha}` : "";
-            return `color(${name} ${compStr}${alphaStr})`;
-        },
-
-        toXYZA: (colorArray: number[]): XYZA => {
-            const [r, g, b, a = 1] = colorArray;
-            const linear = [space.toLinear(r), space.toLinear(g), space.toLinear(b)];
-            const [X, Y, Z] = multiplyMatrices(toXYZMatrix, linear);
-            return [X, Y, Z, a];
-        },
-
-        fromXYZA: (xyza: XYZA): number[] => {
-            const [X, Y, Z, a = 1] = xyza;
-            const [lr, lg, lb] = multiplyMatrices(fromXYZMatrix, [X, Y, Z]);
-            const r = space.fromLinear ? space.fromLinear(lr) : lr;
-            const g = space.fromLinear ? space.fromLinear(lg) : lg;
-            const b = space.fromLinear ? space.fromLinear(lb) : lb;
-            return [r, g, b, a];
-        },
-    } satisfies ConverterWithComponents;
-}
-
-/**
  * Returns the signed shortest delta from a → b in [–180,+180].
  */
 export function deltaHue(a: number, b: number): number {
@@ -200,4 +120,14 @@ export function interpolateComponents(
 
         return start + (to[index] - start) * t;
     });
+}
+
+export function sRGBToLinear(v: number) {
+    if (v <= 0.04045) return v / 12.92;
+    return Math.pow((v + 0.055) / 1.055, 2.4);
+}
+
+export function linearToSRGB(v: number) {
+    if (v <= 0.0031308) return 12.92 * v;
+    return 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
 }

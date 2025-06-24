@@ -1,34 +1,21 @@
 import Color from "./Color";
-import { formatConverters, namedColors, spaceConverters, converters } from "./converters";
+import {
+    namedColors,
+    spaceConverters,
+    colorTypes,
+    ColorFunction,
+    ColorFunctionConverter,
+    colorFunctionConverters,
+} from "./converters";
 import { EASINGS } from "./utils";
 
 /* eslint-disable no-unused-vars */
 
 /**
- * Represents a color in the XYZA color space with an optional alpha channel.
+ * Represents a color in the XYZ color space with an optional alpha channel.
  * Format: [X, Y, Z, A?]
  */
-export type XYZA = [number, number, number, number?];
-
-/**
- * Represents a color in the RGBA color space with an optional alpha channel.
- * Format: [red, green, blue, alpha?]
- */
-export type RGBA = [number, number, number, number?];
-
-/**
- * Options for creating a Color instance.
- */
-export interface ColorOptions {
-    /** The original color string value that was used to create the color. */
-    originalString: string;
-}
-
-/**
- * The supported color format names, derived from the keys of the `formatConverters` object.
- * For example, valid values might include "hex", "rgb", "hsl", etc.
- */
-export type Format = keyof typeof formatConverters;
+export type XYZ = [number, number, number, number?];
 
 /**
  * The supported color space names, derived from the keys of the `spaceConverters` object.
@@ -42,14 +29,13 @@ export type Space = keyof typeof spaceConverters;
  */
 export type Name = keyof typeof namedColors;
 
-/**
- * Represents a color model, which can be either a `Space` or a `Format` that has a converter with components.
- * Filters `Format` to only include those with `ConverterWithComponents`.
- */
-export type Model = {
-    [K in Format | Space]: (typeof converters)[K] extends ConverterWithComponents ? K : never;
-}[Format | Space];
-
+export type Format = {
+    [K in keyof typeof colorTypes]: (typeof colorTypes)[K] extends {
+        fromXYZ: (xyz: XYZ, options?: FormattingOptions) => string | undefined;
+    }
+        ? K
+        : never;
+}[keyof typeof colorTypes];
 /**
  * Defines the properties of a color component within a converter.
  */
@@ -71,58 +57,6 @@ export type ComponentDefinition = {
 };
 
 /**
- * Converter for color formats with components (e.g., RGB, HSL).
- */
-export interface ConverterWithComponents {
-    /** Regular expression to match the color string format. */
-    pattern: RegExp;
-
-    targetGamut: string | null;
-
-    /** Component definitions for this format (e.g., 'r', 'g', 'b'). */
-    components: Record<string, ComponentDefinition>;
-
-    /** Converts a color string to an array of component values. */
-    toComponents: (colorString: string) => number[];
-
-    /** Converts an array of component values to a color string. */
-    fromComponents: (colorArray: number[], options?: FormattingOptions) => string;
-
-    /** Converts component values to XYZA color space. */
-    toXYZA: (colorArray: number[]) => XYZA;
-
-    /** Converts XYZA color space to component values. */
-    fromXYZA: (xyza: XYZA) => number[];
-}
-
-/**
- * Converter for color formats without components (e.g., named colors or simple formats).
- */
-export interface ConverterWithoutComponents {
-    /** Regular expression to match the color string format. */
-    pattern: RegExp;
-
-    /** Converts a color string directly to XYZA color space. */
-    toXYZA: (colorString: string) => XYZA;
-
-    /** Converts XYZA color space directly to a color string. */
-    fromXYZA: (xyza: XYZA) => string;
-}
-
-/**
- * Union export type for all possible color converters.
- */
-export type ColorConverter = ConverterWithComponents | ConverterWithoutComponents;
-
-/**
- * Maps each `Format` to its corresponding converter.
- * Keys are specific format strings (e.g., 'rgb', 'hsl'), values are converters.
- */
-export interface Converters {
-    [key: string]: ColorConverter;
-}
-
-/**
  * Extracts the component names from a converter's component definitions,
  * adding the "alpha" channel as a possible component.
  *
@@ -139,14 +73,14 @@ export type ComponentNames<T> = T extends {
  *
  * @template M - The color model type.
  */
-export type Component<M extends Model> = (typeof converters)[M] extends ConverterWithComponents
-    ? ComponentNames<(typeof converters)[M]>
+export type Component<M extends ColorFunction> = (typeof colorFunctionConverters)[M] extends ColorFunctionConverter
+    ? ComponentNames<(typeof colorFunctionConverters)[M]>
     : never;
 
 /**
  * Defines operations on a color within a specific `Model`, enabling method chaining.
  */
-export interface Interface<M extends Model> {
+export interface Interface<M extends ColorFunction> {
     /** Gets all component values as an object. */
     get: (options?: GetOptions) => { [key in Component<M>]: number };
 
@@ -178,20 +112,12 @@ export type InterfaceWithSetOnly<T> = {
  * Options for formatting color output.
  */
 export interface FormattingOptions {
-    /** Use modern syntax (e.g., `rgb(255 0 0)` vs `rgb(255, 0, 0)`). */
-    modern?: boolean;
+    /** Use legacy syntax (e.g., `rgb(255, 0, 0, 0.5)`). */
+    legacy?: boolean;
 }
 
 export interface ToOptions extends FormattingOptions {
     fit?: FitMethod;
-}
-
-/**
- * Options for generating the next color, extending formatting options.
- */
-export interface ToNextColorOptions extends FormattingOptions {
-    /** Color formats or spaces to exclude from the sequence. */
-    exclude?: (Format | Space)[];
 }
 
 /**
@@ -213,6 +139,8 @@ export type SpaceMatrixMap = {
 
     /** Matrix to convert from XYZ. */
     fromXYZMatrix: number[][];
+
+    whitePoint: "D65" | "D50";
 };
 
 /**
@@ -229,33 +157,12 @@ export type Easing = keyof typeof EASINGS;
 
 export type FitMethod = "minmax" | "chroma-reduction" | "css-gamut-map";
 
-/**
- * Options for generating a color scale.
- */
-export interface ScaleOptions {
-    /** Number of colors to include in the scale (including endpoints). */
-    steps?: number;
-
-    /** The color model to interpolate in (e.g. `"lab"`, `"rgb"`, `"hsl"`, etc.). */
-    model?: Model;
-
-    /** Easing function to apply to the interpolation parameter. */
-    easing?: Easing | ((t: number) => number);
-
-    /** Method used for hue interpolation. */
-    hue?: HueInterpolationMethod;
-}
-
 export interface InGamutOptions {
     epsilon?: number;
 }
 
 export interface GetOptions {
     fit?: FitMethod;
-}
-
-export interface LightnessRangeOptions {
-    epsilon?: number;
 }
 
 export type MixOptions = {
@@ -296,8 +203,4 @@ export interface EvaluateAccessibilityOptions {
     algorithm?: "wcag21" | "apca" | "oklab";
 }
 
-export type Pattern = keyof typeof Color.patterns;
-
 export type VisionDeficiencyType = "protanopia" | "deuteranopia" | "tritanopia";
-
-export type ClusterOptions = { k: number };
