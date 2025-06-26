@@ -179,14 +179,26 @@ export const D65_to_D50 = [
 ];
 
 // TODO: missing relative parsing
-// TODO: missing color function converters
 export function createColorFunctionConverter(name: string, converter: ColorFunctionConverter) {
-    const tokenize = (str: string): string[] => {
-        const inner = str
-            .trim()
-            .slice(name.length + 1, -1)
-            .trim();
+    const tokenize = (str: string) => {
+        const cleaned = str.trim();
 
+        if (cleaned.toLowerCase().startsWith("color(")) {
+            const inner = cleaned.slice(6, -1).trim();
+            const [spaceAndMain, alpha] = inner.split("/").map((s) => s.trim());
+
+            const parts = spaceAndMain.split(/\s+/);
+            const colorSpace = parts[0];
+            const components = parts.slice(1);
+
+            if (alpha !== undefined) {
+                components.push(alpha);
+            }
+
+            return [colorSpace, ...components];
+        }
+
+        const inner = cleaned.slice(name.length + 1, -1).trim();
         const [main, alpha] = inner.split("/").map((s) => s.trim());
 
         let components: string[] = [];
@@ -210,7 +222,7 @@ export function createColorFunctionConverter(name: string, converter: ColorFunct
             min: number;
             max: number;
         }
-    ): number => {
+    ) => {
         token = token.trim().toLowerCase();
 
         if (token === "none") return 0;
@@ -258,6 +270,9 @@ export function createColorFunctionConverter(name: string, converter: ColorFunct
     return {
         isValid: (str: string) => {
             const cleaned = str.trim().toLowerCase();
+            if (name in colorSpaceConverters) {
+                return cleaned.startsWith(`color(${name}`) && cleaned.endsWith(")");
+            }
             return cleaned.startsWith(`${name}${converter.supportsLegacy ? "a" : ""}(`) && cleaned.endsWith(")");
         },
         toXYZ: (str: string) => {
@@ -279,6 +294,10 @@ export function createColorFunctionConverter(name: string, converter: ColorFunct
             });
 
             const alphaFormatted = Math.min(Math.max(alpha, 0), 1).toFixed(3);
+
+            if (name in colorSpaceConverters) {
+                return `color(${name} ${formatted.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
+            }
 
             if (legacy === true && converter.supportsLegacy === true) {
                 if (alpha === 1) return `${name}(${formatted.join(", ")})`;
@@ -572,6 +591,7 @@ export const colorSpaceConverters = {
     }),
 } as const satisfies Record<string, ColorFunctionConverter>;
 
+// FIXME: fix rgb
 export const colorFunctionConverters = {
     rgb: {
         supportsLegacy: true,

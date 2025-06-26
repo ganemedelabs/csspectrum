@@ -1,4 +1,6 @@
-import type { ComponentDefinition, HueInterpolationMethod } from "./types.js";
+import Color from "./Color.js";
+import { colorFunctionConverters } from "./converters.js";
+import type { ColorFunction, ColorSpace, ComponentDefinition, FitMethod, HueInterpolationMethod } from "./types.js";
 
 export const D50_to_D65 = [
     [0.955473421488075, -0.02309845494876471, 0.06325924320057072],
@@ -130,4 +132,185 @@ export function SRGB_to_LRGB(v: number) {
 export function LRGB_to_SRGB(v: number) {
     if (v <= 0.0031308) return 12.92 * v;
     return 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
+}
+
+export function lightnessRange(hue: number, gamut: ColorSpace, options: { epsilon?: number } = {}) {
+    const C = 0.05;
+    const epsilon = options.epsilon || 1e-5;
+
+    const isInGamut = (L: number) => {
+        const color = Color.in("oklch").setCoords([L, C, hue]);
+        return color.inGamut(gamut, { epsilon });
+    };
+
+    const searchMinL = () => {
+        let low = 0,
+            high = 1;
+        while (high - low > epsilon) {
+            const mid = (low + high) / 2;
+            if (isInGamut(mid)) high = mid;
+            else low = mid;
+        }
+        return high;
+    };
+
+    const searchMaxL = () => {
+        let low = 0,
+            high = 1;
+        while (high - low > epsilon) {
+            const mid = (low + high) / 2;
+            if (isInGamut(mid)) low = mid;
+            else high = mid;
+        }
+        return low;
+    };
+
+    const L_min = searchMinL();
+    const L_max = searchMaxL();
+
+    return [L_min, L_max];
+}
+
+export function fit(coords: number[], model: ColorFunction, method: FitMethod = "minmax") {
+    const roundCoords = (coords: number[]) => {
+        return coords.map((value, i) => {
+            const precision = componentProps[i]?.precision ?? 5;
+            return Number(value.toFixed(precision));
+        });
+    };
+
+    const { targetGamut, components } = colorFunctionConverters[model];
+
+    const componentProps: ComponentDefinition[] = [];
+    for (const [, props] of Object.entries(components)) {
+        componentProps[props.index] = props;
+    }
+
+    switch (method) {
+        case "minmax": {
+            const clipped = coords.map((value, i) => {
+                const props = componentProps[i];
+                if (!props) {
+                    throw new Error(`Missing component properties for index ${i}.`);
+                }
+                if (props.loop) {
+                    const range = props.max - props.min;
+                    return props.min + ((((value - props.min) % range) + range) % range);
+                } else {
+                    return Math.min(props.max, Math.max(props.min, value));
+                }
+            });
+            return roundCoords(clipped);
+        }
+
+        case "chroma-reduction": {
+            const color = Color.in(model).setCoords(coords);
+            if (targetGamut === null || color.inGamut(targetGamut as ColorSpace, { epsilon: 1e-5 })) {
+                return roundCoords(coords);
+            }
+
+            const [L, , H, alpha] = color.in("oklch").getCoords();
+            const [L_min, L_max] = lightnessRange(H, targetGamut as ColorSpace);
+            const L_adjusted = Math.min(L_max, Math.max(L_min, L));
+
+            let C_low = 0;
+            let C_high = 1.0;
+            const epsilon = 1e-6;
+            let clipped: number[] = [];
+
+            while (C_high - C_low > epsilon) {
+                const C_mid = (C_low + C_high) / 2;
+                const candidate_color = Color.in("oklch").setCoords([L_adjusted, C_mid, H, alpha]);
+
+                if (candidate_color.inGamut(targetGamut as ColorSpace, { epsilon: 1e-5 })) {
+                    C_low = C_mid;
+                } else {
+                    const clipped_coords = fit(candidate_color.getCoords(), model, "minmax");
+                    const clipped_color = Color.in(model).setCoords(clipped_coords);
+                    const deltaE = candidate_color.deltaEOK(clipped_color);
+                    if (deltaE < 2) {
+                        clipped = clipped_coords;
+                        return roundCoords(clipped);
+                    } else {
+                        C_high = C_mid;
+                    }
+                }
+            }
+
+            const finalColor = Color.in("oklch").setCoords([L_adjusted, C_low, H, alpha]);
+            clipped = finalColor.in(model).getCoords();
+            return roundCoords(clipped);
+        }
+
+        case "css-gamut-map": {
+            if (targetGamut === null) {
+                return roundCoords(coords);
+            }
+
+            const color = Color.in(model).setCoords(coords);
+
+            const [L, C, H, alpha] = color.in("oklch").getCoords();
+
+            if (L >= 1.0) {
+                const white = Color.in("oklab").setCoords([1, 0, 0, alpha]);
+                return roundCoords(white.in(model).getCoords());
+            }
+
+            if (L <= 0.0) {
+                const black = Color.in("oklab").setCoords([0, 0, 0, alpha]);
+                return roundCoords(black.in(model).getCoords());
+            }
+
+            if (color.inGamut(targetGamut as ColorSpace, { epsilon: 1e-5 })) {
+                return roundCoords(coords);
+            }
+
+            const JND = 0.02;
+            const epsilon = 0.0001;
+
+            const current = Color.in("oklch").setCoords([L, C, H, alpha]);
+            let clipped: number[] = fit(current.getCoords(), model, "minmax");
+
+            const initialClippedColor = Color.in(model).setCoords(clipped);
+            const E = current.deltaEOK(initialClippedColor);
+
+            if (E < JND) {
+                return roundCoords(clipped);
+            }
+
+            let min = 0;
+            let max = C;
+            let min_inGamut = true;
+
+            while (max - min > epsilon) {
+                const chroma = (min + max) / 2;
+                const candidate = Color.in("oklch").setCoords([L, chroma, H, alpha]);
+
+                if (min_inGamut && candidate.inGamut(targetGamut as ColorSpace, { epsilon: 1e-5 })) {
+                    min = chroma;
+                } else {
+                    const clippedCoords = fit(candidate.getCoords(), model, "minmax");
+                    clipped = clippedCoords;
+                    const clippedColor = Color.in(model).setCoords(clippedCoords);
+                    const deltaE = candidate.deltaEOK(clippedColor);
+
+                    if (deltaE < JND) {
+                        if (JND - deltaE < epsilon) {
+                            return roundCoords(clipped);
+                        } else {
+                            min_inGamut = false;
+                            min = chroma;
+                        }
+                    } else {
+                        max = chroma;
+                    }
+                }
+            }
+
+            return roundCoords(clipped);
+        }
+
+        default:
+            throw new Error(`Invalid gamut clipping method: must be 'minmax', 'chroma-reduction', or 'css-gamut-map'.`);
+    }
 }
