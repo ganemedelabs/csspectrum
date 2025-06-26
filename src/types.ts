@@ -1,12 +1,5 @@
 import Color from "./Color";
-import {
-    namedColors,
-    spaceConverters,
-    colorTypes,
-    ColorFunction,
-    ColorFunctionConverter,
-    colorFunctionConverters,
-} from "./converters";
+import { namedColors, colorTypes, colorFunctionConverters, colorBases, colorSpaceConverters } from "./converters";
 import { EASINGS } from "./utils";
 
 /* eslint-disable no-unused-vars */
@@ -18,24 +11,65 @@ import { EASINGS } from "./utils";
 export type XYZ = [number, number, number, number?];
 
 /**
- * The supported color space names, derived from the keys of the `spaceConverters` object.
- * Examples include "srgb", "display-p3", "rec2020", etc.
- */
-export type Space = keyof typeof spaceConverters;
-
-/**
  * Represents a named color identifier, derived from the keys of the `_namedColors` object.
  * Examples include "red", "darkslategrey", "mediumvioletred", etc.
  */
-export type Name = keyof typeof namedColors;
+export type NamedColor = keyof typeof namedColors;
 
-export type Format = {
+export type OutputType = {
     [K in keyof typeof colorTypes]: (typeof colorTypes)[K] extends {
-        fromXYZ: (xyz: XYZ, options?: FormattingOptions) => string | undefined;
+        fromXYZ?: (xyz: XYZ, options?: FormattingOptions) => string | undefined;
     }
         ? K
         : never;
 }[keyof typeof colorTypes];
+
+export type ColorType = keyof typeof colorTypes;
+
+export type ColorBase = keyof typeof colorBases;
+
+export type ColorFunction = keyof typeof colorFunctionConverters;
+
+export type ColorSpace = keyof typeof colorSpaceConverters;
+
+export interface ColorConverter {
+    isValid: (str: string) => boolean;
+    toXYZ: (str: string) => XYZ | undefined;
+    fromXYZ?: (xyz: XYZ, options?: FormattingOptions) => string | undefined;
+}
+
+export interface ColorFunctionConverter {
+    targetGamut: string | null;
+    supportsLegacy: boolean;
+    components: Record<string, ComponentDefinition>;
+    toXYZ: (components: [number, number, number, number]) => XYZ;
+    fromXYZ: (xyz: XYZ, options?: FormattingOptions) => [number, number, number, number];
+}
+
+/**
+ * Defines a color space’s transformation properties.
+ */
+export type ColorSpaceConverter = {
+    targetGamut?: null;
+
+    /** Names of components in this space. */
+    components: string[];
+
+    /** Linearization function. */
+    toLinear: (c: number) => number;
+
+    /** Inverse linearization. */
+    fromLinear: (c: number) => number;
+
+    /** Matrix to convert to XYZ. */
+    toXYZMatrix: number[][];
+
+    /** Matrix to convert from XYZ. */
+    fromXYZMatrix: number[][];
+
+    whitePoint: "D65" | "D50";
+};
+
 /**
  * Defines the properties of a color component within a converter.
  */
@@ -73,9 +107,9 @@ export type ComponentNames<T> = T extends {
  *
  * @template M - The color model type.
  */
-export type Component<M extends ColorFunction> = (typeof colorFunctionConverters)[M] extends ColorFunctionConverter
-    ? ComponentNames<(typeof colorFunctionConverters)[M]>
-    : never;
+export type Component<M extends keyof typeof colorFunctionConverters> = ComponentNames<
+    (typeof colorFunctionConverters)[M]
+>;
 
 /**
  * Defines operations on a color within a specific `Model`, enabling method chaining.
@@ -109,46 +143,6 @@ export type InterfaceWithSetOnly<T> = {
 };
 
 /**
- * Options for formatting color output.
- */
-export interface FormattingOptions {
-    /** Use legacy syntax (e.g., `rgb(255, 0, 0, 0.5)`). */
-    legacy?: boolean;
-}
-
-export interface ToOptions extends FormattingOptions {
-    fit?: FitMethod;
-}
-
-/**
- * Defines a color space’s transformation properties.
- */
-export type SpaceMatrixMap = {
-    targetGamut?: null;
-    /** Names of components in this space. */
-    components: string[];
-
-    /** Linearization function. */
-    toLinear: (c: number) => number;
-
-    /** Inverse linearization. */
-    fromLinear: (c: number) => number;
-
-    /** Matrix to convert to XYZ. */
-    toXYZMatrix: number[][];
-
-    /** Matrix to convert from XYZ. */
-    fromXYZMatrix: number[][];
-
-    whitePoint: "D65" | "D50";
-};
-
-/**
- * Maps space identifiers to their matrix definitions.
- */
-export type Spaces = Record<string, SpaceMatrixMap>;
-
-/**
  * Specifies the method used for interpolating hue values during color mixing.
  */
 export type HueInterpolationMethod = "shorter" | "longer" | "increasing" | "decreasing";
@@ -156,6 +150,17 @@ export type HueInterpolationMethod = "shorter" | "longer" | "increasing" | "decr
 export type Easing = keyof typeof EASINGS;
 
 export type FitMethod = "minmax" | "chroma-reduction" | "css-gamut-map";
+
+export type VisionDeficiencyType = "protanopia" | "deuteranopia" | "tritanopia";
+
+/**
+ * Options for formatting color output.
+ */
+export interface FormattingOptions {
+    /** Use legacy syntax (e.g., `rgb(255, 0, 0, 0.5)`). */
+    legacy?: boolean;
+    fit?: FitMethod;
+}
 
 export interface InGamutOptions {
     epsilon?: number;
@@ -165,7 +170,7 @@ export interface GetOptions {
     fit?: FitMethod;
 }
 
-export type MixOptions = {
+export interface MixOptions {
     /** Amount of the second color to mix in, between 0 and 1. */
     amount?: number;
 
@@ -176,7 +181,7 @@ export type MixOptions = {
     easing?: Easing | ((t: number) => number);
 
     gamma?: number;
-};
+}
 
 export interface EvaluateAccessibilityOptions {
     /** The element type: "text" (default) or "non-text" (e.g., UI components per WCAG 1.4.11). */
@@ -202,5 +207,3 @@ export interface EvaluateAccessibilityOptions {
      */
     algorithm?: "wcag21" | "apca" | "oklab";
 }
-
-export type VisionDeficiencyType = "protanopia" | "deuteranopia" | "tritanopia";

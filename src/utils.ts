@@ -1,4 +1,4 @@
-import type { ComponentDefinition, HueInterpolationMethod, SpaceMatrixMap, XYZ } from "./types.js";
+import type { ComponentDefinition, HueInterpolationMethod } from "./types.js";
 
 export const D50_to_D65 = [
     [0.955473421488075, -0.02309845494876471, 0.06325924320057072],
@@ -17,12 +17,12 @@ export const D65 = [0.3127 / 0.329, 1.0, (1.0 - 0.3127 - 0.329) / 0.329];
 
 export const EASINGS = {
     linear: (t: number) => t,
-    easeIn: (t: number) => t * t,
-    easeOut: (t: number) => t * (2 - t),
-    easeInOut: (t: number) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t),
-    easeInCubic: (t: number) => t * t * t,
-    easeOutCubic: (t: number) => --t * t * t + 1,
-    easeInOutCubic: (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
+    "ease-in": (t: number) => t * t,
+    "ease-out": (t: number) => t * (2 - t),
+    "ease-in-out": (t: number) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t),
+    "ease-in-cubic": (t: number) => t * t * t,
+    "ease-out-cubic": (t: number) => --t * t * t + 1,
+    "ease-in-out-cubic": (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
 };
 
 /**
@@ -122,12 +122,12 @@ export function interpolateComponents(
     });
 }
 
-export function sRGBToLinear(v: number) {
+export function SRGB_to_LRGB(v: number) {
     if (v <= 0.04045) return v / 12.92;
     return Math.pow((v + 0.055) / 1.055, 2.4);
 }
 
-export function linearToSRGB(v: number) {
+export function LRGB_to_SRGB(v: number) {
     if (v <= 0.0031308) return 12.92 * v;
     return 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
 }

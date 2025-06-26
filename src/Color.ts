@@ -1,29 +1,31 @@
 import {
-    ColorFunction,
     colorFunctionConverters,
     colorFunctions,
     colorTypes,
     namedColors,
-    spaceConverters,
+    colorSpaceConverters,
+    createSpaceConverter,
 } from "./converters";
-import { EASINGS, interpolateComponents, linearToSRGB, multiplyMatrices, sRGBToLinear } from "./utils";
+import { EASINGS, interpolateComponents } from "./utils";
 import type {
     XYZ,
-    Space,
-    Name,
     ComponentDefinition,
     Component,
     Interface,
     InterfaceWithSetOnly,
-    SpaceMatrixMap,
-    HueInterpolationMethod,
     InGamutOptions,
     GetOptions,
     FitMethod,
-    ToOptions,
     MixOptions,
     EvaluateAccessibilityOptions,
-    VisionDeficiencyType,
+    ColorFunction,
+    ColorType,
+    OutputType,
+    FormattingOptions,
+    NamedColor,
+    ColorSpace,
+    ColorFunctionConverter,
+    ColorSpaceConverter,
 } from "./types";
 
 const config = {
@@ -106,8 +108,11 @@ class Color {
 
     static config = config;
 
-    constructor(xyz: XYZ) {
-        this.xyz = xyz;
+    constructor(x: number, y: number, z: number, alpha: number = 1) {
+        if (typeof x !== "number" || typeof y !== "number" || typeof z !== "number" || typeof alpha !== "number") {
+            throw new TypeError("Color constructor expects four numeric arguments: x, y, z, and alpha.");
+        }
+        this.xyz = [x, y, z, alpha];
     }
 
     /**
@@ -122,7 +127,7 @@ class Color {
      * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
      */
     private fit(model: ColorFunction, method: FitMethod = "minmax") {
-        function lightnessRange(color: Color, gamut: Space, options: { epsilon?: number } = {}) {
+        function lightnessRange(color: Color, gamut: ColorSpace, options: { epsilon?: number } = {}) {
             const C = 0.05;
             const epsilon = options.epsilon || 1e-5;
             const { h: hue } = color.in("oklch").get() as { h: number };
@@ -180,7 +185,7 @@ class Color {
                 const clipped = coords.map((value, i) => {
                     const props = componentProps[i];
                     if (!props) {
-                        throw new Error(`Missing component properties for index ${i}`);
+                        throw new Error(`Missing component properties for index ${i}.`);
                     }
                     if (props.loop) {
                         const range = props.max - props.min;
@@ -193,12 +198,12 @@ class Color {
             }
 
             case "chroma-reduction": {
-                if (targetGamut === null || this.inGamut(targetGamut as Space, { epsilon: 1e-5 })) {
+                if (targetGamut === null || this.inGamut(targetGamut as ColorSpace, { epsilon: 1e-5 })) {
                     return roundCoords(coords);
                 }
 
                 const [L, , H, alpha] = this.in("oklch").getCoords();
-                const [L_min, L_max] = lightnessRange(this, targetGamut as Space);
+                const [L_min, L_max] = lightnessRange(this, targetGamut as ColorSpace);
                 const L_adjusted = Math.min(L_max, Math.max(L_min, L));
 
                 let C_low = 0;
@@ -210,7 +215,7 @@ class Color {
                     const C_mid = (C_low + C_high) / 2;
                     const candidate_color = Color.in("oklch").setCoords([L_adjusted, C_mid, H, alpha]);
 
-                    if (candidate_color.inGamut(targetGamut as Space, { epsilon: 1e-5 })) {
+                    if (candidate_color.inGamut(targetGamut as ColorSpace, { epsilon: 1e-5 })) {
                         C_low = C_mid;
                     } else {
                         const clipped_coords = candidate_color.fit(model, "minmax");
@@ -247,7 +252,7 @@ class Color {
                     return roundCoords(black.in(model).getCoords());
                 }
 
-                if (this.inGamut(targetGamut as Space, { epsilon: 1e-5 })) {
+                if (this.inGamut(targetGamut as ColorSpace, { epsilon: 1e-5 })) {
                     return roundCoords(coords);
                 }
 
@@ -272,7 +277,7 @@ class Color {
                     const chroma = (min + max) / 2;
                     const candidate = Color.in("oklch").setCoords([L, chroma, H, alpha]);
 
-                    if (min_inGamut && candidate.inGamut(targetGamut as Space, { epsilon: 1e-5 })) {
+                    if (min_inGamut && candidate.inGamut(targetGamut as ColorSpace, { epsilon: 1e-5 })) {
                         min = chroma;
                     } else {
                         const clippedCoords = candidate.fit(model, "minmax");
@@ -297,7 +302,9 @@ class Color {
             }
 
             default:
-                throw new Error(`Invalid gamut clipping method: ${method}`);
+                throw new Error(
+                    `Invalid gamut clipping method: must be 'minmax', 'chroma-reduction', or 'css-gamut-map'.`
+                );
         }
     }
 
@@ -307,14 +314,14 @@ class Color {
      * @param color - The color string to convert.
      * @returns A new `Color` instance.
      */
-    static from(color: Name): Color; // eslint-disable-line no-unused-vars
+    static from(color: NamedColor): Color; // eslint-disable-line no-unused-vars
     static from(color: string): Color; // eslint-disable-line no-unused-vars
-    static from(color: Name | string) {
+    static from(color: NamedColor | string) {
         for (const type in colorTypes) {
             const colorType = colorTypes[type as keyof typeof colorTypes];
             if (colorType.isValid(color)) {
-                const xyz = colorType.toXYZ(color) || [0, 0, 0, 1];
-                return new Color(xyz);
+                const [x, y, z, alpha] = colorType.toXYZ(color) || [0, 0, 0, 1];
+                return new Color(x, y, z, alpha);
             }
         }
         throw new Error(`Unsupported or invalid color format: ${color}`);
@@ -329,7 +336,7 @@ class Color {
     static in<M extends ColorFunction>(model: M): InterfaceWithSetOnly<Interface<M>>; // eslint-disable-line no-unused-vars
     static in(model: string): InterfaceWithSetOnly<Interface<any>>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
     static in<M extends ColorFunction>(model: string | M): InterfaceWithSetOnly<Interface<M>> {
-        const color = new Color([0, 0, 0, 1]);
+        const color = new Color(0, 0, 0, 1);
         const result = Object.fromEntries(Object.entries(color.in(model)).filter(([key]) => key.startsWith("set")));
         return result as InterfaceWithSetOnly<Interface<M>>;
     }
@@ -341,81 +348,54 @@ class Color {
      * @returns The detected color format if resolve is true, otherwise the detected color pattern type.
      * @throws {Error} If the color format is unsupported.
      */
-    static type(color: string) {
+    static type(color: string): ColorType | undefined {
         for (const type in colorTypes) {
-            const colorType = colorTypes[type as keyof typeof colorTypes];
-            if (colorType.isValid(color)) return type;
+            const colorType = colorTypes[type as ColorType];
+            if (colorType.isValid(color)) return type as ColorType;
         }
+        return undefined;
     }
 
     /**
      * Registers a new named color in the system.
      *
      * @param name - The name of the color to register. Spaces and hyphens will be removed, and the name will be converted to lowercase.
-     * @param rgba - The RGBA color values to associate with the name.
-     * @throws {Error} If a color with the same name (after cleaning) is already registered.
+     * @param rgb - The RGB color values to associate with the name.
+     * @throws {Error} If a color with the same name is already registered.
      */
-    // static registerNamedColor(name: string, rgba: RGBA) {
-    //     const cleanedName = name.replace(/(?:\s+|-)/g, "").toLowerCase();
-    //     if ((namedColors as Record<Name, RGBA>)[cleanedName as Name]) {
-    //         throw new Error(`Color name "${name}" is already registered.`);
-    //     }
+    static registerNamedColor(name: string, rgb: [number, number, number]) {
+        const cleanedName = name.replace(/(?:\s+|-)/g, "").toLowerCase();
+        if ((namedColors as Record<NamedColor, [number, number, number]>)[cleanedName as NamedColor]) {
+            throw new Error(`Color name "${name}" is already registered.`);
+        }
 
-    //     (namedColors as Record<Name, RGBA>)[cleanedName as Name] = rgba;
-    // }
+        for (const existingRgb of Object.values(namedColors)) {
+            if (existingRgb[0] === rgb[0] && existingRgb[1] === rgb[1] && existingRgb[2] === rgb[2]) {
+                throw new Error(`RGB value [${rgb.join(", ")}] is already registered under another name.`);
+            }
+        }
 
-    /**
-     * Registers a new color format with its corresponding converter.
-     *
-     * @param formatName - The name of the color format to register
-     * @param formatObject - The converter object that handles the color format. Can be either:
-     *                      - A ConverterWithComponents object that specifies component definitions
-     *                      - A ConverterWithoutComponents object for formats without defined components
-     *
-     * @remarks
-     * The alpha component is added automatically with a range of 0-1 and precision of 3.
-     */
-    // static registerFormat(formatName: string, converter: ConverterWithComponents | ConverterWithoutComponents) {
-    //     (formatConverters as Record<Format, ConverterWithComponents | ConverterWithoutComponents>)[
-    //         formatName as Format
-    //     ] = converter;
+        (namedColors as Record<NamedColor, [number, number, number]>)[cleanedName as NamedColor] = rgb;
+    }
 
-    //     if ("components" in converter) {
-    //         const components = converter.components as Record<string, ComponentDefinition>;
-    //         components["alpha"] = {
-    //             index: Object.keys(components).length,
-    //             min: 0,
-    //             max: 1,
-    //             precision: 3,
-    //         };
-    //     }
+    static registerColorFunction(name: string, converter: ColorFunctionConverter) {
+        if (name in colorFunctionConverters) {
+            throw new Error(`Color function "${name}" is already registered.`);
+        }
 
-    //     (converters as Record<string, ColorConverter>)[formatName] = converter;
-    // }
+        (colorFunctionConverters as unknown as Record<string, ColorFunctionConverter>)[name] = converter;
+    }
 
-    /**
-     * Registers a new color space with its corresponding conversion matrix.
-     *
-     * @param spaceName - The name of the color space to register
-     * @param spaceObject - The matrix mapping object containing conversion data
-     *
-     * @remarks
-     * The alpha component is added automatically with a range of 0-1 and precision of 3.
-     */
-    // static registerSpace(spaceName: string, spaceMatrix: SpaceMatrixMap) {
-    //     const spaceConverter = createSpaceConverter(spaceName, spaceMatrix);
-    //     (spaceConverters as Record<Space, ConverterWithComponents>)[spaceName as Space] = spaceConverter;
+    static registerColorSpace(name: string, converter: ColorSpaceConverter) {
+        if (name in colorSpaceConverters) {
+            throw new Error(`Color space "${name}" is already registered.`);
+        }
 
-    //     const components = spaceConverter.components as Record<string, ComponentDefinition>;
-    //     components["alpha"] = {
-    //         index: Object.keys(components).length,
-    //         min: 0,
-    //         max: 1,
-    //         precision: 3,
-    //     };
-
-    //     (converters as Record<string, ColorConverter>)[spaceName] = spaceConverter;
-    // }
+        (colorSpaceConverters as unknown as Record<string, ColorFunctionConverter>)[name] = createSpaceConverter(
+            name,
+            converter
+        );
+    }
 
     /**
      * Retrieves a list of all supported color formats.
@@ -434,22 +414,22 @@ class Color {
      *               If omitted, a random format or space is selected.
      * @returns A random color string in the specified format or space.
      */
-    static random(type?: string): string; // eslint-disable-line no-unused-vars
-    static random(type?: ColorFunction): string; // eslint-disable-line no-unused-vars
-    static random(type?: ColorFunction | string) {
-        if (!type) {
-            const types = Object.keys(colorTypes).concat(Object.keys(spaceConverters));
-            type = types[Math.floor(Math.random() * types.length)];
-        }
+    // static random(type?: string): string; // eslint-disable-line no-unused-vars
+    // static random(type?: ColorFunction): string; // eslint-disable-line no-unused-vars
+    // static random(type?: ColorFunction | string) {
+    //     if (!type) {
+    //         const types = Object.keys(colorTypes).concat(Object.keys(colorSpaceConverters));
+    //         type = types[Math.floor(Math.random() * types.length)];
+    //     }
 
-        if (type === "named") {
-            return Object.keys(namedColors)[Math.floor(Math.random() * Object.keys(namedColors).length)];
-        }
+    //     if (type === "named") {
+    //         return Object.keys(namedColors)[Math.floor(Math.random() * Object.keys(namedColors).length)];
+    //     }
 
-        const randomChannel = () => Math.floor(Math.random() * 200 + 30);
-        const randomColor = this.from(`rgb(${randomChannel()}, ${randomChannel()}, ${randomChannel()})`);
-        return randomColor.to(type);
-    }
+    //     const randomChannel = () => Math.floor(Math.random() * 200 + 30);
+    //     const randomColor = this.from(`rgb(${randomChannel()}, ${randomChannel()}, ${randomChannel()})`);
+    //     return randomColor.to(type);
+    // }
 
     /**
      * Parses a CSS relative color string into its components.
@@ -781,15 +761,19 @@ class Color {
      * @param options - Formatting options.
      * @returns The color in the specified format.
      */
-    // to(format: string, options?: ToOptions): string; // eslint-disable-line no-unused-vars
-    // to(format: ColorFunction, options?: ToOptions): string; // eslint-disable-line no-unused-vars
-    to(format: ColorFunction | string, options: ToOptions = {}) {
-        // const { legacy = false, fit = "minmax" } = options;
-        const converter = colorFunctionConverters[format as ColorFunction];
+    to(format: string, options?: FormattingOptions): string; // eslint-disable-line no-unused-vars
+    to(format: OutputType, options?: FormattingOptions): string; // eslint-disable-line no-unused-vars
+    to(format: OutputType | string, options: FormattingOptions = {}) {
+        const { legacy = false, fit = "minmax" } = options;
+        const converter = colorTypes[format as OutputType];
 
-        if (!converter) throw new Error(`Unsupported color format: ${String(format)}`);
+        if (!converter) throw new Error(`Unsupported color format: ${String(format)}.`);
 
-        return converter.fromXYZ(this.xyz);
+        if (typeof converter.fromXYZ !== "function") {
+            throw new Error(`Invalid output type: ${String(format)}.`);
+        }
+
+        return converter.fromXYZ(this.xyz, { legacy, fit });
     }
 
     /**
@@ -924,7 +908,7 @@ class Color {
                 return blendedL;
             }
             default:
-                throw new Error(`"${space} color space is not supported for luminance.`);
+                throw new Error(`Invalid color space for luminance: must be 'xyz' or 'oklab'.`);
         }
     }
 
@@ -945,7 +929,7 @@ class Color {
      */
     contrastRatio(background: string | Color, algorithm: "wcag21" | "apca" | "oklab" = "wcag21"): number {
         const bgColor = typeof background === "string" ? Color.from(background) : background;
-        if (!bgColor) throw new Error("Invalid background color");
+        if (!bgColor) throw new Error(`Invalid background color: ${background}.`);
 
         if (algorithm === "wcag21") {
             const L_bg = bgColor.luminance(undefined, "xyz");
@@ -983,7 +967,7 @@ class Color {
 
             return S_apc > 0 ? (S_apc - W_offset) * 100 : (S_apc + W_offset) * 100;
         }
-        throw new Error("Unsupported contrast algorithm");
+        throw new Error(`Unsupported contrast algorithm: must be 'wcag21', 'apca', or 'oklab'.`);
     }
 
     /**
@@ -1001,11 +985,11 @@ class Color {
             throw new Error("Invalid level: must be 'AA' or 'AAA'");
         }
         if (type === "text" && (fontSize <= 0 || !isFinite(fontSize))) {
-            throw new Error("Invalid fontSize: must be a positive number");
+            throw new Error("Invalid fontSize: must be a positive number.");
         }
 
         if (type === "text" && (fontWeight < 100 || fontWeight > 900)) {
-            throw new Error("Invalid fontWeight: must be 100-900");
+            throw new Error("Invalid fontWeight: must be 100-900.");
         }
         const backgroundColor = typeof background === "string" ? Color.from(background) : background;
 
@@ -1070,7 +1054,7 @@ class Color {
                         : `OKLab lightness difference ${contrast.toFixed(2)} fails requirements (needs at least ${requiredContrast}).`;
             }
         } else {
-            throw new Error("Unsupported contrast algorithm");
+            throw new Error("Unsupported contrast algorithm: must be 'wcag21', 'apca', or 'oklab'.");
         }
 
         const isAccessible = Math.abs(contrast) >= requiredContrast;
@@ -1246,7 +1230,7 @@ class Color {
             return Math.sqrt(dE);
         }
 
-        throw new Error(`Unsupported Delta E method: ${method}`);
+        throw new Error(`Unsupported Delta E method: must be '76', '94', or '2000'.`);
     }
 
     /**
@@ -1255,8 +1239,10 @@ class Color {
      * @param other - The color string to compare with the current color object.
      * @returns Whether the two colors are equal.
      */
+    // TODO: add epsilon option
     equals(other: Color | string) {
-        return this.to("xyz") === (typeof other === "string" ? Color.from(other) : other).to("xyz");
+        const otherColor = typeof other === "string" ? Color.from(other) : other;
+        return this.xyz.length === otherColor.xyz.length && this.xyz.every((value, i) => value === otherColor.xyz[i]);
     }
 
     /**
@@ -1266,7 +1252,10 @@ class Color {
      * @param options - Optional parameters, including epsilon for tolerance.
      * @returns `true` if the color is within the gamut, `false` otherwise.
      */
-    inGamut(gamut: Space, options: InGamutOptions = {}) {
+    inGamut(gamut: ColorSpace, options: InGamutOptions = {}) {
+        if (!(gamut in colorSpaceConverters)) {
+            throw new Error(`Unsupported color gamut: ${gamut}.`);
+        }
         const { components, targetGamut } = colorFunctionConverters[gamut];
         const { epsilon = 1e-5 } = options;
         const coords = this.in(gamut).getCoords();
