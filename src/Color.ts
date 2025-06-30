@@ -1,12 +1,5 @@
-import {
-    colorFunctionConverters,
-    colorFunctions,
-    colorTypes,
-    namedColors,
-    colorSpaceConverters,
-    createSpaceConverter,
-} from "./converters";
-import { EASINGS, interpolateComponents, fit } from "./utils";
+import { colorFunctionConverters, colorTypes, namedColors, colorSpaceConverters, colorBases } from "./converters";
+import { EASINGS, interpolateComponents, fit, functionConverterFromSpaceConverter } from "./utils";
 import type {
     XYZ,
     ComponentDefinition,
@@ -15,7 +8,6 @@ import type {
     InterfaceWithSetOnly,
     InGamutOptions,
     GetOptions,
-    FitMethod,
     MixOptions,
     EvaluateAccessibilityOptions,
     ColorFunction,
@@ -26,6 +18,8 @@ import type {
     ColorSpace,
     ColorFunctionConverter,
     ColorSpaceConverter,
+    EqualsOptions,
+    ColorConverter,
 } from "./types";
 
 const config = {
@@ -104,6 +98,7 @@ const config = {
  * and retrieval of colors in various formats (e.g., RGB, HEX, HSL).
  */
 class Color {
+    /** The color represented as an XYZ tuple, with the last value being alpha (opacity). */
     xyz: XYZ = [0, 0, 0, 1];
 
     static config = config;
@@ -153,7 +148,7 @@ class Color {
      *
      * @param color - The color string to analyze.
      * @returns The detected color format if resolve is true, otherwise the detected color pattern type.
-     * @throws {Error} If the color format is unsupported.
+     * @throws If the color format is unsupported.
      */
     static type(color: string): ColorType | undefined {
         for (const type in colorTypes) {
@@ -164,402 +159,144 @@ class Color {
     }
 
     /**
-     * Registers a new named color in the system.
+     * Registers a new `<named-color>` with the specified RGB value.
      *
-     * @param name - The name of the color to register. Spaces and hyphens will be removed, and the name will be converted to lowercase.
-     * @param rgb - The RGB color values to associate with the name.
-     * @throws {Error} If a color with the same name is already registered.
+     * @param name - The name to register for the color.
+     * @param rgb - The RGB tuple representing the color, as an array of three numbers [red, green, blue].
+     * @throws If the color name is already registered.
+     * @throws If the RGB value is already registered under a different name.
      */
     static registerNamedColor(name: string, rgb: [number, number, number]) {
         const cleanedName = name.replace(/(?:\s+|-)/g, "").toLowerCase();
-        if ((namedColors as Record<NamedColor, [number, number, number]>)[cleanedName as NamedColor]) {
-            throw new Error(`Color name "${name}" is already registered.`);
+
+        const colorMap = namedColors as Record<NamedColor, [number, number, number]>;
+
+        if (colorMap[cleanedName as NamedColor]) {
+            throw new Error(`<named-color> "${name}" is already registered.`);
         }
 
-        for (const existingRgb of Object.values(namedColors)) {
-            if (existingRgb[0] === rgb[0] && existingRgb[1] === rgb[1] && existingRgb[2] === rgb[2]) {
-                throw new Error(`RGB value [${rgb.join(", ")}] is already registered under another name.`);
-            }
+        const existingName = Object.entries(colorMap).find(([, value]) =>
+            value.every((channel, i) => channel === rgb[i])
+        )?.[0];
+
+        if (existingName) {
+            throw new Error(`RGB value [${rgb.join(", ")}] is already registered as "${existingName}".`);
         }
 
-        (namedColors as Record<NamedColor, [number, number, number]>)[cleanedName as NamedColor] = rgb;
-    }
-
-    static registerColorFunction(name: string, converter: ColorFunctionConverter) {
-        if (name in colorFunctionConverters) {
-            throw new Error(`Color function "${name}" is already registered.`);
-        }
-
-        (colorFunctionConverters as unknown as Record<string, ColorFunctionConverter>)[name] = converter;
-    }
-
-    static registerColorSpace(name: string, converter: ColorSpaceConverter) {
-        if (name in colorSpaceConverters) {
-            throw new Error(`Color space "${name}" is already registered.`);
-        }
-
-        (colorSpaceConverters as unknown as Record<string, ColorFunctionConverter>)[name] = createSpaceConverter(
-            name,
-            converter
-        );
+        colorMap[cleanedName as NamedColor] = rgb;
     }
 
     /**
-     * Retrieves a list of all supported color formats.
+     * Registers a new `<color-function>` converter under the specified name.
      *
-     * @returns An array of supported color format names.
+     * @param name - The unique name to associate with the color function converter.
+     * @param converter - The converter object implementing the color function conversion logic.
+     * @throws If a color function name is already used.
      */
-    static getSupportedFormats() {
-        return Array.from(Object.keys(colorFunctions)) as ColorFunction[];
+    static registerColorFunction(name: string, converter: ColorFunctionConverter) {
+        const obj = colorFunctionConverters as unknown as Record<string, ColorFunctionConverter>;
+
+        if (name in colorTypes) {
+            throw new Error(`The name "${name}" is already used.`);
+        }
+
+        obj[name] = converter;
+    }
+
+    /**
+     * Registers a new color space converter for `<color()>` function under the specified name.
+     *
+     * @param name - The unique name to associate with the color space converter.
+     * @param converter - The converter object implementing the color space conversion logic.
+     * @throws If a color space name is already used.
+     */
+    static registerColorSpace(name: string, converter: ColorSpaceConverter) {
+        const obj = colorSpaceConverters as unknown as Record<string, ColorFunctionConverter>;
+
+        if (name in colorTypes) {
+            throw new Error(`The name "${name}" is already used.`);
+        }
+
+        obj[name] = functionConverterFromSpaceConverter(name, converter);
+    }
+
+    /**
+     * Registers a new `<color-base>` converter under the specified name.
+     *
+     * @param name - The unique name to associate with the color base converter.
+     * @param converter - The converter object implementing the color base conversion logic.
+     * @throws If a color base name is already used.
+     */
+    static registerColorBase(name: string, converter: ColorConverter) {
+        const obj = colorBases as unknown as Record<string, ColorConverter>;
+
+        if (name in colorTypes) {
+            throw new Error(`The name "${name}" is already used.`);
+        }
+
+        obj[name] = converter;
+    }
+
+    /**
+     * Registers a new `<color>` converter under the specified name.
+     *
+     * @param name - The unique name to associate with the color converter.
+     * @param converter - The converter object implementing the color conversion logic.
+     * @throws If a color name is already used.
+     */
+    static registerColorType(name: string, converter: ColorConverter) {
+        const obj = colorTypes as unknown as Record<string, ColorConverter>;
+
+        if (name in colorTypes) {
+            throw new Error(`The name "${name}" is already used.`);
+        }
+
+        obj[name] = converter;
+    }
+
+    /**
+     * Returns an array of supported output color types.
+     *
+     * @returns An array of supported output type names.
+     */
+    static getSupportedOutputTypes() {
+        return Object.keys(colorTypes).filter(
+            (key) => typeof (colorTypes as any)[key]?.fromXYZ === "function" // eslint-disable-line @typescript-eslint/no-explicit-any
+        ) as OutputType[];
+    }
+
+    /**
+     * Returns an array of all supported color types.
+     *
+     * @returns An array of supported color types.
+     */
+    static getSupportedColorTypes() {
+        return Array.from(Object.keys(colorTypes)) as ColorType[];
     }
 
     /**
      * Generates a random color in the specified format or space.
      * If no type is provided, a random format or space is chosen.
      *
-     * @param type - The desired color format or space.
-     *               If omitted, a random format or space is selected.
+     * @param type - The desired color format. If omitted, a random format or space is selected.
      * @returns A random color string in the specified format or space.
      */
-    // static random(type?: string): string; // eslint-disable-line no-unused-vars
-    // static random(type?: ColorFunction): string; // eslint-disable-line no-unused-vars
-    // static random(type?: ColorFunction | string) {
-    //     if (!type) {
-    //         const types = Object.keys(colorTypes).concat(Object.keys(colorSpaceConverters));
-    //         type = types[Math.floor(Math.random() * types.length)];
-    //     }
+    static random(type?: string): string; // eslint-disable-line no-unused-vars
+    static random(type?: ColorFunction): string; // eslint-disable-line no-unused-vars
+    static random(type?: ColorFunction | string) {
+        if (!type) {
+            const types = Object.keys(colorTypes).concat(Object.keys(colorSpaceConverters));
+            type = types[Math.floor(Math.random() * types.length)];
+        }
 
-    //     if (type === "named") {
-    //         return Object.keys(namedColors)[Math.floor(Math.random() * Object.keys(namedColors).length)];
-    //     }
+        if (type === "named") {
+            return Object.keys(namedColors)[Math.floor(Math.random() * Object.keys(namedColors).length)];
+        }
 
-    //     const randomChannel = () => Math.floor(Math.random() * 200 + 30);
-    //     const randomColor = this.from(`rgb(${randomChannel()}, ${randomChannel()}, ${randomChannel()})`);
-    //     return randomColor.to(type);
-    // }
-
-    /**
-     * Parses a CSS relative color string into its components.
-     *
-     * @param color - The relative color string to parse (e.g., "rgb(from red r g b)")
-     * @returns An object containing the parsed relative color string.
-     * @throws {Error} If the relative color string format is invalid
-     */
-    // static parseRelative(color: string) {
-    //     const parseAngle = (angleStr: string) => {
-    //         const match = angleStr.match(/^(-?\d*\.?\d+)(deg|rad|grad|turn)?$/);
-    //         if (!match) throw new Error(`Invalid angle format: ${angleStr}`);
-    //         const value = parseFloat(match[1]);
-    //         const unit = match[2] || "deg";
-
-    //         switch (unit) {
-    //             case "deg":
-    //                 return value;
-    //             case "rad":
-    //                 return (value * 180) / Math.PI;
-    //             case "grad":
-    //                 return (value * 360) / 400;
-    //             case "turn":
-    //                 return value * 360;
-    //             default:
-    //                 throw new Error(`Unknown angle unit: ${unit}`);
-    //         }
-    //     };
-
-    //     const parseComponent = <M extends Model>(component: string, colorInstance: Color, model: M, index: number) => {
-    //         const componentDef = Object.values(converters[model].components).find((c) => c.index === index);
-    //         if (!componentDef) throw new Error(`Invalid component index for ${model}: ${index}`);
-    //         const isAngle = componentDef.loop === true;
-
-    //         if (/^-?\d*\.?\d+$/.test(component)) {
-    //             // Case 1: Pure number (e.g., "30", "-45.5")
-    //             return parseFloat(component);
-    //         } else if (/^-?\d*\.?\d+%$/.test(component)) {
-    //             // Case 2: Percentage (e.g., "50%", "-10%")
-    //             const percentage = parseFloat(component.slice(0, -1)) / 100;
-    //             if (isAngle) {
-    //                 return percentage * 360;
-    //             } else {
-    //                 const { min, max } = componentDef;
-    //                 return min + percentage * (max - min);
-    //             }
-    //         } else if (component.startsWith("calc(") && component.endsWith(")")) {
-    //             // Case 3: Calc expression (e.g., "calc(r * 2)")
-    //             const expression = component.slice(5, -1).trim();
-    //             return parseCalc(expression, model);
-    //         } else if (component in converters[model].components) {
-    //             // Case 4: Component name (e.g., "h", "s")
-    //             return colorInstance.in(model).get()[component as Component<M>];
-    //         } else if (isAngle) {
-    //             // Case 5: Angle with unit (e.g., "30deg", "0.5turn")
-    //             return parseAngle(component);
-    //         } else {
-    //             throw new Error(`Invalid component format for ${model} component ${index}: ${component}`);
-    //         }
-    //     };
-
-    //     const parseCalc = (str: string, model: Model) => {
-    //         const expr = str
-    //             .split("")
-    //             .map((char) => {
-    //                 if (/[a-zA-Z]/.test(char)) {
-    //                     const value = colorInstance.in(model).get()[char as Component<Model>];
-    //                     return isNaN(value) ? char : value;
-    //                 }
-    //                 return char;
-    //             })
-    //             .join("")
-    //             .replace(/\s/g, "");
-
-    //         const evaluate = (expr: string) => {
-    //             while (expr.includes("(")) {
-    //                 expr = expr.replace(/\(([^()]+)\)/, (_, inner) => evaluate(inner).toString());
-    //             }
-
-    //             const tokens = expr.match(/(\d*\.?\d+|\+|-|\*|\/)/g) || [];
-    //             if (!tokens) return NaN;
-
-    //             let i = 0;
-    //             while (i < tokens.length) {
-    //                 if (tokens[i] === "*" || tokens[i] === "/") {
-    //                     const left = Number(tokens[i - 1]);
-    //                     const right = Number(tokens[i + 1]);
-    //                     const result = tokens[i] === "*" ? left * right : left / right;
-    //                     tokens.splice(i - 1, 3, result.toString());
-    //                 } else {
-    //                     i++;
-    //                 }
-    //             }
-
-    //             let result = Number(tokens[0]);
-    //             for (i = 1; i < tokens.length; i += 2) {
-    //                 const op = tokens[i];
-    //                 const num = Number(tokens[i + 1]);
-    //                 result = op === "+" ? result + num : result - num;
-    //             }
-
-    //             return result;
-    //         };
-
-    //         const result = evaluate(expr);
-    //         return isNaN(result) ? NaN : result;
-    //     };
-
-    //     color = color.toLowerCase();
-
-    //     const funcNameMatch = color.match(/^(\w+)(?=\()/);
-    //     if (!funcNameMatch) throw new Error(`"${color}" is not a valid relative format.`);
-    //     const funcName = funcNameMatch[1];
-
-    //     let baseColor: string, type: Model, componentsStr: string;
-
-    //     const formatPatterns = Object.values(formatConverters)
-    //         .map((fc) => fc.pattern.source.replace(/^\^|\$$/g, ""))
-    //         .join("|");
-    //     const spacePatterns = Object.values(spaceConverters)
-    //         .map((sc) => sc.pattern.source.replace(/^\^|\$$/g, ""))
-    //         .join("|");
-    //     const colorPatterns = `(?:${formatPatterns}|${spacePatterns})`;
-    //     const spaceNames = Object.keys(spaceConverters).join("|");
-
-    //     if (funcName === "color") {
-    //         const match = color.match(
-    //             new RegExp(`^color\\(from\\s+(?<color>${colorPatterns}) (?<space>${spaceNames}) (.*)\\)$`)
-    //         );
-    //         if (!match) throw new Error(`"${color}" is not a valid relative format.`);
-
-    //         const { color: colorMatch, space: spaceMatch } = match.groups!;
-
-    //         baseColor = colorMatch;
-    //         type = spaceMatch as Model;
-
-    //         const fullMatch = match[0];
-    //         const startIndex = fullMatch.indexOf(type) + type.length;
-    //         componentsStr = fullMatch.substring(startIndex, fullMatch.length - 1).trim();
-
-    //         if (!(type in spaceConverters)) throw new Error(`Invalid space for color(): ${type}`);
-    //     } else {
-    //         const match = color.match(new RegExp(`^${funcName}\\(from\\s+(?<color>${colorPatterns}) (.*)\\)$`));
-    //         if (!match) throw new Error(`"${color}" is not a valid relative format.`);
-
-    //         const { color: colorMatch } = match.groups!;
-
-    //         baseColor = colorMatch;
-    //         type = funcName as Model;
-
-    //         const fullMatch = match[0];
-    //         const startIndex = fullMatch.indexOf(baseColor) + baseColor.length;
-    //         componentsStr = fullMatch.substring(startIndex, fullMatch.length - 1).trim();
-
-    //         if (!(type in formatConverters)) throw new Error(`Invalid function name for relative format: ${type}`);
-    //     }
-
-    //     const tokens: string[] = [];
-    //     let currentToken = "";
-    //     let parenCount = 0;
-    //     let inCalc = false;
-
-    //     for (const char of componentsStr) {
-    //         if (char === " " && parenCount === 0) {
-    //             if (currentToken) {
-    //                 tokens.push(currentToken);
-    //                 currentToken = "";
-    //             }
-    //         } else {
-    //             currentToken += char;
-    //             if (currentToken === "calc(") inCalc = true;
-    //             if (inCalc) {
-    //                 if (char === "(") parenCount++;
-    //                 if (char === ")") parenCount--;
-    //                 if (parenCount === 0 && inCalc) {
-    //                     tokens.push(currentToken);
-    //                     currentToken = "";
-    //                     inCalc = false;
-    //                 }
-    //             }
-    //         }
-    //     }
-    //     if (currentToken) tokens.push(currentToken);
-
-    //     const colorInstance = Color.from(baseColor);
-
-    //     const components: number[] = [];
-    //     let i = 0;
-    //     while (components.length < 3 && i < tokens.length) {
-    //         components.push(parseComponent(tokens[i], colorInstance, type, i));
-    //         i++;
-    //     }
-    //     if (i < tokens.length && tokens[i] !== "/") {
-    //         i++;
-    //         if (i < tokens.length) {
-    //             components.push(parseComponent(tokens[i], colorInstance, type, i));
-    //         }
-    //     }
-
-    //     return { funcName, baseColor, type, components };
-    // }
-
-    /**
-     * Parses a CSS color-mix() function string into its component parts.
-     *
-     * @param color - The color-mix string to parse (e.g., "color-mix(in srgb, red, blue)")
-     * @returns An object containing the parsed color-mix string.
-     * @throws {Error} If the color-mix string format is invalid
-     */
-    // static parseColorMix(color: string) {
-    //     const parseColorAndWeight = (part: string) => {
-    //         const tokens = part.split(/\s+/);
-    //         let weight: number | undefined;
-    //         if (tokens.length > 1 && tokens[tokens.length - 1].endsWith("%")) {
-    //             const pct = tokens.pop()!;
-    //             weight = parseFloat(pct.slice(0, -1)) / 100;
-    //         }
-    //         const colorComponent = tokens.join(" ");
-    //         return { colorComponent, weight };
-    //     };
-
-    //     const parseColorString = (colorStr: string) => {
-    //         const match = colorStr.match(/^(\w+)\(([^)]+)\)$/);
-    //         if (!match) {
-    //             throw new Error(`Invalid color format: "${colorStr}"`);
-    //         }
-    //         const model = match[1];
-    //         const components = match[2].trim().split(/\s+/);
-    //         return { model, components };
-    //     };
-
-    //     const replaceNoneComponents = (
-    //         color1Parts: { model: string; components: string[] },
-    //         color2Parts: { model: string; components: string[] }
-    //     ) => {
-    //         const comps1 = [...color1Parts.components];
-    //         const comps2 = [...color2Parts.components];
-
-    //         for (let i = 0; i < Math.max(comps1.length, comps2.length); i++) {
-    //             if (comps1[i] === "none" && comps2[i] !== undefined && comps2[i] !== "none") {
-    //                 comps1[i] = comps2[i];
-    //             }
-    //             if (comps2[i] === "none" && comps1[i] !== undefined && comps1[i] !== "none") {
-    //                 comps2[i] = comps1[i];
-    //             }
-    //         }
-    //         return {
-    //             color1Parts: { model: color1Parts.model, components: comps1 },
-    //             color2Parts: { model: color2Parts.model, components: comps2 },
-    //         };
-    //     };
-
-    //     const buildColorString = (color: { model: string; components: string[] }) => {
-    //         return `${color.model}(${color.components.join(" ")})`;
-    //     };
-
-    //     color = color.toLowerCase();
-
-    //     if (!this.patterns["color-mix"].test(color)) {
-    //         throw new Error(`"${color}" is not a valid color-mix format.`);
-    //     }
-
-    //     const inner = color.slice(color.indexOf("(") + 1, color.lastIndexOf(")")).trim();
-    //     if (!inner.startsWith("in ")) {
-    //         throw new Error('Invalid color-mix syntax; expected "in" keyword.');
-    //     }
-    //     const rest = inner.slice(3).trim();
-
-    //     const firstComma = rest.indexOf(",");
-    //     if (firstComma === -1) {
-    //         throw new Error("Missing comma separator in color-mix declaration.");
-    //     }
-    //     const preComma = rest.slice(0, firstComma).trim();
-    //     const afterComma = rest.slice(firstComma + 1).trim();
-
-    //     const preTokens = preComma.split(/\s+/);
-    //     let model: Model;
-    //     let hue: HueInterpolationMethod = "shorter";
-    //     if (preTokens.length === 1) {
-    //         model = preTokens[0] as Model;
-    //     } else if (preTokens.length === 3 && preTokens[2].toLowerCase() === "hue") {
-    //         model = preTokens[0] as Model;
-    //         hue = preTokens[1] as HueInterpolationMethod;
-    //     } else {
-    //         throw new Error(`Invalid model and hue interpolation part: "${preComma}"`);
-    //     }
-
-    //     const parts = afterComma.split(/\s*,\s*/);
-    //     if (parts.length !== 2) {
-    //         throw new Error(`Expected exactly two colors in color-mix but got: ${parts.length}`);
-    //     }
-
-    //     const firstColorData = parseColorAndWeight(parts[0]);
-    //     const secondColorData = parseColorAndWeight(parts[1]);
-
-    //     const firstColorModel = this.type(firstColorData.colorComponent, true);
-    //     const secondColorModel = this.type(firstColorData.colorComponent, true);
-
-    //     if (
-    //         firstColorModel === secondColorModel &&
-    //         "components" in converters[firstColorModel] &&
-    //         "components" in converters[secondColorModel]
-    //     ) {
-    //         const parsedColor1 = parseColorString(firstColorData.colorComponent);
-    //         const parsedColor2 = parseColorString(secondColorData.colorComponent);
-
-    //         const replaced = replaceNoneComponents(parsedColor1, parsedColor2);
-    //         firstColorData.colorComponent = buildColorString(replaced.color1Parts);
-    //         secondColorData.colorComponent = buildColorString(replaced.color2Parts);
-    //     }
-
-    //     const colorInstance1 = Color.from(firstColorData.colorComponent);
-    //     const colorInstance2 = Color.from(secondColorData.colorComponent);
-
-    //     return {
-    //         model,
-    //         hue,
-    //         color1: colorInstance1,
-    //         weight1: firstColorData.weight,
-    //         color2: colorInstance2,
-    //         weight2: secondColorData.weight,
-    //     };
-    // }
+        const randomChannel = () => Math.floor(Math.random() * 200 + 30);
+        const randomColor = this.in("rgb").setCoords([randomChannel(), randomChannel(), randomChannel()]);
+        return randomColor.to(type);
+    }
 
     /**
      * Converts the current color to the specified format.
@@ -629,7 +366,6 @@ class Color {
             return coords;
         };
 
-        // TODO: should treat NaN like none in css, and Infinity and -Infinity like calc(infinity) and calc(-infinity)
         const set = (
             values:
                 | Partial<{ [K in Component<M>]: number | ((prev: number) => number) }> // eslint-disable-line no-unused-vars
@@ -649,10 +385,21 @@ class Color {
 
             compNames.forEach((comp) => {
                 if (comp in values) {
-                    const { index } = components[comp as keyof typeof components] as ComponentDefinition;
+                    const { index, min, max } = components[comp as keyof typeof components] as ComponentDefinition;
                     const currentValue = coords[index];
                     const valueOrFunc = values[comp];
-                    const newValue = typeof valueOrFunc === "function" ? valueOrFunc(currentValue) : valueOrFunc;
+                    let newValue = typeof valueOrFunc === "function" ? valueOrFunc(currentValue) : valueOrFunc;
+
+                    if (typeof newValue === "number") {
+                        if (Number.isNaN(newValue)) {
+                            newValue = 0;
+                        } else if (newValue === Infinity) {
+                            newValue = max;
+                        } else if (newValue === -Infinity) {
+                            newValue = min;
+                        }
+                    }
+
                     coords[index] = newValue as number;
                 }
             });
@@ -662,7 +409,27 @@ class Color {
         };
 
         const setCoords = (coords: number[]) => {
-            this.xyz = converter.toXYZ(coords);
+            const indexToComponent = Object.values(components).reduce(
+                (map, def) => {
+                    map[def.index] = def;
+                    return map;
+                },
+                {} as { [index: number]: ComponentDefinition }
+            );
+
+            const adjustedCoords = coords.map((value, index) => {
+                const compDef = indexToComponent[index];
+                if (!compDef) return value;
+
+                const { min, max } = compDef;
+
+                if (Number.isNaN(value)) return 0;
+                if (value === Infinity) return max;
+                if (value === -Infinity) return min;
+                return value;
+            });
+
+            this.xyz = converter.toXYZ(adjustedCoords);
             return Object.assign(this, { ...this.in(model) }) as typeof this & Interface<M>;
         };
 
@@ -732,7 +499,7 @@ class Color {
      *          - "wcag21": Ratio from 1 to 21.
      *          - "apca": Lc value (positive for light text on dark background, negative for dark text).
      *          - "oklab": Lightness difference (0 to 1).
-     * @throws {Error} if the algorithm or background is invalid.
+     * @throws if the algorithm or background is invalid.
      */
     contrastRatio(background: string | Color, algorithm: "wcag21" | "apca" | "oklab" = "wcag21"): number {
         const bgColor = typeof background === "string" ? Color.from(background) : background;
@@ -783,7 +550,7 @@ class Color {
      * @param background - The background color to evaluate against.
      * @param options - The accessibility options.
      * @returns An object with accessibility status, contrast, required contrast, and helpful info.
-     * @throws {Error} if the algorithm, background, level, or font parameters are invalid.
+     * @throws if the algorithm, background, level, or font parameters are invalid.
      */
     evaluateAccessibility(background: string | Color, options: EvaluateAccessibilityOptions = {}) {
         const { type = "text", level = "AA", fontSize = 12, fontWeight = 400, algorithm = "wcag21" } = options;
@@ -920,7 +687,7 @@ class Color {
      * @param other - The other color to compare against, specified as a string.
      * @param method - The Delta E method to use: "76" (CIE76), "94" (CIE94), or "2000" (CIEDE2000). Defaults to "94".
      * @returns The ΔE value (a non-negative number; smaller indicates more similar colors).
-     * @throws {Error} If an unsupported method is specified.
+     * @throws If an unsupported method is specified.
      *
      * @remarks
      * This method calculates the perceptual difference between two colors in CIE LAB color space using one of three methods:
@@ -1041,15 +808,21 @@ class Color {
     }
 
     /**
-     * Compares the current color object with another color string.
+     * Compares the current color object with another color string or Color object.
      *
-     * @param other - The color string to compare with the current color object.
-     * @returns Whether the two colors are equal.
+     * @param other - The color string or Color object to compare with the current color object.
+     * @param options - Optional comparison settings.
+     * @param options.epsilon - Tolerance for floating point comparison. Defaults to 1e-5.
+     * @returns Whether the two colors are equal within the given epsilon.
      */
-    // TODO: add epsilon option
-    equals(other: Color | string) {
+    equals(other: Color | string, options: EqualsOptions = {}): boolean {
+        const { epsilon = 1e-5 } = options;
         const otherColor = typeof other === "string" ? Color.from(other) : other;
-        return this.xyz.length === otherColor.xyz.length && this.xyz.every((value, i) => value === otherColor.xyz[i]);
+
+        return (
+            this.xyz.length === otherColor.xyz.length &&
+            this.xyz.every((value, i) => Math.abs(value - otherColor.xyz[i]) <= epsilon)
+        );
     }
 
     /**

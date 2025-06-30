@@ -8,7 +8,7 @@ import { EASINGS } from "./utils";
  * Represents a color in the XYZ color space with an optional alpha channel.
  * Format: [X, Y, Z, A?]
  */
-export type XYZ = [number, number, number, number?];
+export type XYZ = [number, number, number, number];
 
 /**
  * Represents a named color identifier, derived from the keys of the `_namedColors` object.
@@ -34,7 +34,7 @@ export type ColorSpace = keyof typeof colorSpaceConverters;
 
 export interface ColorConverter {
     isValid: (str: string) => boolean;
-    toXYZ: (str: string) => XYZ | undefined;
+    toXYZ: (str: string) => XYZ;
     fromXYZ?: (xyz: XYZ, options?: FormattingOptions) => string | undefined;
 }
 
@@ -149,7 +149,7 @@ export type HueInterpolationMethod = "shorter" | "longer" | "increasing" | "decr
 
 export type Easing = keyof typeof EASINGS;
 
-export type FitMethod = "minmax" | "chroma-reduction" | "css-gamut-map";
+export type FitMethod = "minmax" | "chroma-reduction" | "css-gamut-map" | "no-fit" | "round-only";
 
 export type VisionDeficiencyType = "protanopia" | "deuteranopia" | "tritanopia";
 
@@ -181,6 +181,10 @@ export interface MixOptions {
     easing?: Easing | ((t: number) => number);
 
     gamma?: number;
+}
+
+export interface EqualsOptions {
+    epsilon?: number;
 }
 
 export interface EvaluateAccessibilityOptions {

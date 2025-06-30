@@ -1,4 +1,14 @@
-import Color from "./Color.js";
+import Color from "./Color";
 
-console.log(Color.from("red").to("rgb"));
-console.log(Color.in("rgb").setCoords([0, 100, 50]).to("rgb", { legacy: true }));
+// FIXME: chroma-reduction, css-gamut-map and minmax are not working properly
+// console.log(Color.from("rgb(275.9824 0.234 0.23528)").in("rgb").get({ fit: "no-fit" }));
+// console.log(Color.from("rgb(275.9824 0.234 0.23528)").in("rgb").get({ fit: "round-only" }));
+// console.log(Color.from("rgb(275.9824 0.234 0.23528)").in("rgb").get({ fit: "chroma-reduction" }));
+// console.log(Color.from("rgb(275.9824 0.234 0.23528)").in("rgb").get({ fit: "css-gamut-map" }));
+// console.log(Color.from("rgb(275.9824 0.234 0.23528)").in("rgb").get({ fit: "minmax" }));
+
+console.log(Color.from("rgb(275.9824 0.234 0.23528)").to("rgb", { fit: "no-fit" }));
+console.log(Color.from("rgb(275.9824 0.234 0.23528)").to("rgb", { fit: "round-only" }));
+console.log(Color.from("rgb(275.9824 0.234 0.23528)").to("rgb", { fit: "chroma-reduction" }));
+console.log(Color.from("rgb(275.9824 0.234 0.23528)").to("rgb", { fit: "css-gamut-map" }));
+console.log(Color.from("rgb(275.9824 0.234 0.23528)").to("rgb", { fit: "minmax" }));

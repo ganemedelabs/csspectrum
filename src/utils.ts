@@ -1,6 +1,16 @@
-import Color from "./Color.js";
-import { colorFunctionConverters } from "./converters.js";
-import type { ColorFunction, ColorSpace, ComponentDefinition, FitMethod, HueInterpolationMethod } from "./types.js";
+import Color from "./Color";
+import { colorFunctionConverters, colorSpaceConverters } from "./converters";
+import type {
+    ColorFunction,
+    ColorFunctionConverter,
+    ColorSpace,
+    ColorSpaceConverter,
+    ComponentDefinition,
+    FitMethod,
+    FormattingOptions,
+    HueInterpolationMethod,
+    XYZ,
+} from "./types";
 
 export const D50_to_D65 = [
     [0.955473421488075, -0.02309845494876471, 0.06325924320057072],
@@ -32,14 +42,12 @@ export const EASINGS = {
  *
  * @param A - The first matrix or vector. If it's a 1D array, it is treated as a row vector.
  * @param B - The second matrix or vector. If it's a 1D array, it is treated as a column vector.
- *
  * @returns The product of the two inputs:
  * - If both `A` and `B` are 1D arrays (vectors), the result is a scalar (number).
  * - If `A` is a 1D array and `B` is a 2D array, the result is a 1D array (vector).
  * - If `A` is a 2D array and `B` is a 1D array, the result is a 1D array (vector).
  * - If both `A` and `B` are 2D arrays (matrices), the result is a 2D array (matrix).
- *
- * @throws {Error} If the dimensions of `A` and `B` are incompatible for multiplication.
+ * @throws If the dimensions of `A` and `B` are incompatible for multiplication.
  *
  */
 export function multiplyMatrices<A extends number[] | number[][], B extends number[] | number[][]>(
@@ -66,7 +74,11 @@ export function multiplyMatrices<A extends number[] | number[][], B extends numb
 }
 
 /**
- * Returns the signed shortest delta from a → b in [–180,+180].
+ * Calculates the shortest angular difference (in degrees) between two hue values.
+ *
+ * @param a - The starting hue angle in degrees.
+ * @param b - The ending hue angle in degrees.
+ * @returns The shorter angular distance from `a` to `b` in degrees.
  */
 export function deltaHue(a: number, b: number): number {
     let d = (((b - a) % 360) + 360) % 360;
@@ -75,13 +87,28 @@ export function deltaHue(a: number, b: number): number {
 }
 
 /**
- * Returns the “longer” path (i.e. the other direction) from a → b.
+ * Calculates the longest angular difference (in degrees) between two hue values.
+ *
+ * @param a - The starting hue angle in degrees.
+ * @param b - The ending hue angle in degrees.
+ * @returns The longer angular distance from `a` to `b` in degrees.
  */
 export function deltaHueLong(a: number, b: number): number {
     const short = deltaHue(a, b);
     return short >= 0 ? short - 360 : short + 360;
 }
 
+/**
+ * Interpolates between two arrays of component values, supporting special handling for hue interpolation.
+ *
+ * @param from - The starting array of component values.
+ * @param to - The target array of component values.
+ * @param components - An object mapping component names to their definitions, where each definition includes an `index` property.
+ * @param t - The interpolation factor, typically between 0 (start) and 1 (end).
+ * @param hue - The method to use for interpolating the hue component. Can be "shorter", "longer", "increasing", or "decreasing". Defaults to "shorter".
+ * @returns An array of interpolated component values.
+ * @throws If an invalid hue interpolation method is provided.
+ */
 export function interpolateComponents(
     from: number[],
     to: number[],
@@ -124,16 +151,16 @@ export function interpolateComponents(
     });
 }
 
-export function SRGB_to_LRGB(v: number) {
-    if (v <= 0.04045) return v / 12.92;
-    return Math.pow((v + 0.055) / 1.055, 2.4);
-}
-
-export function LRGB_to_SRGB(v: number) {
-    if (v <= 0.0031308) return 12.92 * v;
-    return 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
-}
-
+/**
+ * Computes the minimum and maximum lightness values (L) for a given hue and color space gamut,
+ * such that the color with fixed chroma (C) is within the specified gamut.
+ *
+ * @param hue - The hue value (in degrees) for which to compute the lightness range.
+ * @param gamut - The target color space gamut to check against.
+ * @param options - Optional parameters.
+ * @param options.epsilon - The precision for the binary search (default: 1e-5).
+ * @returns A tuple containing the minimum and maximum lightness values ([L_min, L_max]) within the gamut.
+ */
 export function lightnessRange(hue: number, gamut: ColorSpace, options: { epsilon?: number } = {}) {
     const C = 0.05;
     const epsilon = options.epsilon || 1e-5;
@@ -171,6 +198,23 @@ export function lightnessRange(hue: number, gamut: ColorSpace, options: { epsilo
     return [L_min, L_max];
 }
 
+/**
+ * Fits or clips a set of color coordinates to a specified color model and gamut using the given fitting method.
+ *
+ * @param coords - The color coordinates to fit or clip.
+ * @param model - The color model to use (e.g., "rgb", "oklch", "xyz-d50", etc.).
+ * @param method - The fitting method to use. Defaults to "minmax".
+ * @returns The fitted or clipped color coordinates.
+ * @throws If component properties are missing or an invalid method is specified.
+ *
+ * @remarks
+ * This function supports several fitting methods:
+ * - "no-fit": Returns the original coordinates without modification.
+ * - "round-only": Rounds the coordinates according to the component precision withput gamut mapping.
+ * - "minmax": Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
+ * - "chroma-reduction": Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
+ * - "css-gamut-map": CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
+ */
 export function fit(coords: number[], model: ColorFunction, method: FitMethod = "minmax") {
     const roundCoords = (coords: number[]) => {
         return coords.map((value, i) => {
@@ -187,6 +231,12 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
     }
 
     switch (method) {
+        case "no-fit":
+            return coords;
+
+        case "round-only":
+            return roundCoords(coords);
+
         case "minmax": {
             const clipped = coords.map((value, i) => {
                 const props = componentProps[i];
@@ -313,4 +363,264 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
         default:
             throw new Error(`Invalid gamut clipping method: must be 'minmax', 'chroma-reduction', or 'css-gamut-map'.`);
     }
+}
+
+/**
+ * Creates a <color> converter for a given <color-function> converter.
+ *
+ * @param name - The name of the color function (e.g., "rgb", "hsl", "lab", etc.).
+ * @param converter - An object implementing the color function's conversion logic and component definitions.
+ * @returns A <color> convereter object.
+ */
+export function converterFromFunctionConverter(name: string, converter: ColorFunctionConverter) {
+    const tokenizeInner = (inner: string) => {
+        const tokens = [];
+        let i = 0;
+        inner = inner.trim();
+
+        if (inner.startsWith("from ")) {
+            tokens.push("from");
+            i += 5;
+
+            let colorToken = "";
+            let depth = 0;
+            while (i < inner.length) {
+                if (inner[i] === "(") depth++;
+                else if (inner[i] === ")") depth--;
+                if (depth < 0) break;
+                if (/\s/.test(inner[i]) && depth === 0) break;
+                colorToken += inner[i];
+                i++;
+            }
+            tokens.push(colorToken);
+
+            while (i < inner.length && /\s/.test(inner[i])) i++;
+        }
+
+        while (i < inner.length) {
+            if (/\s/.test(inner[i])) {
+                i++;
+                continue;
+            }
+            if (inner.slice(i, i + 5) === "calc(") {
+                let depth = 1;
+                let j = i + 5;
+                while (j < inner.length && depth > 0) {
+                    if (inner[j] === "(") depth++;
+                    else if (inner[j] === ")") depth--;
+                    j++;
+                }
+                tokens.push(inner.slice(i, j));
+                i = j;
+            } else if (inner[i] === "/") {
+                tokens.push("/");
+                i++;
+            } else {
+                let j = i;
+                while (
+                    j < inner.length &&
+                    !/\s/.test(inner[j]) &&
+                    inner[j] !== "/" &&
+                    inner.slice(j, j + 5) !== "calc("
+                ) {
+                    j++;
+                }
+                tokens.push(inner.slice(i, j));
+                i = j;
+            }
+        }
+        return tokens;
+    };
+
+    const evaluateComponent = (
+        componentString: string,
+        baseComponents: Record<string, number>,
+        componentDef: ComponentDefinition
+    ) => {
+        if (componentString === "none") return 0;
+        if (componentString === "calc(infinity)") return componentDef.max;
+        if (componentString === "calc(-infinity)") return componentDef.min;
+        if (/^\d+(\.\d+)?$/.test(componentString)) return parseFloat(componentString);
+        if (componentString.startsWith("calc(")) {
+            let expr = componentString.slice(5, -1).trim();
+            for (const [key, value] of Object.entries(baseComponents)) {
+                expr = expr.replace(new RegExp(`\\b${key}\\b`, "g"), value.toString());
+            }
+            try {
+                return eval(expr);
+            } catch {
+                return 0;
+            }
+        } else {
+            return baseComponents[componentString] || 0;
+        }
+    };
+
+    const tokenize = (str: string) => {
+        const cleaned = str.trim().toLowerCase();
+        let inner;
+        if (cleaned.startsWith("color(")) {
+            inner = cleaned.slice(6, -1).trim();
+        } else {
+            inner = cleaned.slice(name.length + 1, -1).trim();
+        }
+        return tokenizeInner(inner);
+    };
+
+    const parseTokens = (tokens: string[]) => {
+        if (tokens[0] === "from") {
+            const baseColorIndex = 1;
+            let colorSpace;
+            let componentStartIndex;
+            if (name === "color") {
+                colorSpace = tokens[2];
+                componentStartIndex = 3;
+            } else {
+                colorSpace = name;
+                componentStartIndex = 2;
+            }
+            const baseColor = tokens[baseColorIndex];
+            const componentTokens = tokens.slice(componentStartIndex);
+            const alphaIndex = componentTokens.indexOf("/");
+            let alphaToken;
+            if (alphaIndex !== -1) {
+                alphaToken = componentTokens[alphaIndex + 1];
+                componentTokens.splice(alphaIndex, 2);
+            }
+            const baseComponents = Color.from(baseColor).in(colorSpace).get();
+            const componentNames = Object.keys(converter.components).sort(
+                (a, b) => converter.components[a].index - converter.components[b].index
+            );
+            const evaluatedComponents = componentTokens.map((token, i) => {
+                const componentDef = converter.components[componentNames[i]];
+                return evaluateComponent(token, baseComponents, componentDef);
+            });
+            const alphaDef = { min: 0, max: 1, index: 3 }; // Alpha definition
+            const alpha = alphaToken ? evaluateComponent(alphaToken, baseComponents, alphaDef) : 1;
+            return [evaluatedComponents[0], evaluatedComponents[1], evaluatedComponents[2], alpha];
+        } else {
+            const result: number[] = [];
+            const comps = converter.components;
+            const sorted = Object.entries(comps).sort((a, b) => a[1].index - b[1].index);
+            for (let i = 0; i < sorted.length; i++) {
+                const [, meta] = sorted[i];
+                const token = tokens[i];
+                const value = parseComponentValue(token, meta);
+                result[meta.index] = value;
+            }
+            if (tokens.length > sorted.length) {
+                const alphaToken = tokens[tokens.length - 1];
+                result[3] = parseFloat(alphaToken);
+            }
+            return result;
+        }
+    };
+
+    const parseComponentValue = (token: string, component: { min: number; max: number }) => {
+        token = token.trim().toLowerCase();
+        if (token === "none") return 0;
+        if (token === "calc(infinity)") return component.max;
+        if (token === "calc(-infinity)") return component.min;
+        if (token.endsWith("%")) {
+            const percent = parseFloat(token.slice(0, -1));
+            return (percent / 100) * (component.max - component.min) + component.min;
+        }
+        if (/deg|rad|grad|turn$/.test(token)) {
+            const value = parseFloat(token);
+            return isNaN(value) ? 0 : value;
+        }
+        const value = parseFloat(token);
+        return isNaN(value) ? 0 : value;
+    };
+
+    name = name.trim().toLowerCase();
+
+    return {
+        isValid: (str: string) => {
+            const cleaned = str.trim().toLowerCase();
+            if (name in colorSpaceConverters) {
+                return (
+                    (cleaned.startsWith(`color(${name}`) || /^color\(from\s+./.test(cleaned)) && cleaned.endsWith(")")
+                );
+            }
+            return (
+                (cleaned.startsWith(`${name}(`) ||
+                    cleaned.startsWith(`${name}${converter.supportsLegacy ? "a" : ""}(`)) &&
+                cleaned.endsWith(")")
+            );
+        },
+        toXYZ: (str: string) => {
+            const tokens = tokenize(str);
+            const components = parseTokens(tokens);
+            return converter.toXYZ([components[0], components[1], components[2], components[3] ?? 1]);
+        },
+        fromXYZ: (xyz: XYZ, options: FormattingOptions = {}) => {
+            const { legacy = false } = options;
+            const [c1, c2, c3, alpha = 1] = converter.fromXYZ(xyz);
+
+            const comps = converter.components;
+            const sorted = Object.entries(comps).sort((a, b) => a[1].index - b[1].index);
+            const formatted = [c1, c2, c3].map((val, i) => {
+                const [, meta] = sorted[i];
+                const precision = meta.precision ?? 0;
+                const clipped = Math.min(Math.max(val, meta.min), meta.max);
+                return clipped.toFixed(precision);
+            });
+
+            const alphaFormatted = Math.min(Math.max(alpha, 0), 1).toFixed(3);
+
+            if (name in colorSpaceConverters) {
+                return `color(${name} ${formatted.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
+            }
+
+            if (legacy === true && converter.supportsLegacy === true && alpha > 1) {
+                if (alpha === 1) return `${name}(${formatted.join(", ")})`;
+                return `${name}a(${formatted.join(", ")}, ${alphaFormatted})`;
+            }
+
+            return `${name}(${formatted.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
+        },
+    };
+}
+
+/**
+ * Creates a <color-function> converter object from a given color space converter definition.
+ *
+ * @template C - A tuple of component names for the color space (e.g., ['r', 'g', 'b']).
+ * @param name - The name of the color space (used for target gamut identification).
+ * @param space - The color space converter definition, including component names,
+ *                conversion matrices, linearization functions, and white point.
+ * @returns An object implementing the `ColorFunctionConverter` interface, with methods
+ *          for converting to and from XYZ color space, and component metadata.
+ */
+export function functionConverterFromSpaceConverter<const C extends readonly string[]>(
+    name: string,
+    space: Omit<ColorSpaceConverter, "components"> & { components: C }
+) {
+    const isD50 = space.whitePoint === "D50";
+    const toXYZMatrix = isD50 ? multiplyMatrices(D50_to_D65, space.toXYZMatrix) : space.toXYZMatrix;
+    const fromXYZMatrix = isD50 ? multiplyMatrices(space.fromXYZMatrix, D65_to_D50) : space.fromXYZMatrix;
+
+    return {
+        supportsLegacy: false,
+        targetGamut: space.targetGamut === null ? null : name,
+        components: Object.fromEntries(
+            space.components.map((comp, index) => [comp, { index, min: 0, max: 1, precision: 5 }])
+        ) as Record<C[number], ComponentDefinition>,
+
+        toXYZ: (colorArray: number[]) => {
+            const [r, g, b, a = 1] = colorArray;
+            const linear = [space.toLinear(r), space.toLinear(g), space.toLinear(b)];
+            const [X, Y, Z] = multiplyMatrices(toXYZMatrix, linear);
+            return [X, Y, Z, a];
+        },
+
+        fromXYZ: ([X, Y, Z, a = 1]: XYZ) => {
+            const [lr, lg, lb] = multiplyMatrices(fromXYZMatrix, [X, Y, Z]);
+            const r = space.fromLinear ? space.fromLinear(lr) : lr;
+            const g = space.fromLinear ? space.fromLinear(lg) : lg;
+            const b = space.fromLinear ? space.fromLinear(lb) : lb;
+            return [r, g, b, a];
+        },
+    } satisfies ColorFunctionConverter;
 }

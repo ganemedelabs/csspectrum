@@ -1,19 +1,17 @@
-import Color from "./Color.js";
+import Color from "./Color";
 import {
     ColorConverter,
     ColorFunction,
     ColorFunctionConverter,
-    ColorSpaceConverter,
-    ComponentDefinition,
     FormattingOptions,
     HueInterpolationMethod,
     NamedColor,
     XYZ,
 } from "./types";
-import { D50, LRGB_to_SRGB, multiplyMatrices, SRGB_to_LRGB } from "./utils";
+import { D50, converterFromFunctionConverter, functionConverterFromSpaceConverter, multiplyMatrices } from "./utils";
 
 /**
- * A collection of named colors and their RGBA values.
+ * A collection of `<named-color>`s and their RGB values.
  */
 export const namedColors = {
     aliceblue: [240, 248, 255],
@@ -166,213 +164,11 @@ export const namedColors = {
     yellowgreen: [154, 205, 50],
 } satisfies { [named: string]: [number, number, number] };
 
-export const D50_to_D65 = [
-    [0.955473421488075, -0.02309845494876471, 0.06325924320057072],
-    [-0.0283697093338637, 1.0099953980813041, 0.021041441191917323],
-    [0.012314014864481998, -0.020507649298898964, 1.330365926242124],
-];
-
-export const D65_to_D50 = [
-    [1.0479297925449969, 0.022946870601609652, -0.05019226628920524],
-    [0.02962780877005599, 0.9904344267538799, -0.017073799063418826],
-    [-0.009243040646204504, 0.015055191490298152, 0.7518742814281371],
-];
-
-// TODO: missing relative parsing
-export function createColorFunctionConverter(name: string, converter: ColorFunctionConverter) {
-    const tokenize = (str: string) => {
-        const cleaned = str.trim();
-
-        if (cleaned.toLowerCase().startsWith("color(")) {
-            const inner = cleaned.slice(6, -1).trim();
-            const [spaceAndMain, alpha] = inner.split("/").map((s) => s.trim());
-
-            const parts = spaceAndMain.split(/\s+/);
-            const colorSpace = parts[0];
-            const components = parts.slice(1);
-
-            if (alpha !== undefined) {
-                components.push(alpha);
-            }
-
-            return [colorSpace, ...components];
-        }
-
-        const inner = cleaned.slice(name.length + 1, -1).trim();
-        const [main, alpha] = inner.split("/").map((s) => s.trim());
-
-        let components: string[] = [];
-
-        if (main.includes(",")) {
-            components = main.split(",").map((s) => s.trim());
-        } else {
-            components = main.split(/\s+/).filter(Boolean);
-        }
-
-        if (alpha !== undefined) {
-            components.push(alpha);
-        }
-
-        return components;
-    };
-
-    const parseComponentValue = (
-        token: string,
-        component: {
-            min: number;
-            max: number;
-        }
-    ) => {
-        token = token.trim().toLowerCase();
-
-        if (token === "none") return 0;
-        if (token === "calc(infinity)") return component.max;
-        if (token === "calc(-infinity)") return component.min;
-
-        if (token.endsWith("%")) {
-            const percent = parseFloat(token.slice(0, -1));
-            return (percent / 100) * (component.max - component.min) + component.min;
-        }
-
-        if (/deg|rad|grad|turn$/.test(token)) {
-            const value = parseFloat(token);
-            return isNaN(value) ? 0 : value;
-        }
-
-        const value = parseFloat(token);
-        return isNaN(value) ? 0 : value;
-    };
-
-    const parseTokens = (tokens: string[]): [number, number, number, number?] => {
-        const result: number[] = [];
-
-        const comps = converter.components;
-
-        const sorted = Object.entries(comps).sort((a, b) => a[1].index - b[1].index);
-
-        for (let i = 0; i < sorted.length; i++) {
-            const [, meta] = sorted[i];
-            const token = tokens[i];
-            const value = parseComponentValue(token, meta);
-            result[meta.index] = value;
-        }
-
-        if (tokens.length > sorted.length) {
-            const alphaToken = tokens[tokens.length - 1];
-            result[3] = parseFloat(alphaToken);
-        }
-
-        return result as [number, number, number, number?];
-    };
-
-    name = name.trim().toLowerCase();
-
-    return {
-        isValid: (str: string) => {
-            const cleaned = str.trim().toLowerCase();
-            if (name in colorSpaceConverters) {
-                return cleaned.startsWith(`color(${name}`) && cleaned.endsWith(")");
-            }
-            return cleaned.startsWith(`${name}${converter.supportsLegacy ? "a" : ""}(`) && cleaned.endsWith(")");
-        },
-        toXYZ: (str: string) => {
-            const tokens = tokenize(str);
-            const components = parseTokens(tokens);
-            return converter.toXYZ([components[0], components[1], components[2], components[3] ?? 1]);
-        },
-        fromXYZ: (xyz: XYZ, options: FormattingOptions = {}) => {
-            const { legacy = false } = options;
-            const [c1, c2, c3, alpha = 1] = converter.fromXYZ(xyz);
-
-            const comps = converter.components;
-            const sorted = Object.entries(comps).sort((a, b) => a[1].index - b[1].index);
-            const formatted = [c1, c2, c3].map((val, i) => {
-                const [, meta] = sorted[i];
-                const precision = meta.precision ?? 0;
-                const clipped = Math.min(Math.max(val, meta.min), meta.max);
-                return clipped.toFixed(precision);
-            });
-
-            const alphaFormatted = Math.min(Math.max(alpha, 0), 1).toFixed(3);
-
-            if (name in colorSpaceConverters) {
-                return `color(${name} ${formatted.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
-            }
-
-            if (legacy === true && converter.supportsLegacy === true) {
-                if (alpha === 1) return `${name}(${formatted.join(", ")})`;
-                return `${name}a(${formatted.join(", ")}, ${alphaFormatted})`;
-            }
-
-            return `${name}(${formatted.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
-        },
-    };
-}
-
-export function createSpaceConverter<const C extends readonly string[]>(
-    name: string,
-    space: Omit<ColorSpaceConverter, "components"> & { components: C }
-) {
-    const isD50 = space.whitePoint === "D50";
-    const toXYZMatrix = isD50 ? multiplyMatrices(D50_to_D65, space.toXYZMatrix) : space.toXYZMatrix;
-    const fromXYZMatrix = isD50 ? multiplyMatrices(space.fromXYZMatrix, D65_to_D50) : space.fromXYZMatrix;
-
-    return {
-        supportsLegacy: false,
-        targetGamut: space.targetGamut === null ? null : name,
-        components: Object.fromEntries(
-            space.components.map((comp, index) => [comp, { index, min: 0, max: 1, precision: 5 }])
-        ) as Record<C[number], ComponentDefinition>,
-
-        toXYZ: (colorArray: number[]) => {
-            const [r, g, b, a = 1] = colorArray;
-            const linear = [space.toLinear(r), space.toLinear(g), space.toLinear(b)];
-            const [X, Y, Z] = multiplyMatrices(toXYZMatrix, linear);
-            return [X, Y, Z, a];
-        },
-
-        fromXYZ: ([X, Y, Z, a = 1]: XYZ) => {
-            const [lr, lg, lb] = multiplyMatrices(fromXYZMatrix, [X, Y, Z]);
-            const r = space.fromLinear ? space.fromLinear(lr) : lr;
-            const g = space.fromLinear ? space.fromLinear(lg) : lg;
-            const b = space.fromLinear ? space.fromLinear(lb) : lb;
-            return [r, g, b, a];
-        },
-    } satisfies ColorFunctionConverter;
-}
-
-export const HSL_to_SRGB = (H: number, S: number, L: number) => {
-    S /= 100;
-    L /= 100;
-    const f = (n: number) => {
-        const k = (n + H / 30) % 12;
-        const a = S * Math.min(L, 1 - L);
-        return L - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
-    };
-    return [f(0), f(8), f(4)];
-};
-
-export const SRGB_to_XYZ = (R: number, G: number, B: number) => {
-    const M = [
-        [506752 / 1228815, 87881 / 245763, 12673 / 70218],
-        [87098 / 409605, 175762 / 245763, 12673 / 175545],
-        [7918 / 409605, 87881 / 737289, 1001167 / 1053270],
-    ];
-    return multiplyMatrices(M, [SRGB_to_LRGB(R / 255), SRGB_to_LRGB(G / 255), SRGB_to_LRGB(B / 255)]);
-};
-
-export const XYZ_to_SRGB = (X: number, Y: number, Z: number) => {
-    const M = [
-        [12831 / 3959, -329 / 214, -1974 / 3959],
-        [-851781 / 878810, 1648619 / 878810, 36519 / 878810],
-        [705 / 12673, -2585 / 12673, 705 / 667],
-    ];
-    const [lr, lg, lb] = multiplyMatrices(M, [X, Y, Z]);
-    return [LRGB_to_SRGB(lr), LRGB_to_SRGB(lg), LRGB_to_SRGB(lb)];
-};
-
+/**
+ * A collection of color spaces for <color()> function and their conversion logic.
+ */
 export const colorSpaceConverters = {
-    srgb: createSpaceConverter("srgb", {
+    srgb: functionConverterFromSpaceConverter("srgb", {
         components: ["r", "g", "b"],
         toLinear: (c: number) => {
             const sign = c < 0 ? -1 : 1;
@@ -402,7 +198,7 @@ export const colorSpaceConverters = {
         ],
         whitePoint: "D65",
     }),
-    "srgb-linear": createSpaceConverter("srgb-linear", {
+    "srgb-linear": functionConverterFromSpaceConverter("srgb-linear", {
         components: ["r", "g", "b"],
         toLinear: (c: number) => c,
         fromLinear: (c: number) => c,
@@ -418,7 +214,7 @@ export const colorSpaceConverters = {
         ],
         whitePoint: "D65",
     }),
-    "display-p3": createSpaceConverter("display-p3", {
+    "display-p3": functionConverterFromSpaceConverter("display-p3", {
         components: ["r", "g", "b"],
         toLinear: (c: number) => {
             const sign = c < 0 ? -1 : 1;
@@ -448,7 +244,7 @@ export const colorSpaceConverters = {
         ],
         whitePoint: "D65",
     }),
-    rec2020: createSpaceConverter("rec2020", {
+    rec2020: functionConverterFromSpaceConverter("rec2020", {
         components: ["r", "g", "b"],
         toLinear: (c: number) => {
             const α = 1.09929682680944;
@@ -482,7 +278,7 @@ export const colorSpaceConverters = {
         ],
         whitePoint: "D65",
     }),
-    "a98-rgb": createSpaceConverter("a98-rgb", {
+    "a98-rgb": functionConverterFromSpaceConverter("a98-rgb", {
         components: ["r", "g", "b"],
         toLinear: (c: number) => {
             const sign = c < 0 ? -1 : 1;
@@ -506,7 +302,7 @@ export const colorSpaceConverters = {
         ],
         whitePoint: "D65",
     }),
-    "prophoto-rgb": createSpaceConverter("prophoto-rgb", {
+    "prophoto-rgb": functionConverterFromSpaceConverter("prophoto-rgb", {
         components: ["r", "g", "b"],
         toLinear: (c: number) => {
             const Et2 = 16 / 512;
@@ -538,7 +334,7 @@ export const colorSpaceConverters = {
         ],
         whitePoint: "D50",
     }),
-    "xyz-d65": createSpaceConverter("xyz-d65", {
+    "xyz-d65": functionConverterFromSpaceConverter("xyz-d65", {
         targetGamut: null,
         components: ["x", "y", "z"],
         toLinear: (c: number) => c,
@@ -555,7 +351,7 @@ export const colorSpaceConverters = {
         ],
         whitePoint: "D65",
     }),
-    "xyz-d50": createSpaceConverter("xyz-d50", {
+    "xyz-d50": functionConverterFromSpaceConverter("xyz-d50", {
         targetGamut: null,
         components: ["x", "y", "z"],
         toLinear: (c: number) => c,
@@ -572,7 +368,7 @@ export const colorSpaceConverters = {
         ],
         whitePoint: "D50",
     }),
-    xyz: createSpaceConverter("xyz", {
+    xyz: functionConverterFromSpaceConverter("xyz", {
         targetGamut: null,
         components: ["x", "y", "z"],
         toLinear: (c: number) => c,
@@ -591,7 +387,9 @@ export const colorSpaceConverters = {
     }),
 } as const satisfies Record<string, ColorFunctionConverter>;
 
-// FIXME: fix rgb
+/**
+ * A collection of `<color-function>`s and their conversion logic.
+ */
 export const colorFunctionConverters = {
     rgb: {
         supportsLegacy: true,
@@ -602,12 +400,55 @@ export const colorFunctionConverters = {
             b: { index: 2, min: 0, max: 255, precision: 0 },
         },
         fromXYZ: ([X, Y, Z, alpha = 1]: XYZ) => {
-            const [R, G, B] = XYZ_to_SRGB(X, Y, Z).map((c) => c * 255);
-            return [R, G, B, alpha];
+            const M = [
+                [12831 / 3959, -329 / 214, -1974 / 3959],
+                [-851781 / 878810, 1648619 / 878810, 36519 / 878810],
+                [705 / 12673, -2585 / 12673, 705 / 667],
+            ];
+
+            const linRGB = multiplyMatrices(M, [X, Y, Z]);
+
+            const gam_sRGB = (RGB: number[]) =>
+                RGB.map((val) => {
+                    const sign = val < 0 ? -1 : 1;
+                    const abs = Math.abs(val);
+                    if (abs > 0.0031308) {
+                        return sign * (1.055 * Math.pow(abs, 1 / 2.4) - 0.055);
+                    }
+                    return 12.92 * val;
+                });
+
+            const gammaRGB = gam_sRGB(linRGB);
+
+            const rgb255 = gammaRGB.map((v) => v * 255);
+
+            return [...rgb255, alpha];
         },
+
         toXYZ: ([R, G, B, alpha = 1]: number[]): XYZ => {
-            const [X, Y, Z] = SRGB_to_XYZ(R, G, B).map((c) => c / 255);
-            return [X, Y, Z, alpha];
+            const rgbNorm = [R, G, B].map((v) => v / 255);
+
+            const lin_sRGB = (RGB: number[]) =>
+                RGB.map((val) => {
+                    const sign = val < 0 ? -1 : 1;
+                    const abs = Math.abs(val);
+                    if (abs <= 0.04045) {
+                        return val / 12.92;
+                    }
+                    return sign * Math.pow((abs + 0.055) / 1.055, 2.4);
+                });
+
+            const linearRGB = lin_sRGB(rgbNorm);
+
+            const M = [
+                [506752 / 1228815, 87881 / 245763, 12673 / 70218],
+                [87098 / 409605, 175762 / 245763, 12673 / 175545],
+                [7918 / 409605, 87881 / 737289, 1001167 / 1053270],
+            ];
+
+            const xyz = multiplyMatrices(M, linearRGB) as [number, number, number];
+
+            return [...xyz, alpha];
         },
     },
     hsl: {
@@ -615,11 +456,11 @@ export const colorFunctionConverters = {
         targetGamut: "srgb",
         components: {
             h: { index: 0, min: 0, max: 360, loop: true, precision: 0 },
-            s: { index: 1, min: 0, max: 100, precision: 1 },
-            l: { index: 2, min: 0, max: 100, precision: 1 },
+            s: { index: 1, min: 0, max: 100, precision: 0 },
+            l: { index: 2, min: 0, max: 100, precision: 0 },
         },
         fromXYZ: ([X, Y, Z, alpha = 1]: XYZ) => {
-            const [R, G, B] = XYZ_to_SRGB(X, Y, Z).map((c) => c * 255);
+            const [R, G, B] = colorFunctionConverters.rgb.fromXYZ([X, Y, Z, alpha]);
             const max = Math.max(R, G, B);
             const min = Math.min(R, G, B);
             let [H, S] = [0, 0];
@@ -657,8 +498,15 @@ export const colorFunctionConverters = {
             return [h, s, l, alpha];
         },
         toXYZ: ([h, s, l, a = 1]: number[]): XYZ => {
-            const [r, g, b] = HSL_to_SRGB(h, s, l);
-            const [x, y, z] = SRGB_to_XYZ(r, g, b);
+            s /= 100;
+            l /= 100;
+            const f = (n: number) => {
+                const k = (n + h / 30) % 12;
+                const a = s * Math.min(l, 1 - l);
+                return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+            };
+            const [r, g, b] = [f(0), f(8), f(4)];
+            const [x, y, z] = colorFunctionConverters.rgb.toXYZ([r * 255, g * 255, b * 255, a]);
             return [x, y, z, a];
         },
     },
@@ -692,7 +540,7 @@ export const colorFunctionConverters = {
                 }
                 return hue >= 360 ? hue - 360 : hue;
             };
-            const [sR, sG, sB] = XYZ_to_SRGB(X, Y, Z);
+            const [sR, sG, sB] = colorFunctionConverters.rgb.fromXYZ([X, Y, Z, alpha]);
             const hue = sRGBToHue(sR, sG, sB);
             const white = Math.min(sR, sG, sB);
             const black = 1 - Math.max(sR, sG, sB);
@@ -703,14 +551,9 @@ export const colorFunctionConverters = {
             B /= 100;
             if (W + B >= 1) {
                 const gray = W / (W + B);
-                return [gray, gray, gray];
+                return [gray, gray, gray, alpha];
             }
-            const RGB = HSL_to_SRGB(H, 100, 50) as [number, number, number];
-            for (let i = 0; i < 3; i++) {
-                RGB[i] *= 1 - W - B;
-                RGB[i] += W;
-            }
-            const [X, Y, Z] = SRGB_to_XYZ(...RGB);
+            const [X, Y, Z] = colorFunctionConverters.hsl.toXYZ([H, 100, 50]);
             return [X, Y, Z, alpha];
         },
     },
@@ -833,13 +676,19 @@ export const colorFunctionConverters = {
     ...colorSpaceConverters,
 } as const;
 
+/**
+ * A collection of `<color-function>`s as <color> converters.
+ */
 export const colorFunctions = Object.fromEntries(
     Object.entries(colorFunctionConverters).map(([name, converter]) => [
         name as ColorFunction,
-        createColorFunctionConverter(name, converter as ColorFunctionConverter),
+        converterFromFunctionConverter(name, converter as ColorFunctionConverter),
     ])
 ) as Record<ColorFunction, ColorConverter>;
 
+/**
+ * A collection of `<color-base>`s as <color> converters.
+ */
 export const colorBases = {
     "hex-color": {
         isValid: (str: string) => /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(str.trim()),
@@ -862,7 +711,6 @@ export const colorBases = {
             return `#${hex}${a < 1 ? toHex(Math.round(a * 255)) : ""}`.toUpperCase();
         },
     },
-    ...colorFunctions,
     "named-color": {
         isValid: (str: string) => {
             return Object.keys(namedColors).some((key) => key === str.trim().toLowerCase());
@@ -961,15 +809,18 @@ export const colorBases = {
         isValid: (str: string) => str.trim().toLowerCase() === "transparent",
         toXYZ: (str: string) => [0, 0, 0, 0], // eslint-disable-line no-unused-vars
     },
+    ...colorFunctions,
 } satisfies Record<string, ColorConverter>;
 
 /**
+ * A collection of <color> converters.
+ *
  * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
  */
 export const colorTypes = {
     currentColor: {
         isValid: (str: string) => str.trim().toLowerCase() === "currentcolor",
-        toXYZ: (str: string) => undefined, // eslint-disable-line no-unused-vars
+        toXYZ: (str: string) => [0, 0, 0, 1], // eslint-disable-line no-unused-vars
     },
     "contrast-color": {
         isValid: (str: string) => {
@@ -1073,10 +924,9 @@ export const colorTypes = {
             const { systemColors } = Color.config;
             return Object.keys(systemColors).some((key) => key.toLowerCase() === str.trim().toLowerCase());
         },
-        toXYZ: (str: string) => {
+        toXYZ: (str: string): XYZ => {
             const { systemColors } = Color.config;
             const key = Object.keys(systemColors).find((k) => k.toLowerCase() === str.trim().toLowerCase());
-            if (!key) return undefined;
             const rgbArr = systemColors[key as keyof typeof systemColors][Color.config.theme === "light" ? 0 : 1];
             return colorFunctionConverters.rgb.toXYZ([...rgbArr, 1]);
         },

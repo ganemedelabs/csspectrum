@@ -1,49 +1,45 @@
 import Color from "./Color";
-import { Pattern } from "./types.js";
+import { ColorType } from "./types";
 
 describe("Color", () => {
-    it("should pass this test", () => {
-        expect(true).toBe(true);
-    });
-
     it("should correctly identify all supported color formats", () => {
-        expect(Color.from("#ff5733").type()).toBe("hex");
-        expect(Color.from("rgb(255, 87, 51)").type()).toBe("rgb");
-        expect(Color.from("hsl(9, 100%, 60%)").type()).toBe("hsl");
-        expect(Color.from("red").type()).toBe("named");
-        expect(Color.from("hwb(9 10% 20%)").type()).toBe("hwb");
-        expect(Color.from("lab(53.23288% 80.10933 67.22006)").type()).toBe("lab");
-        expect(Color.from("lch(50% 80% 30)").type()).toBe("lch");
-        expect(Color.from("oklab(59% 0.1 0.1 / 0.5)").type()).toBe("oklab");
-        expect(Color.from("oklch(60% 0.15 50)").type()).toBe("oklch");
+        expect(Color.type("#ff5733")).toBe("hex");
+        expect(Color.type("rgb(255, 87, 51)")).toBe("rgb");
+        expect(Color.type("hsl(9, 100%, 60%)")).toBe("hsl");
+        expect(Color.type("red")).toBe("named");
+        expect(Color.type("hwb(9 10% 20%)")).toBe("hwb");
+        expect(Color.type("lab(53.23288% 80.10933 67.22006)")).toBe("lab");
+        expect(Color.type("lch(50% 80% 30)")).toBe("lch");
+        expect(Color.type("oklab(59% 0.1 0.1 / 0.5)")).toBe("oklab");
+        expect(Color.type("oklch(60% 0.15 50)")).toBe("oklch");
     });
 
     it("should correctly identify all supported color spaces", () => {
-        expect(Color.from("color(srgb 0.88 0.75 0.49)").type()).toBe("srgb");
-        expect(Color.from("color(srgb-linear 0.5 0.3 0.2)").type()).toBe("srgb-linear");
-        expect(Color.from("color(display-p3 0.5 0.34 0.2)").type()).toBe("display-p3");
-        expect(Color.from("color(rec2020 0.5 0.34 0.2)").type()).toBe("rec2020");
-        expect(Color.from("color(a98-rgb 0.5 0.34 0.2)").type()).toBe("a98-rgb");
-        expect(Color.from("color(prophoto-rgb 0.5 0.34 0.2)").type()).toBe("prophoto-rgb");
-        expect(Color.from("color(xyz-d65 0.37 0.4 0.42)").type()).toBe("xyz-d65");
-        expect(Color.from("color(xyz-d50 0.37 0.4 0.32)").type()).toBe("xyz-d50");
-        expect(Color.from("color(xyz 0.37 0.4 0.42)").type()).toBe("xyz");
+        expect(Color.type("color(srgb 0.88 0.75 0.49)")).toBe("srgb");
+        expect(Color.type("color(srgb-linear 0.5 0.3 0.2)")).toBe("srgb-linear");
+        expect(Color.type("color(display-p3 0.5 0.34 0.2)")).toBe("display-p3");
+        expect(Color.type("color(rec2020 0.5 0.34 0.2)")).toBe("rec2020");
+        expect(Color.type("color(a98-rgb 0.5 0.34 0.2)")).toBe("a98-rgb");
+        expect(Color.type("color(prophoto-rgb 0.5 0.34 0.2)")).toBe("prophoto-rgb");
+        expect(Color.type("color(xyz-d65 0.37 0.4 0.42)")).toBe("xyz-d65");
+        expect(Color.type("color(xyz-d50 0.37 0.4 0.32)")).toBe("xyz-d50");
+        expect(Color.type("color(xyz 0.37 0.4 0.42)")).toBe("xyz");
     });
 
     it("should correctly identify mixed colors", () => {
-        expect(Color.from("color-mix(in hsl, hsl(200 50 80), coral 80%)").type()).toBe("hsl");
-        expect(Color.from("color-mix(in lch longer hue, hsl(200deg 50% 80%), coral)").type()).toBe("lch");
-        expect(Color.from("color-mix(in srgb, plum, #f00)").type()).toBe("srgb");
-        expect(Color.from("color-mix(in lab, plum 60%, #f00 50%)").type()).toBe("lab");
+        expect(Color.type("color-mix(in hsl, hsl(200 50 80), coral 80%)")).toBe("hsl");
+        expect(Color.type("color-mix(in lch longer hue, hsl(200deg 50% 80%), coral)")).toBe("lch");
+        expect(Color.type("color-mix(in srgb, plum, #f00)")).toBe("srgb");
+        expect(Color.type("color-mix(in lab, plum 60%, #f00 50%)")).toBe("lab");
     });
 
     it("should correctly identify relative colors", () => {
-        expect(Color.from("color(from red a98-rgb r g b)").type()).toBe("a98-rgb");
-        expect(Color.from("color(from red xyz-d50 x y z / alpha)").type()).toBe("xyz-d50");
-        expect(Color.from("hsl(from red calc(h + s) s l)").type()).toBe("hsl");
-        expect(Color.from("hwb(from red h 50 b / w)").type()).toBe("hwb");
-        expect(Color.from("lab(from lch(51.51% 52.21 325.8) l a b)").type()).toBe("lab");
-        expect(Color.from("oklab(from oklch(100% 0 0) a calc(l * (a + b)) b / 0.5)").type()).toBe("oklab");
+        expect(Color.type("color(from red a98-rgb r g b)")).toBe("a98-rgb");
+        expect(Color.type("color(from red xyz-d50 x y z / alpha)")).toBe("xyz-d50");
+        expect(Color.type("hsl(from red calc(h + s) s l)")).toBe("hsl");
+        expect(Color.type("hwb(from red h 50 b / w)")).toBe("hwb");
+        expect(Color.type("lab(from lch(51.51% 52.21 325.8) l a b)")).toBe("lab");
+        expect(Color.type("oklab(from oklch(100% 0 0) a calc(l * (a + b)) b / 0.5)")).toBe("oklab");
     });
 
     it("should return correct arrays of components", () => {
@@ -111,13 +107,13 @@ describe("Color", () => {
 
     it("should return true if a color is cool", () => {
         const color = Color.from("rgb(0, 0, 255)");
-        const h = color.in("hsl").get("h");
+        const { h } = color.in("hsl").get();
         expect(h > 60 && h < 300).toBe(true);
     });
 
     it("should return true if a color is warm", () => {
         const color = Color.from("rgb(255, 0, 0)");
-        const h = color.in("hsl").get("h");
+        const { h } = color.in("hsl").get();
         expect(h <= 60 || h >= 300).toBe(true);
     });
 
@@ -127,7 +123,7 @@ describe("Color", () => {
 
     it("should return a random color", () => {
         const randomColor = Color.random("named");
-        expect(Color.from(randomColor).type()).toBe("named");
+        expect(Color.type(randomColor)).toBe("named");
     });
 
     it("should return true if a color is in gamut", () => {
@@ -160,10 +156,8 @@ describe("Color", () => {
         const rgbColor = Color.from("rgb(0, 157, 255)");
         const rgbInterface = rgbColor.in("rgb");
         const fit = "minmax";
-        expect(rgbInterface.get("r", { fit })).toBe(0);
-        expect(rgbInterface.get("g", { fit })).toBe(157);
-        expect(rgbInterface.get("b", { fit })).toBe(255);
-        expect(rgbInterface.get("alpha", { fit })).toBe(1);
+        const rgb = rgbInterface.get({ fit });
+        expect(rgb).toEqual({ r: 0, g: 157, b: 255, alpha: 1 });
     });
 
     it("should retrieve the correct array of components using getArray()", () => {
@@ -254,9 +248,9 @@ describe("Color", () => {
 });
 
 describe("Color patterns", () => {
-    const testCases: { name: Pattern; valid: string[]; invalid: string[] }[] = [
+    const testCases: { name: ColorType; valid: string[]; invalid: string[] }[] = [
         {
-            name: "hex",
+            name: "hex-color",
             valid: ["#f09", "#ff0099", "#f09a", "#ff0099cc"],
             invalid: ["#ff", "#ff000", "#ggg"],
         },
@@ -302,7 +296,7 @@ describe("Color patterns", () => {
             invalid: ["oklch(60%, 0.15, 50)", "oklch(60, 0.15%)", "oklch(60% 0.15)"],
         },
         {
-            name: "named",
+            name: "named-color",
             valid: ["rebeccapurple", "aliceblue", "red", "DarkSlateGray"],
             invalid: ["notacolor", "reddish"],
         },
@@ -366,68 +360,14 @@ describe("Color patterns", () => {
         describe(`${name} pattern`, () => {
             valid.forEach((color) => {
                 it(`should match valid ${name} color: "${color}"`, () => {
-                    expect(Color.patterns[name].test(color)).toBe(true);
+                    expect(Color.type(color)).toBe(name);
                 });
             });
             invalid.forEach((color) => {
                 it(`should NOT match invalid ${name} color: "${color}"`, () => {
-                    expect(Color.patterns[name].test(color)).toBe(false);
+                    expect(Color.type(color)).toBe(undefined);
                 });
             });
-        });
-    });
-});
-
-describe("Color registration methods", () => {
-    describe("registerNamedColor", () => {
-        it("should register a new named color successfully", () => {
-            Color.registerNamedColor("Test Color", [10, 20, 30]);
-            expect(Color.from("rgb(10, 20, 30)").to("named")).toBe("testcolor");
-        });
-
-        it("should throw an error when trying to register an already registered named color", () => {
-            Color.registerNamedColor("Duplicate", [100, 100, 100]);
-            expect(() => {
-                Color.registerNamedColor("duplicate", [100, 100, 100]);
-            }).toThrow(`Color name "duplicate" is already registered.`);
-        });
-    });
-
-    describe("registerFormat", () => {
-        const dummyConverter = {
-            pattern: /.*/,
-            model: "rgb",
-            toXYZA: () => [0, 0, 0, 1] as [number, number, number, number],
-            fromXYZA: () => "dummy output",
-        };
-
-        it("should register a new format converter and use it for conversion", () => {
-            Color.registerFormat("dummy", dummyConverter);
-            const output = Color.from("anything").to("dummy");
-            expect(output).toBe("dummy output");
-        });
-    });
-
-    describe("registerSpace", () => {
-        const dummySpace = {
-            toLinear: (c: number) => c,
-            fromLinear: (c: number) => c,
-            components: ["x", "y", "z"],
-            toXYZMatrix: [
-                [1, 0, 0],
-                [0, 1, 0],
-                [0, 0, 1],
-            ],
-            fromXYZMatrix: [
-                [1, 0, 0],
-                [0, 1, 0],
-                [0, 0, 1],
-            ],
-        };
-
-        it("should register a new color space", () => {
-            Color.registerSpace("dummySpace", dummySpace);
-            expect(Color.from("color(xyz 1 0 0)").to("dummySpace")).toBe("color(dummySpace 1 0 0)");
         });
     });
 });
