@@ -167,7 +167,7 @@ export function lightnessRange(hue: number, gamut: ColorSpace, options: { epsilo
 
     const isInGamut = (L: number) => {
         const color = Color.in("oklch").setCoords([L, C, hue]);
-        return color.inGamut(gamut, { epsilon });
+        return color.inGamut(gamut, epsilon);
     };
 
     const searchMinL = () => {
@@ -209,11 +209,11 @@ export function lightnessRange(hue: number, gamut: ColorSpace, options: { epsilo
  *
  * @remarks
  * This function supports several fitting methods:
- * - "no-fit": Returns the original coordinates without modification.
- * - "round-only": Rounds the coordinates according to the component precision withput gamut mapping.
- * - "minmax": Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
- * - "chroma-reduction": Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
- * - "css-gamut-map": CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
+ * - `"no-fit"`: Returns the original coordinates without modification.
+ * - `"round-only"`: Rounds the coordinates according to the component precision withput gamut mapping.
+ * - `"minmax"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
+ * - `"chroma-reduction"`: Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
+ * - `"css-gamut-map"`: CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
  */
 export function fit(coords: number[], model: ColorFunction, method: FitMethod = "minmax") {
     const roundCoords = (coords: number[]) => {
@@ -255,7 +255,7 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
 
         case "chroma-reduction": {
             const color = Color.in(model).setCoords(coords);
-            if (targetGamut === null || color.inGamut(targetGamut as ColorSpace, { epsilon: 1e-5 })) {
+            if (targetGamut === null || color.inGamut(targetGamut as ColorSpace, 1e-5)) {
                 return roundCoords(coords);
             }
 
@@ -272,7 +272,7 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
                 const C_mid = (C_low + C_high) / 2;
                 const candidate_color = Color.in("oklch").setCoords([L_adjusted, C_mid, H, alpha]);
 
-                if (candidate_color.inGamut(targetGamut as ColorSpace, { epsilon: 1e-5 })) {
+                if (candidate_color.inGamut(targetGamut as ColorSpace, 1e-5)) {
                     C_low = C_mid;
                 } else {
                     const clipped_coords = fit(candidate_color.getCoords(), model, "minmax");
@@ -311,7 +311,7 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
                 return roundCoords(black.in(model).getCoords());
             }
 
-            if (color.inGamut(targetGamut as ColorSpace, { epsilon: 1e-5 })) {
+            if (color.inGamut(targetGamut as ColorSpace, 1e-5)) {
                 return roundCoords(coords);
             }
 
@@ -336,7 +336,7 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
                 const chroma = (min + max) / 2;
                 const candidate = Color.in("oklch").setCoords([L, chroma, H, alpha]);
 
-                if (min_inGamut && candidate.inGamut(targetGamut as ColorSpace, { epsilon: 1e-5 })) {
+                if (min_inGamut && candidate.inGamut(targetGamut as ColorSpace, 1e-5)) {
                     min = chroma;
                 } else {
                     const clippedCoords = fit(candidate.getCoords(), model, "minmax");
@@ -555,30 +555,22 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
             return converter.toXYZ([components[0], components[1], components[2], components[3] ?? 1]);
         },
         fromXYZ: (xyz: XYZ, options: FormattingOptions = {}) => {
-            const { legacy = false } = options;
+            const { legacy = false, fit: fitMethod = "minmax" } = options;
             const [c1, c2, c3, alpha = 1] = converter.fromXYZ(xyz);
 
-            const comps = converter.components;
-            const sorted = Object.entries(comps).sort((a, b) => a[1].index - b[1].index);
-            const formatted = [c1, c2, c3].map((val, i) => {
-                const [, meta] = sorted[i];
-                const precision = meta.precision ?? 0;
-                const clipped = Math.min(Math.max(val, meta.min), meta.max);
-                return clipped.toFixed(precision);
-            });
-
+            const clipped = fit([c1, c2, c3, alpha], name as ColorFunction, fitMethod);
             const alphaFormatted = Math.min(Math.max(alpha, 0), 1).toFixed(3);
 
             if (name in colorSpaceConverters) {
-                return `color(${name} ${formatted.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
+                return `color(${name} ${clipped.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
             }
 
             if (legacy === true && converter.supportsLegacy === true && alpha > 1) {
-                if (alpha === 1) return `${name}(${formatted.join(", ")})`;
-                return `${name}a(${formatted.join(", ")}, ${alphaFormatted})`;
+                if (alpha === 1) return `${name}(${clipped.join(", ")})`;
+                return `${name}a(${clipped.join(", ")}, ${alphaFormatted})`;
             }
 
-            return `${name}(${formatted.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
+            return `${name}(${clipped.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
         },
     };
 }

@@ -1,5 +1,5 @@
 import Color from "./Color";
-import {
+import type {
     ColorConverter,
     ColorFunction,
     ColorFunctionConverter,
@@ -484,9 +484,9 @@ export const colorFunctionConverters = {
                 H = H * 60;
             }
 
-            let h = Math.round(H);
-            let s = Math.round(S * 100);
-            const l = Math.round(L * 100);
+            let h = H;
+            let s = S * 100;
+            const l = L * 100;
 
             if (s < 0) {
                 h += 180;
@@ -544,7 +544,7 @@ export const colorFunctionConverters = {
             const hue = sRGBToHue(sR, sG, sB);
             const white = Math.min(sR, sG, sB);
             const black = 1 - Math.max(sR, sG, sB);
-            return [Math.round(hue), Math.round(white * 100), Math.round(black * 100), alpha];
+            return [hue, white * 100, black * 100, alpha];
         },
         toXYZ: ([H, W, B, alpha = 1]: number[]): XYZ => {
             W /= 100;

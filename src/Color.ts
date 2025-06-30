@@ -6,8 +6,6 @@ import type {
     Component,
     Interface,
     InterfaceWithSetOnly,
-    InGamutOptions,
-    GetOptions,
     MixOptions,
     EvaluateAccessibilityOptions,
     ColorFunction,
@@ -18,8 +16,8 @@ import type {
     ColorSpace,
     ColorFunctionConverter,
     ColorSpaceConverter,
-    EqualsOptions,
     ColorConverter,
+    FitMethod,
 } from "./types";
 
 const config = {
@@ -336,9 +334,8 @@ class Color {
             throw new Error(`Model ${model} does not have defined components.`);
         }
 
-        const get = (options: GetOptions = {}) => {
-            const coords = converter.fromXYZ(this.xyz);
-            const { fit: fitMethod } = options;
+        const get = (fitMethod: FitMethod = "no-fit") => {
+            const coords = model === "xyz" || model === "xyz-d65" ? this.xyz : converter.fromXYZ(this.xyz);
 
             const result: { [key in Component<M>]: number } = {} as { [key in Component<M>]: number }; // eslint-disable-line no-unused-vars
 
@@ -354,9 +351,8 @@ class Color {
             return result;
         };
 
-        const getCoords = (options: GetOptions = {}) => {
-            const coords = converter.fromXYZ(this.xyz);
-            const { fit: fitMethod } = options;
+        const getCoords = (fitMethod: FitMethod = "no-fit") => {
+            const coords = model === "xyz" || model === "xyz-d65" ? this.xyz : converter.fromXYZ(this.xyz);
 
             if (fitMethod) {
                 const clipped = fit(coords, model as M, fitMethod);
@@ -408,7 +404,7 @@ class Color {
             return Object.assign(this, { ...this.in(model) }) as typeof this & Interface<M>;
         };
 
-        const setCoords = (coords: number[]) => {
+        const setCoords = (coords: (number | undefined)[]) => {
             const indexToComponent = Object.values(components).reduce(
                 (map, def) => {
                     map[def.index] = def;
@@ -499,7 +495,7 @@ class Color {
      *          - "wcag21": Ratio from 1 to 21.
      *          - "apca": Lc value (positive for light text on dark background, negative for dark text).
      *          - "oklab": Lightness difference (0 to 1).
-     * @throws if the algorithm or background is invalid.
+     * @throws If the algorithm or background is invalid.
      */
     contrastRatio(background: string | Color, algorithm: "wcag21" | "apca" | "oklab" = "wcag21"): number {
         const bgColor = typeof background === "string" ? Color.from(background) : background;
@@ -548,9 +544,9 @@ class Color {
      * Evaluates the accessibility of the current color against another color using WCAG 2.x or alternative contrast guidelines.
      *
      * @param background - The background color to evaluate against.
-     * @param options - The accessibility options.
+     * @param options - Optional settings to customize the evaluation.
      * @returns An object with accessibility status, contrast, required contrast, and helpful info.
-     * @throws if the algorithm, background, level, or font parameters are invalid.
+     * @throws If the algorithm, background, level, or font parameters are invalid.
      */
     evaluateAccessibility(background: string | Color, options: EvaluateAccessibilityOptions = {}) {
         const { type = "text", level = "AA", fontSize = 12, fontWeight = 400, algorithm = "wcag21" } = options;
@@ -666,8 +662,6 @@ class Color {
      * This method uses the Euclidean distance in OKLAB color space, scaled to approximate a Just Noticeable Difference (JND) of ~2.
      * OKLAB's perceptual uniformity allows for a straightforward distance calculation without additional weighting.
      * The result is normalized by a factor of 100 to align with OKLAB's L range (0-1) and approximate the JND scale.
-     *
-     * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
      */
     deltaEOK(other: Color | string) {
         const [L1, a1, b1] = this.in("oklab").getCoords();
@@ -695,8 +689,6 @@ class Color {
      * - CIE94: Improved weighting for better perceptual accuracy.
      * - CIEDE2000: Most accurate, accounting for hue, chroma, and lightness interactions.
      * The choice of method affects the accuracy and computational complexity, with CIEDE2000 being the most sophisticated.
-     *
-     * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
      */
     deltaE(other: Color | string, method: "76" | "94" | "2000" = "94") {
         const [L1, a1, b1] = this.in("lab").getCoords();
@@ -811,12 +803,10 @@ class Color {
      * Compares the current color object with another color string or Color object.
      *
      * @param other - The color string or Color object to compare with the current color object.
-     * @param options - Optional comparison settings.
-     * @param options.epsilon - Tolerance for floating point comparison. Defaults to 1e-5.
+     * @param epsilon - Tolerance for floating point comparison. Defaults to 1e-5.
      * @returns Whether the two colors are equal within the given epsilon.
      */
-    equals(other: Color | string, options: EqualsOptions = {}): boolean {
-        const { epsilon = 1e-5 } = options;
+    equals(other: Color | string, epsilon = 1e-5): boolean {
         const otherColor = typeof other === "string" ? Color.from(other) : other;
 
         return (
@@ -829,15 +819,14 @@ class Color {
      * Checks if the current color is within the specified gamut.
      *
      * @param gamut - The color space to check against.
-     * @param options - Optional parameters, including epsilon for tolerance.
+     * @param epsilon - Tolerance for floating point comparison. Defaults to 1e-5.
      * @returns `true` if the color is within the gamut, `false` otherwise.
      */
-    inGamut(gamut: ColorSpace, options: InGamutOptions = {}) {
+    inGamut(gamut: ColorSpace, epsilon = 1e-5) {
         if (!(gamut in colorSpaceConverters)) {
             throw new Error(`Unsupported color gamut: ${gamut}.`);
         }
         const { components, targetGamut } = colorFunctionConverters[gamut];
-        const { epsilon = 1e-5 } = options;
         const coords = this.in(gamut).getCoords();
 
         if (targetGamut === null) return true;
