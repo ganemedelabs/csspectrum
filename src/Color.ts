@@ -88,7 +88,6 @@ const config = {
             [255, 255, 255],
         ],
     },
-    naiveCmyk: false,
 };
 
 /**
@@ -98,6 +97,10 @@ const config = {
 class Color {
     /** The color represented as an XYZ tuple, with the last value being alpha (opacity). */
     xyz: XYZ = [0, 0, 0, 1];
+    currentInterface: { model: ColorFunction; coords: number[] } = {
+        model: "xyz",
+        coords: [0, 0, 0, 1],
+    };
 
     static config = config;
 
@@ -157,6 +160,78 @@ class Color {
     }
 
     /**
+     * Registers a new `<color>` converter under the specified name.
+     *
+     * @param name - The unique name to associate with the color converter.
+     * @param converter - The converter object implementing the color conversion logic.
+     * @throws If a color name is already used.
+     */
+    static registerColorType(name: string, converter: ColorConverter) {
+        const cleanedName = name.replace(/(?:\s+)/g, "").toLowerCase();
+        const obj = colorTypes as unknown as Record<string, ColorConverter>;
+
+        if (cleanedName in colorTypes) {
+            throw new Error(`The name "${cleanedName}" is already used.`);
+        }
+
+        obj[cleanedName] = converter;
+    }
+
+    /**
+     * Registers a new `<color-base>` converter under the specified name.
+     *
+     * @param name - The unique name to associate with the color base converter.
+     * @param converter - The converter object implementing the color base conversion logic.
+     * @throws If a color base name is already used.
+     */
+    static registerColorBase(name: string, converter: ColorConverter) {
+        const cleanedName = name.replace(/(?:\s+)/g, "").toLowerCase();
+        const obj = colorBases as unknown as Record<string, ColorConverter>;
+
+        if (cleanedName in colorTypes) {
+            throw new Error(`The name "${cleanedName}" is already used.`);
+        }
+
+        obj[cleanedName] = converter;
+    }
+
+    /**
+     * Registers a new `<color-function>` converter under the specified name.
+     *
+     * @param name - The unique name to associate with the color function converter.
+     * @param converter - The converter object implementing the color function conversion logic.
+     * @throws If a color function name is already used.
+     */
+    static registerColorFunction(name: string, converter: ColorFunctionConverter) {
+        const cleanedName = name.replace(/(?:\s+)/g, "").toLowerCase();
+        const obj = colorFunctionConverters as unknown as Record<string, ColorFunctionConverter>;
+
+        if (cleanedName in colorTypes) {
+            throw new Error(`The name "${cleanedName}" is already used.`);
+        }
+
+        obj[cleanedName] = converter;
+    }
+
+    /**
+     * Registers a new color space converter for `<color()>` function under the specified name.
+     *
+     * @param name - The unique name to associate with the color space converter.
+     * @param converter - The converter object implementing the color space conversion logic.
+     * @throws If a color space name is already used.
+     */
+    static registerColorSpace(name: string, converter: ColorSpaceConverter) {
+        const cleanedName = name.replace(/(?:\s+)/g, "").toLowerCase();
+        const obj = colorSpaceConverters as unknown as Record<string, ColorFunctionConverter>;
+
+        if (cleanedName in colorTypes) {
+            throw new Error(`The name "${cleanedName}" is already used.`);
+        }
+
+        obj[cleanedName] = functionConverterFromSpaceConverter(cleanedName, converter);
+    }
+
+    /**
      * Registers a new `<named-color>` with the specified RGB value.
      *
      * @param name - The name to register for the color.
@@ -166,7 +241,6 @@ class Color {
      */
     static registerNamedColor(name: string, rgb: [number, number, number]) {
         const cleanedName = name.replace(/(?:\s+|-)/g, "").toLowerCase();
-
         const colorMap = namedColors as Record<NamedColor, [number, number, number]>;
 
         if (colorMap[cleanedName as NamedColor]) {
@@ -182,74 +256,6 @@ class Color {
         }
 
         colorMap[cleanedName as NamedColor] = rgb;
-    }
-
-    /**
-     * Registers a new `<color-function>` converter under the specified name.
-     *
-     * @param name - The unique name to associate with the color function converter.
-     * @param converter - The converter object implementing the color function conversion logic.
-     * @throws If a color function name is already used.
-     */
-    static registerColorFunction(name: string, converter: ColorFunctionConverter) {
-        const obj = colorFunctionConverters as unknown as Record<string, ColorFunctionConverter>;
-
-        if (name in colorTypes) {
-            throw new Error(`The name "${name}" is already used.`);
-        }
-
-        obj[name] = converter;
-    }
-
-    /**
-     * Registers a new color space converter for `<color()>` function under the specified name.
-     *
-     * @param name - The unique name to associate with the color space converter.
-     * @param converter - The converter object implementing the color space conversion logic.
-     * @throws If a color space name is already used.
-     */
-    static registerColorSpace(name: string, converter: ColorSpaceConverter) {
-        const obj = colorSpaceConverters as unknown as Record<string, ColorFunctionConverter>;
-
-        if (name in colorTypes) {
-            throw new Error(`The name "${name}" is already used.`);
-        }
-
-        obj[name] = functionConverterFromSpaceConverter(name, converter);
-    }
-
-    /**
-     * Registers a new `<color-base>` converter under the specified name.
-     *
-     * @param name - The unique name to associate with the color base converter.
-     * @param converter - The converter object implementing the color base conversion logic.
-     * @throws If a color base name is already used.
-     */
-    static registerColorBase(name: string, converter: ColorConverter) {
-        const obj = colorBases as unknown as Record<string, ColorConverter>;
-
-        if (name in colorTypes) {
-            throw new Error(`The name "${name}" is already used.`);
-        }
-
-        obj[name] = converter;
-    }
-
-    /**
-     * Registers a new `<color>` converter under the specified name.
-     *
-     * @param name - The unique name to associate with the color converter.
-     * @param converter - The converter object implementing the color conversion logic.
-     * @throws If a color name is already used.
-     */
-    static registerColorType(name: string, converter: ColorConverter) {
-        const obj = colorTypes as unknown as Record<string, ColorConverter>;
-
-        if (name in colorTypes) {
-            throw new Error(`The name "${name}" is already used.`);
-        }
-
-        obj[name] = converter;
     }
 
     /**
@@ -335,7 +341,7 @@ class Color {
         }
 
         const get = (fitMethod: FitMethod = "no-fit") => {
-            const coords = model === "xyz" || model === "xyz-d65" ? this.xyz : converter.fromXYZ(this.xyz);
+            const coords = getCoords();
 
             const result: { [key in Component<M>]: number } = {} as { [key in Component<M>]: number }; // eslint-disable-line no-unused-vars
 
@@ -352,7 +358,12 @@ class Color {
         };
 
         const getCoords = (fitMethod: FitMethod = "no-fit") => {
-            const coords = model === "xyz" || model === "xyz-d65" ? this.xyz : converter.fromXYZ(this.xyz);
+            const coords =
+                model === "xyz" || model === "xyz-d65"
+                    ? this.xyz
+                    : model === this.currentInterface.model
+                      ? this.currentInterface.coords
+                      : converter.fromXYZ(this.xyz);
 
             if (fitMethod) {
                 const clipped = fit(coords, model as M, fitMethod);
@@ -367,7 +378,7 @@ class Color {
                 | Partial<{ [K in Component<M>]: number | ((prev: number) => number) }> // eslint-disable-line no-unused-vars
                 | ((components: { [K in Component<M>]: number }) => Partial<{ [K in Component<M>]?: number }>) // eslint-disable-line no-unused-vars
         ) => {
-            const coords = converter.fromXYZ(this.xyz);
+            const coords = getCoords();
             const compNames = Object.keys(components) as Component<M>[];
 
             if (typeof values === "function") {
@@ -401,31 +412,36 @@ class Color {
             });
 
             this.xyz = converter.toXYZ(coords);
+            this.currentInterface = { model: model as M, coords };
             return Object.assign(this, { ...this.in(model) }) as typeof this & Interface<M>;
         };
 
-        const setCoords = (coords: (number | undefined)[]) => {
-            const indexToComponent = Object.values(components).reduce(
+        const setCoords = (newCoords: (number | undefined)[]) => {
+            const baseCoords = getCoords();
+            const indexToComponent: { [index: number]: ComponentDefinition } = Object.values(components).reduce(
                 (map, def) => {
                     map[def.index] = def;
                     return map;
                 },
-                {} as { [index: number]: ComponentDefinition }
+                {}
             );
 
-            const adjustedCoords = coords.map((value, index) => {
+            const adjustedCoords = baseCoords.map((current, index) => {
+                const incoming = newCoords[index];
                 const compDef = indexToComponent[index];
-                if (!compDef) return value;
+                if (!compDef) return current;
 
-                const { min, max } = compDef;
+                if (typeof incoming !== "number") return current;
 
-                if (Number.isNaN(value)) return 0;
-                if (value === Infinity) return max;
-                if (value === -Infinity) return min;
-                return value;
+                if (Number.isNaN(incoming)) return 0;
+                if (incoming === Infinity) return compDef.max;
+                if (incoming === -Infinity) return compDef.min;
+
+                return incoming;
             });
 
             this.xyz = converter.toXYZ(adjustedCoords);
+            this.currentInterface = { model: model as M, coords: adjustedCoords };
             return Object.assign(this, { ...this.in(model) }) as typeof this & Interface<M>;
         };
 
@@ -437,7 +453,7 @@ class Color {
 
             const otherColor = typeof other === "string" ? Color.from(other) : other;
             const otherCoords = otherColor.in(model).getCoords();
-            const thisCoords = converter.fromXYZ(this.xyz);
+            const thisCoords = getCoords();
 
             const gammaCorrectedT = Math.pow(easedT, 1 / gamma);
 

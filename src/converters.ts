@@ -10,9 +10,7 @@ import type {
 } from "./types";
 import { D50, converterFromFunctionConverter, functionConverterFromSpaceConverter, multiplyMatrices } from "./utils";
 
-/**
- * A collection of `<named-color>`s and their RGB values.
- */
+/** A collection of `<named-color>`s and their RGB values. */
 export const namedColors = {
     aliceblue: [240, 248, 255],
     antiquewhite: [250, 235, 215],
@@ -164,9 +162,7 @@ export const namedColors = {
     yellowgreen: [154, 205, 50],
 } satisfies { [named: string]: [number, number, number] };
 
-/**
- * A collection of color spaces for <color()> function and their conversion logic.
- */
+/** A collection of color spaces for <color()> function and their conversion logic. */
 export const colorSpaceConverters = {
     srgb: functionConverterFromSpaceConverter("srgb", {
         components: ["r", "g", "b"],
@@ -387,9 +383,7 @@ export const colorSpaceConverters = {
     }),
 } as const satisfies Record<string, ColorFunctionConverter>;
 
-/**
- * A collection of `<color-function>`s and their conversion logic.
- */
+/** A collection of `<color-function>`s and their conversion logic. */
 export const colorFunctionConverters = {
     rgb: {
         supportsLegacy: true,
@@ -676,9 +670,7 @@ export const colorFunctionConverters = {
     ...colorSpaceConverters,
 } as const;
 
-/**
- * A collection of `<color-function>`s as <color> converters.
- */
+/** A collection of `<color-function>`s as <color> converters. */
 export const colorFunctions = Object.fromEntries(
     Object.entries(colorFunctionConverters).map(([name, converter]) => [
         name as ColorFunction,
@@ -686,9 +678,7 @@ export const colorFunctions = Object.fromEntries(
     ])
 ) as Record<ColorFunction, ColorConverter>;
 
-/**
- * A collection of `<color-base>`s as <color> converters.
- */
+/** A collection of `<color-base>`s as <color> converters. */
 export const colorBases = {
     "hex-color": {
         isValid: (str: string) => /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(str.trim()),
@@ -839,42 +829,35 @@ export const colorTypes = {
             return cleaned.startsWith("device-cmyk(") && cleaned.endsWith(")");
         },
         toXYZ: (str: string): XYZ => {
-            const { naiveCmyk } = Color.config;
             const match = str.match(/device-cmyk\([^)]*?,\s*(.+?)\s*\)$/i);
             if (match && match[1]) return Color.from(match[1]).xyz;
 
-            if (naiveCmyk) {
-                const cmykBody = str.replace(/device-cmyk\(|\)/gi, "").trim();
-                const [componentsPart, alphaPart] = cmykBody.split("/");
-                const components = componentsPart
-                    .trim()
-                    .split(/[\s,]+/)
-                    .filter(Boolean)
-                    .map((v) => (v.endsWith("%") ? parseFloat(v) / 100 : parseFloat(v)));
-                const [cyan, magenta, yellow, black] = [
-                    components[0] ?? 0,
-                    components[1] ?? 0,
-                    components[2] ?? 0,
-                    components[3] ?? 0,
-                ];
-                const alpha =
-                    alphaPart !== undefined
-                        ? alphaPart.trim().endsWith("%")
-                            ? parseFloat(alphaPart.trim()) / 100
-                            : parseFloat(alphaPart.trim())
-                        : 1;
-                const red = 1 - Math.min(1, cyan * (1 - black) + black);
-                const green = 1 - Math.min(1, magenta * (1 - black) + black);
-                const blue = 1 - Math.min(1, yellow * (1 - black) + black);
-                return colorFunctionConverters.rgb.toXYZ([red * 255, green * 255, blue * 255, alpha]);
-            }
-
-            return [0, 0, 0, 1];
+            const cmykBody = str.replace(/device-cmyk\(|\)/gi, "").trim();
+            const [componentsPart, alphaPart] = cmykBody.split("/");
+            const components = componentsPart
+                .trim()
+                .split(/[\s,]+/)
+                .filter(Boolean)
+                .map((v) => (v.endsWith("%") ? parseFloat(v) / 100 : parseFloat(v)));
+            const [cyan, magenta, yellow, black] = [
+                components[0] ?? 0,
+                components[1] ?? 0,
+                components[2] ?? 0,
+                components[3] ?? 0,
+            ];
+            const alpha =
+                alphaPart !== undefined
+                    ? alphaPart.trim().endsWith("%")
+                        ? parseFloat(alphaPart.trim()) / 100
+                        : parseFloat(alphaPart.trim())
+                    : 1;
+            const red = 1 - Math.min(1, cyan * (1 - black) + black);
+            const green = 1 - Math.min(1, magenta * (1 - black) + black);
+            const blue = 1 - Math.min(1, yellow * (1 - black) + black);
+            return colorFunctionConverters.rgb.toXYZ([red * 255, green * 255, blue * 255, alpha]);
         },
         fromXYZ: (xyz: XYZ, options: FormattingOptions = {}) => {
             const { legacy = false } = options;
-            const { naiveCmyk } = Color.config;
-            if (!naiveCmyk) return undefined;
             const [red, green, blue, alpha = 1] = colorFunctionConverters.rgb.fromXYZ(xyz);
             const r = red / 255;
             const g = green / 255;
