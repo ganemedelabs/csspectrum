@@ -1,4 +1,4 @@
-export { default as Color } from "./Color";
-export * from "./types";
-export * from "./utils";
-export * from "./converters";
+export { default as Color } from "./Color.js";
+export * from "./types.js";
+export * from "./utils.js";
+export * from "./converters.js";

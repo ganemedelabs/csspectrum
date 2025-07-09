@@ -1,5 +1,5 @@
-import Color from "./Color";
-import { colorFunctionConverters, colorSpaceConverters } from "./converters";
+import Color from "./Color.js";
+import { colorFunctionConverters, colorSpaceConverters } from "./converters.js";
 import type {
     ColorFunction,
     ColorFunctionConverter,
@@ -8,9 +8,8 @@ import type {
     ComponentDefinition,
     FitMethod,
     FormattingOptions,
-    HueInterpolationMethod,
     XYZ,
-} from "./types";
+} from "./types.js";
 
 export const D50_to_D65 = [
     [0.955473421488075, -0.02309845494876471, 0.06325924320057072],
@@ -74,136 +73,12 @@ export function multiplyMatrices<A extends number[] | number[][], B extends numb
 }
 
 /**
- * Calculates the shortest angular difference (in degrees) between two hue values.
- *
- * @param a - The starting hue angle in degrees.
- * @param b - The ending hue angle in degrees.
- * @returns The shorter angular distance from `a` to `b` in degrees.
- */
-export function deltaHue(a: number, b: number): number {
-    let d = (((b - a) % 360) + 360) % 360;
-    if (d > 180) d -= 360;
-    return d;
-}
-
-/**
- * Calculates the longest angular difference (in degrees) between two hue values.
- *
- * @param a - The starting hue angle in degrees.
- * @param b - The ending hue angle in degrees.
- * @returns The longer angular distance from `a` to `b` in degrees.
- */
-export function deltaHueLong(a: number, b: number): number {
-    const short = deltaHue(a, b);
-    return short >= 0 ? short - 360 : short + 360;
-}
-
-/**
- * Interpolates between two arrays of component values, supporting special handling for hue interpolation.
- *
- * @param from - The starting array of component values.
- * @param to - The target array of component values.
- * @param components - An object mapping component names to their definitions, where each definition includes an `index` property.
- * @param t - The interpolation factor, typically between 0 (start) and 1 (end).
- * @param hue - The method to use for interpolating the hue component. Can be "shorter", "longer", "increasing", or "decreasing". Defaults to "shorter".
- * @returns An array of interpolated component values.
- * @throws If an invalid hue interpolation method is provided.
- */
-export function interpolateComponents(
-    from: number[],
-    to: number[],
-    components: Record<string, ComponentDefinition>,
-    t: number,
-    hue: HueInterpolationMethod = "shorter"
-): number[] {
-    return from.map((start, index) => {
-        const compEntry = Object.entries(components).find(([, def]) => def.index === index);
-        if (!compEntry) return start;
-
-        const [key] = compEntry;
-
-        if (key === "h") {
-            const currentHue = start;
-            const targetHue = to[index];
-            let mixedHue: number;
-
-            switch (hue) {
-                case "shorter":
-                    mixedHue = currentHue + t * deltaHue(currentHue, targetHue);
-                    break;
-                case "longer":
-                    mixedHue = currentHue + t * deltaHueLong(currentHue, targetHue);
-                    break;
-                case "increasing":
-                    mixedHue = currentHue * (1 - t) + (targetHue < currentHue ? targetHue + 360 : targetHue) * t;
-                    break;
-                case "decreasing":
-                    mixedHue = currentHue * (1 - t) + (targetHue > currentHue ? targetHue - 360 : targetHue) * t;
-                    break;
-                default:
-                    throw new Error("Invalid hue interpolation method");
-            }
-
-            return ((mixedHue % 360) + 360) % 360;
-        }
-
-        return start + (to[index] - start) * t;
-    });
-}
-
-/**
- * Computes the minimum and maximum lightness values (L) for a given hue and color space gamut,
- * such that the color with fixed chroma (C) is within the specified gamut.
- *
- * @param hue - The hue value (in degrees) for which to compute the lightness range.
- * @param gamut - The target color space gamut to check against.
- * @param options - Optional parameters.
- * @param options.epsilon - The precision for the binary search (default: 1e-5).
- * @returns A tuple containing the minimum and maximum lightness values ([L_min, L_max]) within the gamut.
- */
-export function lightnessRange(hue: number, gamut: ColorSpace, options: { epsilon?: number } = {}) {
-    const C = 0.05;
-    const epsilon = options.epsilon || 1e-5;
-
-    const isInGamut = (L: number) => {
-        const color = Color.in("oklch").setCoords([L, C, hue]);
-        return color.inGamut(gamut, epsilon);
-    };
-
-    const searchMinL = () => {
-        let low = 0,
-            high = 1;
-        while (high - low > epsilon) {
-            const mid = (low + high) / 2;
-            if (isInGamut(mid)) high = mid;
-            else low = mid;
-        }
-        return high;
-    };
-
-    const searchMaxL = () => {
-        let low = 0,
-            high = 1;
-        while (high - low > epsilon) {
-            const mid = (low + high) / 2;
-            if (isInGamut(mid)) low = mid;
-            else high = mid;
-        }
-        return low;
-    };
-
-    const L_min = searchMinL();
-    const L_max = searchMaxL();
-
-    return [L_min, L_max];
-}
-
-/**
  * Fits or clips a set of color coordinates to a specified color model and gamut using the given fitting method.
  *
  * @param coords - The color coordinates to fit or clip.
  * @param model - The color model to use (e.g., "rgb", "oklch", "xyz-d50", etc.).
  * @param method - The fitting method to use. Defaults to "minmax".
+ * @param precision - Overrides the default precision of component definitions.
  * @returns The fitted or clipped color coordinates.
  * @throws If component properties are missing or an invalid method is specified.
  *
@@ -215,11 +90,11 @@ export function lightnessRange(hue: number, gamut: ColorSpace, options: { epsilo
  * - `"chroma-reduction"`: Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
  * - `"css-gamut-map"`: CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
  */
-export function fit(coords: number[], model: ColorFunction, method: FitMethod = "minmax") {
+export function fit(coords: number[], model: ColorFunction, method: FitMethod = "minmax", precision?: number) {
     const roundCoords = (coords: number[]) => {
         return coords.map((value, i) => {
-            const precision = componentProps[i]?.precision ?? 5;
-            return Number(value.toFixed(precision));
+            const p = precision ?? componentProps[i]?.precision ?? 3;
+            return Number(value.toFixed(p));
         });
     };
 
@@ -238,7 +113,7 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
             return roundCoords(coords);
 
         case "minmax": {
-            const clipped = coords.map((value, i) => {
+            const clipped = coords.slice(0, 3).map((value, i) => {
                 const props = componentProps[i];
                 if (!props) {
                     throw new Error(`Missing component properties for index ${i}.`);
@@ -254,13 +129,45 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
         }
 
         case "chroma-reduction": {
-            const color = Color.in(model).setCoords(coords);
-            if (targetGamut === null || color.inGamut(targetGamut as ColorSpace, 1e-5)) {
-                return roundCoords(coords);
-            }
+            const lightnessRange = () => {
+                const C = 0.05;
+                const epsilon = 1e-5;
 
-            const [L, , H, alpha] = color.in("oklch").getCoords();
-            const [L_min, L_max] = lightnessRange(H, targetGamut as ColorSpace);
+                const isInGamut = (L: number) => {
+                    const color = Color.in("oklch").setCoords([L, C, H]);
+                    return color.inGamut(targetGamut as ColorSpace, epsilon);
+                };
+
+                const searchMinL = () => {
+                    let low = 0,
+                        high = 1;
+                    while (high - low > epsilon) {
+                        const mid = (low + high) / 2;
+                        if (isInGamut(mid)) high = mid;
+                        else low = mid;
+                    }
+                    return high;
+                };
+
+                const searchMaxL = () => {
+                    let low = 0,
+                        high = 1;
+                    while (high - low > epsilon) {
+                        const mid = (low + high) / 2;
+                        if (isInGamut(mid)) low = mid;
+                        else high = mid;
+                    }
+                    return low;
+                };
+
+                return [searchMinL(), searchMaxL()];
+            };
+
+            const color = Color.in(model).setCoords(coords);
+            if (targetGamut === null || color.inGamut(targetGamut as ColorSpace, 1e-5)) return roundCoords(coords);
+
+            const [L, , H] = color.in("oklch").getCoords();
+            const [L_min, L_max] = lightnessRange();
             const L_adjusted = Math.min(L_max, Math.max(L_min, L));
 
             let C_low = 0;
@@ -270,63 +177,53 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
 
             while (C_high - C_low > epsilon) {
                 const C_mid = (C_low + C_high) / 2;
-                const candidate_color = Color.in("oklch").setCoords([L_adjusted, C_mid, H, alpha]);
+                const candidate_color = Color.in("oklch").setCoords([L_adjusted, C_mid, H]);
 
-                if (candidate_color.inGamut(targetGamut as ColorSpace, 1e-5)) {
-                    C_low = C_mid;
-                } else {
-                    const clipped_coords = fit(candidate_color.getCoords(), model, "minmax");
+                if (candidate_color.inGamut(targetGamut as ColorSpace, 1e-5)) C_low = C_mid;
+                else {
+                    const clipped_coords = fit(candidate_color.getCoords().slice(0, 3), model, "minmax");
                     const clipped_color = Color.in(model).setCoords(clipped_coords);
                     const deltaE = candidate_color.deltaEOK(clipped_color);
                     if (deltaE < 2) {
                         clipped = clipped_coords;
                         return roundCoords(clipped);
-                    } else {
-                        C_high = C_mid;
-                    }
+                    } else C_high = C_mid;
                 }
             }
 
-            const finalColor = Color.in("oklch").setCoords([L_adjusted, C_low, H, alpha]);
+            const finalColor = Color.in("oklch").setCoords([L_adjusted, C_low, H]);
             clipped = finalColor.in(model).getCoords();
             return roundCoords(clipped);
         }
 
         case "css-gamut-map": {
-            if (targetGamut === null) {
-                return roundCoords(coords);
-            }
+            if (targetGamut === null) return roundCoords(coords);
 
             const color = Color.in(model).setCoords(coords);
-
-            const [L, C, H, alpha] = color.in("oklch").getCoords();
+            const [L, C, H] = color.in("oklch").getCoords();
 
             if (L >= 1.0) {
-                const white = Color.in("oklab").setCoords([1, 0, 0, alpha]);
+                const white = Color.in("oklab").setCoords([1, 0, 0]);
                 return roundCoords(white.in(model).getCoords());
             }
 
             if (L <= 0.0) {
-                const black = Color.in("oklab").setCoords([0, 0, 0, alpha]);
+                const black = Color.in("oklab").setCoords([0, 0, 0]);
                 return roundCoords(black.in(model).getCoords());
             }
 
-            if (color.inGamut(targetGamut as ColorSpace, 1e-5)) {
-                return roundCoords(coords);
-            }
+            if (color.inGamut(targetGamut as ColorSpace, 1e-5)) return roundCoords(coords);
 
             const JND = 0.02;
             const epsilon = 0.0001;
 
-            const current = Color.in("oklch").setCoords([L, C, H, alpha]);
-            let clipped: number[] = fit(current.getCoords(), model, "minmax");
+            const current = Color.in("oklch").setCoords([L, C, H]);
+            let clipped: number[] = fit(current.in(model).getCoords().slice(0, 3), model, "minmax");
 
             const initialClippedColor = Color.in(model).setCoords(clipped);
             const E = current.deltaEOK(initialClippedColor);
 
-            if (E < JND) {
-                return roundCoords(clipped);
-            }
+            if (E < JND) return roundCoords(clipped);
 
             let min = 0;
             let max = C;
@@ -334,26 +231,22 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
 
             while (max - min > epsilon) {
                 const chroma = (min + max) / 2;
-                const candidate = Color.in("oklch").setCoords([L, chroma, H, alpha]);
+                const candidate = Color.in("oklch").setCoords([L, chroma, H]);
 
-                if (min_inGamut && candidate.inGamut(targetGamut as ColorSpace, 1e-5)) {
-                    min = chroma;
-                } else {
-                    const clippedCoords = fit(candidate.getCoords(), model, "minmax");
+                if (min_inGamut && candidate.inGamut(targetGamut as ColorSpace, 1e-5)) min = chroma;
+                else {
+                    const clippedCoords = fit(candidate.in(model).getCoords().slice(0, 3), model, "minmax");
                     clipped = clippedCoords;
                     const clippedColor = Color.in(model).setCoords(clippedCoords);
                     const deltaE = candidate.deltaEOK(clippedColor);
 
                     if (deltaE < JND) {
-                        if (JND - deltaE < epsilon) {
-                            return roundCoords(clipped);
-                        } else {
+                        if (JND - deltaE < epsilon) return roundCoords(clipped);
+                        else {
                             min_inGamut = false;
                             min = chroma;
                         }
-                    } else {
-                        max = chroma;
-                    }
+                    } else max = chroma;
                 }
             }
 
@@ -361,7 +254,9 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
         }
 
         default:
-            throw new Error(`Invalid gamut clipping method: must be 'minmax', 'chroma-reduction', or 'css-gamut-map'.`);
+            throw new Error(
+                `Invalid gamut clipping method: must be 'minmax', 'chroma-reduction', 'css-gamut-map', 'round-only', or 'no-fit'.`
+            );
     }
 }
 
@@ -372,6 +267,7 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
  * @param converter - An object implementing the color function's conversion logic and component definitions.
  * @returns A <color> convereter object.
  */
+// FIXME: fix the tokeninzing logic
 export function converterFromFunctionConverter(name: string, converter: ColorFunctionConverter) {
     const tokenizeInner = (inner: string) => {
         const tokens = [];
@@ -435,7 +331,7 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
     const evaluateComponent = (
         componentString: string,
         baseComponents: Record<string, number>,
-        componentDef: ComponentDefinition
+        componentDef: { min: number; max: number }
     ) => {
         if (componentString === "none") return 0;
         if (componentString === "calc(infinity)") return componentDef.max;
@@ -495,7 +391,7 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
                 const componentDef = converter.components[componentNames[i]];
                 return evaluateComponent(token, baseComponents, componentDef);
             });
-            const alphaDef = { min: 0, max: 1, index: 3 }; // Alpha definition
+            const alphaDef = { min: 0, max: 1, index: 3 };
             const alpha = alphaToken ? evaluateComponent(alphaToken, baseComponents, alphaDef) : 1;
             return [evaluatedComponents[0], evaluatedComponents[1], evaluatedComponents[2], alpha];
         } else {
@@ -508,10 +404,11 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
                 const value = parseComponentValue(token, meta);
                 result[meta.index] = value;
             }
-            if (tokens.length > sorted.length) {
-                const alphaToken = tokens[tokens.length - 1];
+            const slashIndex = tokens.indexOf("/");
+            if (slashIndex !== -1 && slashIndex + 1 < tokens.length) {
+                const alphaToken = tokens[slashIndex + 1];
                 result[3] = parseFloat(alphaToken);
-            }
+            } else if (tokens[3]) result[3] = parseFloat(tokens[3]);
             return result;
         }
     };
@@ -521,9 +418,21 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
         if (token === "none") return 0;
         if (token === "calc(infinity)") return component.max;
         if (token === "calc(-infinity)") return component.min;
+        if (token.startsWith("calc(")) {
+            const innerExpr = token.slice(5, -1).trim();
+            if (innerExpr.endsWith("%")) {
+                const percent = parseFloat(innerExpr.slice(0, -1));
+                if (!isNaN(percent)) {
+                    return (percent / 100) * (component.max - component.min) + component.min;
+                }
+            }
+            return evaluateComponent(token, {}, component);
+        }
         if (token.endsWith("%")) {
             const percent = parseFloat(token.slice(0, -1));
-            return (percent / 100) * (component.max - component.min) + component.min;
+            if (!isNaN(percent)) {
+                return (percent / 100) * (component.max - component.min) + component.min;
+            }
         }
         if (/deg|rad|grad|turn$/.test(token)) {
             const value = parseFloat(token);
@@ -533,6 +442,39 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
         return isNaN(value) ? 0 : value;
     };
 
+    const validateRelativeColorSpace = (str: string, name: string) => {
+        const prefix = "color(from ";
+        if (!str.startsWith(prefix) || !str.endsWith(")")) {
+            return false;
+        }
+        const innerStr = str.slice(prefix.length, -1).trim();
+
+        let depth = 0;
+        let colorEnd = innerStr.length;
+        for (let i = 0; i < innerStr.length; i++) {
+            const char = innerStr[i];
+            if (char === "(") {
+                depth++;
+            } else if (char === ")") {
+                if (depth === 0) {
+                    return false;
+                }
+                depth--;
+            } else if (char === " " && depth === 0) {
+                colorEnd = i;
+                break;
+            }
+        }
+
+        const rest = innerStr.slice(colorEnd).trim();
+        const parts = rest.split(/\s+/);
+        if (parts.length < 1) {
+            return false;
+        }
+        const colorSpace = parts[0];
+        return colorSpace === name;
+    };
+
     name = name.trim().toLowerCase();
 
     return {
@@ -540,7 +482,9 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
             const cleaned = str.trim().toLowerCase();
             if (name in colorSpaceConverters) {
                 return (
-                    (cleaned.startsWith(`color(${name}`) || /^color\(from\s+./.test(cleaned)) && cleaned.endsWith(")")
+                    (cleaned.startsWith(`color(${name} `) ||
+                        (cleaned.startsWith("color(from ") && validateRelativeColorSpace(str, name))) &&
+                    cleaned.endsWith(")")
                 );
             }
             return (
@@ -552,13 +496,13 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
         toXYZ: (str: string) => {
             const tokens = tokenize(str);
             const components = parseTokens(tokens);
-            return converter.toXYZ([components[0], components[1], components[2], components[3] ?? 1]);
+            return [...converter.toXYZ([components[0], components[1], components[2]]), components[3] ?? 1];
         },
         fromXYZ: (xyz: XYZ, options: FormattingOptions = {}) => {
-            const { legacy = false, fit: fitMethod = "minmax" } = options;
-            const [c1, c2, c3, alpha = 1] = converter.fromXYZ(xyz);
+            const { legacy = false, fit: fitMethod = "minmax", precision = undefined } = options;
+            const [c1, c2, c3, alpha] = [...converter.fromXYZ(xyz), xyz[3] ?? 1];
 
-            const clipped = fit([c1, c2, c3, alpha], name as ColorFunction, fitMethod);
+            const clipped = fit([c1, c2, c3], name as ColorFunction, fitMethod, precision);
             const alphaFormatted = Math.min(Math.max(alpha, 0), 1).toFixed(3);
 
             if (name in colorSpaceConverters) {
@@ -600,19 +544,17 @@ export function functionConverterFromSpaceConverter<const C extends readonly str
             space.components.map((comp, index) => [comp, { index, min: 0, max: 1, precision: 5 }])
         ) as Record<C[number], ComponentDefinition>,
 
-        toXYZ: (colorArray: number[]) => {
-            const [r, g, b, a = 1] = colorArray;
-            const linear = [space.toLinear(r), space.toLinear(g), space.toLinear(b)];
-            const [X, Y, Z] = multiplyMatrices(toXYZMatrix, linear);
-            return [X, Y, Z, a];
+        toXYZ: ([c1, c2, c3]: number[]) => {
+            const linear = [space.toLinear(c1), space.toLinear(c2), space.toLinear(c3)];
+            return multiplyMatrices(toXYZMatrix, linear);
         },
 
-        fromXYZ: ([X, Y, Z, a = 1]: XYZ) => {
-            const [lr, lg, lb] = multiplyMatrices(fromXYZMatrix, [X, Y, Z]);
-            const r = space.fromLinear ? space.fromLinear(lr) : lr;
-            const g = space.fromLinear ? space.fromLinear(lg) : lg;
-            const b = space.fromLinear ? space.fromLinear(lb) : lb;
-            return [r, g, b, a];
+        fromXYZ: (xyz: number[]) => {
+            const [lc1, lc2, lc3] = multiplyMatrices(fromXYZMatrix, xyz);
+            const c1 = space.fromLinear ? space.fromLinear(lc1) : lc1;
+            const c2 = space.fromLinear ? space.fromLinear(lc2) : lc2;
+            const c3 = space.fromLinear ? space.fromLinear(lc3) : lc3;
+            return [c1, c2, c3];
         },
     } satisfies ColorFunctionConverter;
 }

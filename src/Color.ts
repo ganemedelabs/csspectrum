@@ -1,5 +1,5 @@
-import { colorFunctionConverters, colorTypes, namedColors, colorSpaceConverters, colorBases } from "./converters";
-import { EASINGS, interpolateComponents, fit, functionConverterFromSpaceConverter } from "./utils";
+import { colorFunctionConverters, colorTypes, namedColors, colorSpaceConverters, colorBases } from "./converters.js";
+import { EASINGS, fit, functionConverterFromSpaceConverter } from "./utils.js";
 import type {
     XYZ,
     ComponentDefinition,
@@ -18,7 +18,7 @@ import type {
     ColorSpaceConverter,
     ColorConverter,
     FitMethod,
-} from "./types";
+} from "./types.js";
 
 const config = {
     theme: "light",
@@ -103,12 +103,19 @@ class Color {
     };
 
     static config = config;
+    static plugins: ((colorClass: typeof Color) => void)[] = []; // eslint-disable-line no-unused-vars
 
     constructor(x: number, y: number, z: number, alpha: number = 1) {
         if (typeof x !== "number" || typeof y !== "number" || typeof z !== "number" || typeof alpha !== "number") {
             throw new TypeError("Color constructor expects four numeric arguments: x, y, z, and alpha.");
         }
         this.xyz = [x, y, z, alpha];
+    }
+
+    // eslint-disable-next-line no-unused-vars
+    static use(plugin: (colorClass: typeof Color) => void): void {
+        this.plugins.push(plugin);
+        plugin(this);
     }
 
     /**
@@ -124,6 +131,7 @@ class Color {
             const colorType = colorTypes[type as keyof typeof colorTypes];
             if (colorType.isValid(color)) {
                 const [x, y, z, alpha] = colorType.toXYZ(color) || [0, 0, 0, 1];
+                console.log({ alpha });
                 return new Color(x, y, z, alpha);
             }
         }
@@ -157,6 +165,32 @@ class Color {
             if (colorType.isValid(color)) return type as ColorType;
         }
         return undefined;
+    }
+
+    /**
+     * Generates a random color in the specified format or space.
+     * If no type is provided, a random format or space is chosen.
+     *
+     * @param type - The desired color format. If omitted, a random format or space is selected.
+     * @returns A random color string in the specified format or space.
+     */
+    static random(type?: string): string; // eslint-disable-line no-unused-vars
+    static random(type?: OutputType): string; // eslint-disable-line no-unused-vars
+    static random(type?: OutputType | string) {
+        if (!type) {
+            const types = Object.entries(colorTypes)
+                .filter(([, t]) => "fromXYZ" in t)
+                .map(([key]) => key);
+            type = types[Math.floor(Math.random() * types.length)];
+        }
+
+        if (type === "named-color") {
+            return Object.keys(namedColors)[Math.floor(Math.random() * Object.keys(namedColors).length)];
+        }
+
+        const randomChannel = () => Math.floor(Math.random() * 200 + 30);
+        const randomColor = this.in("rgb").setCoords([randomChannel(), randomChannel(), randomChannel()]);
+        return randomColor.to(type);
     }
 
     /**
@@ -279,30 +313,6 @@ class Color {
     }
 
     /**
-     * Generates a random color in the specified format or space.
-     * If no type is provided, a random format or space is chosen.
-     *
-     * @param type - The desired color format. If omitted, a random format or space is selected.
-     * @returns A random color string in the specified format or space.
-     */
-    static random(type?: string): string; // eslint-disable-line no-unused-vars
-    static random(type?: ColorFunction): string; // eslint-disable-line no-unused-vars
-    static random(type?: ColorFunction | string) {
-        if (!type) {
-            const types = Object.keys(colorTypes).concat(Object.keys(colorSpaceConverters));
-            type = types[Math.floor(Math.random() * types.length)];
-        }
-
-        if (type === "named") {
-            return Object.keys(namedColors)[Math.floor(Math.random() * Object.keys(namedColors).length)];
-        }
-
-        const randomChannel = () => Math.floor(Math.random() * 200 + 30);
-        const randomColor = this.in("rgb").setCoords([randomChannel(), randomChannel(), randomChannel()]);
-        return randomColor.to(type);
-    }
-
-    /**
      * Converts the current color to the specified format.
      *
      * @param format - The target color format.
@@ -312,7 +322,7 @@ class Color {
     to(format: string, options?: FormattingOptions): string; // eslint-disable-line no-unused-vars
     to(format: OutputType, options?: FormattingOptions): string; // eslint-disable-line no-unused-vars
     to(format: OutputType | string, options: FormattingOptions = {}) {
-        const { legacy = false, fit = "minmax" } = options;
+        const { legacy = false, fit = "minmax", precision = undefined } = options;
         const converter = colorTypes[format as OutputType];
 
         if (!converter) throw new Error(`Unsupported color format: ${String(format)}.`);
@@ -321,7 +331,7 @@ class Color {
             throw new Error(`Invalid output type: ${String(format)}.`);
         }
 
-        return converter.fromXYZ(this.xyz, { legacy, fit });
+        return converter.fromXYZ(this.xyz, { legacy, fit, precision });
     }
 
     /**
@@ -334,7 +344,16 @@ class Color {
     in(model: string): Interface<any>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
     in<M extends ColorFunction>(model: string | M): Interface<M> {
         const converter = colorFunctionConverters[model as M];
-        const { components } = converter;
+        const { components } = converter as unknown as Record<
+            string,
+            Record<Component<M> | "alpha", ComponentDefinition>
+        >;
+        components.alpha = {
+            index: 3,
+            min: 0,
+            max: 1,
+            precision: 3,
+        };
 
         if (!components) {
             throw new Error(`Model ${model} does not have defined components.`);
@@ -343,16 +362,21 @@ class Color {
         const get = (fitMethod: FitMethod = "no-fit") => {
             const coords = getCoords();
 
-            const result: { [key in Component<M>]: number } = {} as { [key in Component<M>]: number }; // eslint-disable-line no-unused-vars
+            // eslint-disable-next-line no-unused-vars
+            const result: { [key in Component<M> | "alpha"]: number } = {} as {
+                [key in Component<M> | "alpha"]: number; // eslint-disable-line no-unused-vars
+            };
 
             for (const [comp, { index }] of Object.entries(components)) {
                 if (fitMethod) {
-                    const clipped = fit(coords, model as M, fitMethod);
+                    const clipped = fit(coords.slice(0, 3), model as M, fitMethod);
                     result[comp as Component<M>] = clipped[index];
                 } else {
                     result[comp as Component<M>] = coords[index];
                 }
             }
+
+            result.alpha = this.xyz[3];
 
             return result;
         };
@@ -365,12 +389,15 @@ class Color {
                       ? this.currentInterface.coords
                       : converter.fromXYZ(this.xyz);
 
+            console.log({ xyz: this.xyz });
+            console.log({ coords });
+
             if (fitMethod) {
-                const clipped = fit(coords, model as M, fitMethod);
-                return clipped;
+                const clipped = fit(coords.slice(0, 3), model as M, fitMethod);
+                return [...clipped, this.xyz[3]];
             }
 
-            return coords;
+            return [...coords.slice(0, 3), this.xyz[3]];
         };
 
         const set = (
@@ -411,19 +438,19 @@ class Color {
                 }
             });
 
-            this.xyz = converter.toXYZ(coords);
-            this.currentInterface = { model: model as M, coords };
+            this.xyz = [...converter.toXYZ(coords), this.xyz[3]] as XYZ;
+            this.currentInterface = { model: model as M, coords: [...coords.slice(0, 3), this.xyz[3]] };
             return Object.assign(this, { ...this.in(model) }) as typeof this & Interface<M>;
         };
 
         const setCoords = (newCoords: (number | undefined)[]) => {
             const baseCoords = getCoords();
-            const indexToComponent: { [index: number]: ComponentDefinition } = Object.values(components).reduce(
-                (map, def) => {
+            const indexToComponent = Object.values(components).reduce(
+                (map: { [index: number]: ComponentDefinition }, def) => {
                     map[def.index] = def;
                     return map;
                 },
-                {}
+                {} as { [index: number]: ComponentDefinition }
             );
 
             const adjustedCoords = baseCoords.map((current, index) => {
@@ -440,25 +467,102 @@ class Color {
                 return incoming;
             });
 
-            this.xyz = converter.toXYZ(adjustedCoords);
-            this.currentInterface = { model: model as M, coords: adjustedCoords };
+            this.xyz = [...converter.toXYZ(adjustedCoords), newCoords[3] ?? this.xyz[3]] as XYZ;
+            this.currentInterface = { model: model as M, coords: [...adjustedCoords.slice(0, 3), this.xyz[3]] };
             return Object.assign(this, { ...this.in(model) }) as typeof this & Interface<M>;
         };
 
         const mix = (other: Color | string, options: MixOptions = {}) => {
+            const interpolateHue = (from: number, to: number, t: number, method: string) => {
+                const deltaHue = (a: number, b: number) => {
+                    const d = (((b - a) % 360) + 360) % 360;
+                    return d > 180 ? d - 360 : d;
+                };
+
+                const deltaHueLong = (a: number, b: number) => {
+                    const short = deltaHue(a, b);
+                    return short >= 0 ? short - 360 : short + 360;
+                };
+
+                let mixed: number;
+
+                switch (method) {
+                    case "shorter":
+                        mixed = from + t * deltaHue(from, to);
+                        break;
+                    case "longer":
+                        mixed = from + t * deltaHueLong(from, to);
+                        break;
+                    case "increasing":
+                        mixed = from * (1 - t) + (to < from ? to + 360 : to) * t;
+                        break;
+                    case "decreasing":
+                        mixed = from * (1 - t) + (to > from ? to - 360 : to) * t;
+                        break;
+                    default:
+                        throw new Error("Invalid hue interpolation method");
+                }
+
+                return ((mixed % 360) + 360) % 360;
+            };
+
             const { hue = "shorter", amount = 0.5, easing = "linear", gamma = 1.0 } = options;
 
-            const t = Math.max(0, Math.min(amount, 1));
+            const t = 1 - Math.max(0, Math.min(amount, 1));
             const easedT = (typeof easing === "function" ? easing : EASINGS[easing])(t);
-
-            const otherColor = typeof other === "string" ? Color.from(other) : other;
-            const otherCoords = otherColor.in(model).getCoords();
-            const thisCoords = getCoords();
-
             const gammaCorrectedT = Math.pow(easedT, 1 / gamma);
 
-            const mixedCoords = interpolateComponents(thisCoords, otherCoords, components, gammaCorrectedT, hue);
-            setCoords(mixedCoords);
+            const thisCoords = getCoords().slice(0, 3);
+            const otherColor = typeof other === "string" ? Color.from(other) : other;
+            const otherCoords = otherColor.in(model).getCoords().slice(0, 3);
+
+            const thisAlpha = this.xyz[3];
+            const otherAlpha = otherColor.xyz[3];
+
+            const hueIndex = Object.entries(components).find(([k]) => k === "h")?.[1].index;
+
+            if (amount === 0) {
+                setCoords([...thisCoords, thisAlpha]);
+            } else if (amount === 1) {
+                setCoords([...otherCoords, otherAlpha]);
+            } else if (thisAlpha < 1 || otherAlpha < 1) {
+                const premixed = thisCoords.map((start, index) => {
+                    const end = otherCoords[index];
+
+                    if (index === hueIndex) {
+                        return interpolateHue(start, end, gammaCorrectedT, hue);
+                    }
+
+                    const premultA = start * thisAlpha;
+                    const premultB = end * otherAlpha;
+                    return premultA * gammaCorrectedT + premultB * (1 - gammaCorrectedT);
+                });
+
+                const mixedAlpha = thisAlpha * gammaCorrectedT + otherAlpha * (1 - gammaCorrectedT);
+
+                const mixed =
+                    mixedAlpha > 0
+                        ? premixed.map((c, i) => (i === hueIndex ? c : c / mixedAlpha))
+                        : thisCoords.map((_, i) => (i === hueIndex ? premixed[i] : 0));
+
+                setCoords([...mixed, mixedAlpha]);
+            } else {
+                const mixedCoords = thisCoords.map((start, index) => {
+                    const compEntry = Object.entries(components).find(([, def]) => def.index === index);
+                    if (!compEntry) return start;
+
+                    const [key] = compEntry;
+                    const end = otherCoords[index];
+
+                    if (key === "h") {
+                        return interpolateHue(start, end, gammaCorrectedT, hue);
+                    }
+
+                    return start + (end - start) * gammaCorrectedT;
+                });
+
+                setCoords([...mixedCoords, 1]);
+            }
 
             return Object.assign(this, { ...this.in(model) }) as typeof this & Interface<M>;
         };
@@ -513,7 +617,7 @@ class Color {
      *          - "oklab": Lightness difference (0 to 1).
      * @throws If the algorithm or background is invalid.
      */
-    contrastRatio(background: string | Color, algorithm: "wcag21" | "apca" | "oklab" = "wcag21"): number {
+    contrast(background: string | Color, algorithm: "wcag21" | "apca" | "oklab" = "wcag21"): number {
         const bgColor = typeof background === "string" ? Color.from(background) : background;
         if (!bgColor) throw new Error(`Invalid background color: ${background}.`);
 
@@ -564,7 +668,7 @@ class Color {
      * @returns An object with accessibility status, contrast, required contrast, and helpful info.
      * @throws If the algorithm, background, level, or font parameters are invalid.
      */
-    evaluateAccessibility(background: string | Color, options: EvaluateAccessibilityOptions = {}) {
+    accessibility(background: string | Color, options: EvaluateAccessibilityOptions = {}) {
         const { type = "text", level = "AA", fontSize = 12, fontWeight = 400, algorithm = "wcag21" } = options;
 
         if (!["AA", "AAA"].includes(level)) {
@@ -579,7 +683,7 @@ class Color {
         }
         const backgroundColor = typeof background === "string" ? Color.from(background) : background;
 
-        const contrast = this.contrastRatio(background, algorithm);
+        const contrast = this.contrast(background, algorithm);
         let requiredContrast: number, wcagSuccessCriterion: string, message: string;
 
         if (algorithm === "wcag21") {
@@ -601,28 +705,30 @@ class Color {
             }
         } else if (algorithm === "apca") {
             if (type === "text") {
-                let lcThreshold: number;
-                if (fontSize >= 24 || (fontSize >= 18 && fontWeight >= 700)) {
-                    lcThreshold = level === "AA" ? 60 : 75;
-                } else if (fontSize >= 16 || (fontSize >= 14 && fontWeight >= 700)) {
-                    lcThreshold = level === "AA" ? 75 : 90;
+                if (fontSize >= 24) {
+                    requiredContrast = level === "AA" ? 75 : 90;
+                } else if (fontSize >= 18) {
+                    requiredContrast = fontWeight >= 700 ? (level === "AA" ? 75 : 90) : level === "AA" ? 90 : 105;
+                } else if (fontSize >= 16) {
+                    requiredContrast = level === "AA" ? 90 : 105;
                 } else {
-                    lcThreshold = level === "AA" ? 90 : 100;
+                    requiredContrast = level === "AA" ? 100 : 115;
                 }
-                requiredContrast = lcThreshold;
-                wcagSuccessCriterion = "APCA (WCAG 3.0 draft)";
-                message =
-                    Math.abs(contrast) >= requiredContrast
-                        ? `APCA contrast ${Math.abs(contrast).toFixed(2)} meets level ${level} for text (${fontSize}pt, weight ${fontWeight}).`
-                        : `APCA contrast ${Math.abs(contrast).toFixed(2)} fails level ${level} (needs at least ${requiredContrast} for ${fontSize}pt, weight ${fontWeight}).`;
             } else {
-                requiredContrast = 60;
-                wcagSuccessCriterion = "APCA (WCAG 3.0 draft)";
-                message =
-                    Math.abs(contrast) >= requiredContrast
-                        ? `APCA contrast ${Math.abs(contrast).toFixed(2)} meets level ${level} for non-text elements.`
-                        : `APCA contrast ${Math.abs(contrast).toFixed(2)} fails level ${level} for non-text (needs at least ${requiredContrast}).`;
+                requiredContrast = level === "AA" ? 60 : 75;
             }
+            wcagSuccessCriterion = "APCA (WCAG 3.0 draft)";
+            message =
+                Math.abs(contrast) >= requiredContrast
+                    ? `APCA contrast ${Math.abs(contrast).toFixed(2)} meets level ${level} for ${type === "text" ? "text" : "non-text"} elements.`
+                    : `APCA contrast ${Math.abs(contrast).toFixed(2)} fails level ${level} for ${type === "text" ? "text" : "non-text"} elements (needs at least ${requiredContrast}).`;
+            return {
+                passes: Math.abs(contrast) >= requiredContrast,
+                contrast: Math.abs(contrast),
+                requiredContrast,
+                wcagSuccessCriterion,
+                message,
+            };
         } else if (algorithm === "oklab") {
             if (type === "text") {
                 requiredContrast = fontSize >= 18 || (fontSize >= 14 && fontWeight >= 700) ? 0.2 : 0.3;
@@ -643,8 +749,8 @@ class Color {
             throw new Error("Unsupported contrast algorithm: must be 'wcag21', 'apca', or 'oklab'.");
         }
 
-        const isAccessible = Math.abs(contrast) >= requiredContrast;
-        const impact = !isAccessible
+        const passes = Math.abs(contrast) >= requiredContrast;
+        const impact = !passes
             ? algorithm === "wcag21" && level === "AAA"
                 ? "minor"
                 : type === "text" && (fontSize >= 18 || (fontSize >= 14 && fontWeight >= 700))
@@ -653,7 +759,7 @@ class Color {
             : "none";
 
         return {
-            isAccessible,
+            passes,
             contrast: +Math.abs(contrast).toFixed(2),
             requiredContrast,
             level,

@@ -1,6 +1,6 @@
-import Color from "./Color";
-import { namedColors, colorTypes, colorFunctionConverters, colorBases, colorSpaceConverters } from "./converters";
-import { EASINGS } from "./utils";
+import Color from "./Color.js";
+import { namedColors, colorTypes, colorFunctionConverters, colorBases, colorSpaceConverters } from "./converters.js";
+import { EASINGS } from "./utils.js";
 
 /* eslint-disable no-unused-vars */
 
@@ -55,10 +55,10 @@ export interface ColorFunctionConverter {
     components: Record<string, ComponentDefinition>;
 
     /** Converts an array of color components to the XYZ color space. */
-    toXYZ: (components: [number, number, number, number]) => XYZ;
+    toXYZ: (components: number[]) => number[];
 
     /** Converts a color from the XYZ color space to the target color space. */
-    fromXYZ: (xyz: XYZ, options?: FormattingOptions) => [number, number, number, number];
+    fromXYZ: (xyz: number[], options?: FormattingOptions) => number[];
 }
 
 /** Represents a converter for the color spaces used in `<color()>` function. */
@@ -236,6 +236,9 @@ export interface FormattingOptions {
      * - `"css-gamut-map"`: CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
      */
     fit?: FitMethod;
+
+    /** Overrides the precision of the output color. */
+    precision?: number;
 }
 
 /** Options for mixing two colors. */

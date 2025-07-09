@@ -1,4 +1,4 @@
-import Color from "./Color";
+import Color from "./Color.js";
 import type {
     ColorConverter,
     ColorFunction,
@@ -7,8 +7,8 @@ import type {
     HueInterpolationMethod,
     NamedColor,
     XYZ,
-} from "./types";
-import { D50, converterFromFunctionConverter, functionConverterFromSpaceConverter, multiplyMatrices } from "./utils";
+} from "./types.js";
+import { D50, converterFromFunctionConverter, functionConverterFromSpaceConverter, multiplyMatrices } from "./utils.js";
 
 /** A collection of `<named-color>`s and their RGB values. */
 export const namedColors = {
@@ -393,14 +393,14 @@ export const colorFunctionConverters = {
             g: { index: 1, min: 0, max: 255, precision: 0 },
             b: { index: 2, min: 0, max: 255, precision: 0 },
         },
-        fromXYZ: ([X, Y, Z, alpha = 1]: XYZ) => {
+        fromXYZ: (xyz: number[]) => {
             const M = [
                 [12831 / 3959, -329 / 214, -1974 / 3959],
                 [-851781 / 878810, 1648619 / 878810, 36519 / 878810],
                 [705 / 12673, -2585 / 12673, 705 / 667],
             ];
 
-            const linRGB = multiplyMatrices(M, [X, Y, Z]);
+            const linRGB = multiplyMatrices(M, xyz);
 
             const gam_sRGB = (RGB: number[]) =>
                 RGB.map((val) => {
@@ -414,13 +414,11 @@ export const colorFunctionConverters = {
 
             const gammaRGB = gam_sRGB(linRGB);
 
-            const rgb255 = gammaRGB.map((v) => v * 255);
-
-            return [...rgb255, alpha];
+            return gammaRGB.map((v) => v * 255);
         },
 
-        toXYZ: ([R, G, B, alpha = 1]: number[]): XYZ => {
-            const rgbNorm = [R, G, B].map((v) => v / 255);
+        toXYZ: (rgb: number[]) => {
+            const rgbNorm = rgb.map((v) => v / 255);
 
             const lin_sRGB = (RGB: number[]) =>
                 RGB.map((val) => {
@@ -440,21 +438,19 @@ export const colorFunctionConverters = {
                 [7918 / 409605, 87881 / 737289, 1001167 / 1053270],
             ];
 
-            const xyz = multiplyMatrices(M, linearRGB) as [number, number, number];
-
-            return [...xyz, alpha];
+            return multiplyMatrices(M, linearRGB);
         },
     },
     hsl: {
         supportsLegacy: true,
         targetGamut: "srgb",
         components: {
-            h: { index: 0, min: 0, max: 360, loop: true, precision: 0 },
-            s: { index: 1, min: 0, max: 100, precision: 0 },
-            l: { index: 2, min: 0, max: 100, precision: 0 },
+            h: { index: 0, min: 0, max: 360, loop: true, precision: 3 },
+            s: { index: 1, min: 0, max: 100, precision: 3 },
+            l: { index: 2, min: 0, max: 100, precision: 3 },
         },
-        fromXYZ: ([X, Y, Z, alpha = 1]: XYZ) => {
-            const [R, G, B] = colorFunctionConverters.rgb.fromXYZ([X, Y, Z, alpha]);
+        fromXYZ: (xyz: number[]) => {
+            const [R, G, B] = colorFunctionConverters.rgb.fromXYZ(xyz).map((c) => c / 255);
             const max = Math.max(R, G, B);
             const min = Math.min(R, G, B);
             let [H, S] = [0, 0];
@@ -489,19 +485,19 @@ export const colorFunctionConverters = {
             if (h >= 360) h -= 360;
             if (l === 0) s = 0;
             if (S === 0 || l === 0) h = 0;
-            return [h, s, l, alpha];
+            return [h, s, l];
         },
-        toXYZ: ([h, s, l, a = 1]: number[]): XYZ => {
+        toXYZ: ([h, s, l]: number[]) => {
             s /= 100;
             l /= 100;
+
             const f = (n: number) => {
                 const k = (n + h / 30) % 12;
                 const a = s * Math.min(l, 1 - l);
                 return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
             };
-            const [r, g, b] = [f(0), f(8), f(4)];
-            const [x, y, z] = colorFunctionConverters.rgb.toXYZ([r * 255, g * 255, b * 255, a]);
-            return [x, y, z, a];
+
+            return colorFunctionConverters.rgb.toXYZ([f(0) * 255, f(8) * 255, f(4) * 255]);
         },
     },
     hwb: {
@@ -512,7 +508,7 @@ export const colorFunctionConverters = {
             w: { index: 1, min: 0, max: 100, precision: 3 },
             b: { index: 2, min: 0, max: 100, precision: 3 },
         },
-        fromXYZ: ([X, Y, Z, alpha = 1]: XYZ) => {
+        fromXYZ: (xyz: number[]) => {
             const sRGBToHue = (red: number, green: number, blue: number) => {
                 const max = Math.max(red, green, blue);
                 const min = Math.min(red, green, blue);
@@ -534,21 +530,20 @@ export const colorFunctionConverters = {
                 }
                 return hue >= 360 ? hue - 360 : hue;
             };
-            const [sR, sG, sB] = colorFunctionConverters.rgb.fromXYZ([X, Y, Z, alpha]);
+            const [sR, sG, sB] = colorFunctionConverters.rgb.fromXYZ(xyz);
             const hue = sRGBToHue(sR, sG, sB);
             const white = Math.min(sR, sG, sB);
             const black = 1 - Math.max(sR, sG, sB);
-            return [hue, white * 100, black * 100, alpha];
+            return [hue, white * 100, black * 100];
         },
-        toXYZ: ([H, W, B, alpha = 1]: number[]): XYZ => {
+        toXYZ: ([H, W, B]: number[]) => {
             W /= 100;
             B /= 100;
             if (W + B >= 1) {
                 const gray = W / (W + B);
-                return [gray, gray, gray, alpha];
+                return [gray, gray, gray];
             }
-            const [X, Y, Z] = colorFunctionConverters.hsl.toXYZ([H, 100, 50]);
-            return [X, Y, Z, alpha];
+            return colorFunctionConverters.hsl.toXYZ([H, 100, 50]);
         },
     },
     lab: {
@@ -559,7 +554,7 @@ export const colorFunctionConverters = {
             a: { index: 1, min: -125, max: 125, precision: 5 },
             b: { index: 2, min: -125, max: 125, precision: 5 },
         },
-        toXYZ: ([L, a, b, alpha = 1]: number[]): XYZ => {
+        toXYZ: ([L, a, b]: number[]) => {
             const κ = 24389 / 27;
             const ε = 216 / 24389;
             const fy = (L + 16) / 116;
@@ -570,16 +565,14 @@ export const colorFunctionConverters = {
                 L > κ * ε ? Math.pow(fy, 3) : L / κ,
                 Math.pow(fz, 3) > ε ? Math.pow(fz, 3) : (116 * fz - 16) / κ,
             ];
-            const [X, Y, Z] = xyz.map((value, i) => value * D50[i]);
-            return [X, Y, Z, alpha];
+            return xyz.map((value, i) => value * D50[i]);
         },
-        fromXYZ: ([X, Y, Z, alpha = 1]: XYZ) => {
+        fromXYZ: (xyz: number[]) => {
             const ε = 216 / 24389;
             const κ = 24389 / 27;
-            const xyz = [X, Y, Z].map((value, i) => value / D50[i]);
-            const [fx, fy, fz] = xyz.map((value) => (value > ε ? Math.cbrt(value) : (κ * value + 16) / 116));
-            const [L, a, b] = [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
-            return [L, a, b, alpha];
+            const xyz_d50 = xyz.map((value, i) => value / D50[i]);
+            const [fx, fy, fz] = xyz_d50.map((value) => (value > ε ? Math.cbrt(value) : (κ * value + 16) / 116));
+            return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
         },
     },
     lch: {
@@ -590,16 +583,15 @@ export const colorFunctionConverters = {
             c: { index: 1, min: 0, max: 150, precision: 5 },
             h: { index: 2, min: 0, max: 360, loop: true, precision: 5 },
         },
-        toXYZ: ([L, C, H, alpha = 1]: number[]): XYZ => {
+        toXYZ: ([L, C, H]: number[]) => {
             const [, a, b] = [L, C * Math.cos((H * Math.PI) / 180), C * Math.sin((H * Math.PI) / 180)];
-            return colorFunctionConverters.lab.toXYZ([L, a, b, alpha]);
+            return colorFunctionConverters.lab.toXYZ([L, a, b]);
         },
-        fromXYZ: ([X, Y, Z, alpha = 1]: XYZ) => {
-            const [L, a, b] = colorFunctionConverters.lab.fromXYZ([X, Y, Z, alpha]);
+        fromXYZ: (xyz: number[]) => {
+            const [L, a, b] = colorFunctionConverters.lab.fromXYZ(xyz);
             const C = Math.sqrt(Math.pow(a, 2) + Math.pow(b, 2));
-            let H = (Math.atan2(b, a) * 180) / Math.PI;
-            if (H < 0) H = H + 360;
-            return [L, C, H, alpha];
+            const H = (Math.atan2(b, a) * 180) / Math.PI;
+            return [L, C, H < 0 ? H + 360 : H];
         },
     },
     oklab: {
@@ -610,7 +602,7 @@ export const colorFunctionConverters = {
             a: { index: 1, min: -0.4, max: 0.4, precision: 5 },
             b: { index: 2, min: -0.4, max: 0.4, precision: 5 },
         },
-        toXYZ: ([L, a, b, alpha = 1]: number[]): XYZ => {
+        toXYZ: (lab: number[]) => {
             const LMStoXYZ = [
                 [1.2268798758459243, -0.5578149944602171, 0.2813910456659647],
                 [-0.0405757452148008, 1.112286803280317, -0.0717110580655164],
@@ -621,14 +613,13 @@ export const colorFunctionConverters = {
                 [1.0, -0.1055613458156586, -0.0638541728258133],
                 [1.0, -0.0894841775298119, -1.2914855480194092],
             ];
-            const LMSnl = multiplyMatrices(OKLabtoLMS, [L, a, b]);
-            const [X, Y, Z] = multiplyMatrices(
+            const LMSnl = multiplyMatrices(OKLabtoLMS, lab);
+            return multiplyMatrices(
                 LMStoXYZ,
                 LMSnl.map((c) => c ** 3)
             );
-            return [X, Y, Z, alpha];
         },
-        fromXYZ: ([X, Y, Z, alpha = 1]: XYZ) => {
+        fromXYZ: (xyz: number[]) => {
             const XYZtoLMS = [
                 [0.819022437996703, 0.3619062600528904, -0.1288737815209879],
                 [0.0329836539323885, 0.9292868615863434, 0.0361446663506424],
@@ -639,12 +630,11 @@ export const colorFunctionConverters = {
                 [1.9779985324311684, -2.4285922420485799, 0.450593709617411],
                 [0.0259040424655478, 0.7827717124575296, -0.8086757549230774],
             ];
-            const LMS = multiplyMatrices(XYZtoLMS, [X, Y, Z]);
-            const [L, a, b] = multiplyMatrices(
+            const LMS = multiplyMatrices(XYZtoLMS, xyz);
+            return multiplyMatrices(
                 LMStoOKLab,
                 LMS.map((c) => Math.cbrt(c))
             );
-            return [L, a, b, alpha];
         },
     },
     oklch: {
@@ -655,16 +645,15 @@ export const colorFunctionConverters = {
             c: { index: 1, min: 0, max: 0.4, precision: 5 },
             h: { index: 2, min: 0, max: 360, loop: true, precision: 5 },
         },
-        toXYZ: ([L, C, H, alpha = 1]: number[]): XYZ => {
+        toXYZ: ([L, C, H]: number[]) => {
             const [, a, b] = [L, C * Math.cos((H * Math.PI) / 180), C * Math.sin((H * Math.PI) / 180)];
-            return colorFunctionConverters.oklab.toXYZ([L, a, b, alpha]);
+            return colorFunctionConverters.oklab.toXYZ([L, a, b]);
         },
-        fromXYZ: ([X, Y, Z, alpha = 1]: XYZ) => {
-            const [L, a, b] = colorFunctionConverters.oklab.fromXYZ([X, Y, Z, alpha]);
-            let H = (Math.atan2(b, a) * 180) / Math.PI;
+        fromXYZ: (xyz: number[]) => {
+            const [L, a, b] = colorFunctionConverters.oklab.fromXYZ(xyz);
+            const H = (Math.atan2(b, a) * 180) / Math.PI;
             const C = Math.sqrt(a ** 2 + b ** 2);
-            if (H < 0) H += 360;
-            return [L, C, H, alpha];
+            return [L, C, H < 0 ? H + 360 : H];
         },
     },
     ...colorSpaceConverters,
@@ -709,14 +698,14 @@ export const colorBases = {
             const key = name.replace(/[\s-]/g, "").toLowerCase() as NamedColor;
             const rgb = namedColors[key];
             if (!rgb) throw new Error(`Invalid named-color: ${name}`);
-            return colorFunctionConverters.rgb.toXYZ([...rgb, 1]);
+            return [...colorFunctionConverters.rgb.toXYZ(rgb), 1] as XYZ;
         },
         fromXYZ: (xyz: XYZ) => {
-            const [r, g, b, a] = colorFunctionConverters.rgb
+            const [r, g, b] = colorFunctionConverters.rgb
                 .fromXYZ(xyz)
                 .map((v, i) => (i < 3 ? Math.round(Math.min(255, Math.max(0, v))) : v));
-            for (const [name, [nr, ng, nb, na = 1]] of Object.entries(namedColors)) {
-                if (r === nr && g === ng && b === nb && a === na) return name;
+            for (const [name, [nr, ng, nb]] of Object.entries(namedColors)) {
+                if (r === nr && g === ng && b === nb) return name;
             }
         },
     },
@@ -854,22 +843,23 @@ export const colorTypes = {
             const red = 1 - Math.min(1, cyan * (1 - black) + black);
             const green = 1 - Math.min(1, magenta * (1 - black) + black);
             const blue = 1 - Math.min(1, yellow * (1 - black) + black);
-            return colorFunctionConverters.rgb.toXYZ([red * 255, green * 255, blue * 255, alpha]);
+            return [...colorFunctionConverters.rgb.toXYZ([red * 255, green * 255, blue * 255]), alpha] as XYZ;
         },
         fromXYZ: (xyz: XYZ, options: FormattingOptions = {}) => {
-            const { legacy = false } = options;
+            const { legacy = false, precision = 3 } = options;
             const [red, green, blue, alpha = 1] = colorFunctionConverters.rgb.fromXYZ(xyz);
             const r = red / 255;
             const g = green / 255;
             const b = blue / 255;
             const k = 1 - Math.max(r, g, b);
-            const c = k === 1 ? 0 : (1 - r - k) / (1 - k);
-            const m = k === 1 ? 0 : (1 - g - k) / (1 - k);
-            const y = k === 1 ? 0 : (1 - b - k) / (1 - k);
+            const C = Number(k === 1 ? 0 : (1 - r - k) / (1 - k)).toFixed(precision);
+            const M = Number(k === 1 ? 0 : (1 - g - k) / (1 - k)).toFixed(precision);
+            const Y = Number(k === 1 ? 0 : (1 - b - k) / (1 - k)).toFixed(precision);
+            const K = Number(k).toFixed(precision);
             if (legacy) {
-                return `device-cmyk(${c}, ${m}, ${y}, ${k}%${alpha < 1 ? `, ${alpha}` : ""})`;
+                return `device-cmyk(${C}, ${M}, ${Y}, ${K}%${alpha < 1 ? `, ${alpha.toFixed(3)}` : ""})`;
             }
-            return `device-cmyk(${c} ${m} ${y} ${k}${alpha < 1 ? ` / ${alpha}` : ""}, rgb(${red} ${green} ${blue}${alpha < 1 ? ` / ${alpha}` : ""}))`;
+            return `device-cmyk(${C} ${M} ${K} ${K}${alpha < 1 ? ` / ${alpha.toFixed(3)}` : ""}, rgb(${red} ${green} ${blue}${alpha < 1 ? ` / ${alpha.toFixed(3)}` : ""}))`;
         },
     },
     "light-dark": {
@@ -911,7 +901,7 @@ export const colorTypes = {
             const { systemColors } = Color.config;
             const key = Object.keys(systemColors).find((k) => k.toLowerCase() === str.trim().toLowerCase());
             const rgbArr = systemColors[key as keyof typeof systemColors][Color.config.theme === "light" ? 0 : 1];
-            return colorFunctionConverters.rgb.toXYZ([...rgbArr, 1]);
+            return [...colorFunctionConverters.rgb.toXYZ(rgbArr), 1] as XYZ;
         },
     },
     ...colorBases,

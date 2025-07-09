@@ -1,6 +1,6 @@
 {
-    "name": "csspectrum",
-    "version": "0.4.0",
+    "name": "saturon",
+    "version": "0.1.0",
     "description": "A TypeScript library for working with CSS color formats, providing conversion, manipulation, and analysis tools for various color models and spaces.",
     "type": "module",
     "private": false,
@@ -17,41 +17,14 @@
     "types": "dist/index.d.ts",
     "repository": {
         "type": "git",
-        "url": "https://github.com/ganemedelabs/csspectrum.git"
+        "url": "https://github.com/ganemedelabs/saturon.git"
     },
     "author": "ganemedelabs",
     "license": "MIT",
     "bugs": {
-        "url": "https://github.com/ganemedelabs/csspectrum/issues"
+        "url": "https://github.com/ganemedelabs/saturon/issues"
     },
-    "homepage": "https://github.com/ganemedelabs/csspectrum#readme",
-    "keywords": [
-        "color",
-        "color-converter",
-        "css-colors",
-        "hex",
-        "color-names",
-        "rgba",
-        "rgb",
-        "hsl",
-        "hsla",
-        "hwb",
-        "lab",
-        "lch",
-        "oklab",
-        "oklch",
-        "color-spaces",
-        "color-mix",
-        "srgb",
-        "srgb-linear",
-        "display-p3",
-        "rec2020",
-        "a98-rgb",
-        "prophoto-rgb",
-        "xyz",
-        "xyz-d50",
-        "xyz-d65"
-    ],
+    "homepage": "https://github.com/ganemedelabs/saturon#readme",
     "files": [
         "dist",
         "README.md",
@@ -83,5 +56,22 @@
         "ts-jest": "^29.2.5",
         "ts-node": "^10.9.2",
         "typescript": "^5.7.2"
-    }
+    },
+    "keywords": [
+        "color-converter",
+        "css-colors",
+        "w3c",
+        "color",
+        "color-base",
+        "hex-color",
+        "named-color",
+        "color-function",
+        "light-dark",
+        "color-mix",
+        "transparent",
+        "contrast-color",
+        "device-cmyk",
+        "currentcolor",
+        "system-color"
+    ]
 }

@@ -1,10 +1,10 @@
-# CSSpectrum Color Class
+# Saturon
 
-![npm](https://img.shields.io/npm/v/csspectrum)
-![npm](https://img.shields.io/npm/dw/csspectrum)
-![License](https://img.shields.io/npm/l/csspectrum)
+![npm](https://img.shields.io/npm/v/saturon)
+![npm](https://img.shields.io/npm/dw/saturon)
+![License](https://img.shields.io/npm/l/saturon)
 
-A TypeScript class for working with CSS color formats, providing conversion, manipulation, and analysis tools for various color models and spaces.
+A fast, tiny, extensible color library fully aligned with W3C Color Level 4/5 specs — built for developers and color scientists alike.
 
 ## 📋 Table of Contents
 
@@ -17,77 +17,38 @@ A TypeScript class for working with CSS color formats, providing conversion, man
 
 ## ✨ Features
 
-- **Supported Formats**: hex, rgb, hsl, hwb, lab, lch, oklab, oklch, named colors, and more.
-- **Color Spaces**: srgb, srgb-linear, display-p3, rec2020, a98-rgb, prophoto-rgb, xyz, xyz-d50, xyz-d65.
-- **Advanced Features**: Supports mixed colors (e.g., `color-mix`) and relative colors (e.g., `color(from ...)`).
-- **Conversions**: Convert between any supported formats and spaces.
-- **Analysis**: Calculate luminance, contrast ratio, and check accessibility (AA/AAA standards).
-- **Color Properties**: Determine if a color is dark, light, cool, or warm.
-- **Manipulation**: Adjust components, mix colors, apply filters (grayscale, brightness, contrast, etc.).
-- **Extensibility**: Register new named colors, format converters, and color spaces.
-- **Utility**: Generate random colors, check gamut boundaries.
+- **Full CSS Color 4/5 Parsing**
+- Infinite nested color functions (e.g. `color-mix(...)` inside `light-dark(...)`)
+- Converts between all modern color spaces (OKLab, Display-P3, Rec.2020, etc.)
+- High-precision color math for serious colorimetry
+- Advanced contrast & accessibility calculations (WCAG 2.1, APCA, OKLab)
+- Powerful plugin system for custom color spaces and functions
+- Supports complex color syntaxes like `color(from hsl(240 none calc(-infinity) / 0.5) display-p3 r calc(g + b) 100 / alpha)`
 
 ## 🔧 Installation
 
-Install the package via npm:
-
 ```bash
-npm install csspectrum
+npm install saturon
 ```
 
 ## 🚀 Usage
 
-### Basic Usage
-
-Create a `Color` instance from a color string:
-
 ```typescript
-import { Color } from "csspectrum";
+import { Color } from "saturon";
 
-const color = Color.from("#ff5733");
-console.log(color.to("rgb")); // Outputs: rgb(255, 87, 51)
-```
+// Parse any CSS color string
+const color = Color.from("hsl(200 80% 40% / 0.5)");
 
-### Converting Between Formats
+// Convert to another format
+console.log(color.to("oklch")); // → "oklch(62.43% 0.18 236.79 / 0.5)"
 
-Convert colors to different formats:
+// Access values in another color space
+const lab = color.in("lab").get();
+console.log(lab); // → { l: 52.3, a: -20.9, b: -45.1, alpha: 0.5 }
 
-```typescript
-const hexColor = Color.from("rgb(255, 87, 51)");
-console.log(hexColor.to("hex")); // Outputs: #FF5733
-
-const lchColor = Color.from("lch(79.7256 40.448 84.771)");
-console.log(lchColor.to("srgb")); // Outputs: color(srgb 0.84171 0.76338 0.53501)
-```
-
-### Manipulating Colors
-
-Manipulate color components in a specific model:
-
-```typescript
-const hslColor = Color.from("hsl(0, 100%, 50%)");
-const adjusted = hslColor.in("hsl").set({ h: 120, l: (l) => (l += 10) });
-console.log(adjusted.to("hsl")); // Outputs: hsl(120, 100%, 60%)
-```
-
-Apply filters:
-
-```typescript
-const grayscaled = Color.from("rgb(100, 150, 200)");
-console.log(grayscaled.grayscale(1).to("rgb")); // Outputs: rgb(150, 150, 150)
-
-const brightened = Color.from("rgb(32, 76, 120)");
-console.log(brightened.brightness(0.5).to("rgb")); // Outputs: rgb(39, 75, 111)
-```
-
-### Accessibility Checks
-
-Evaluate contrast and accessibility:
-
-```typescript
-const white = Color.from("#ffffff");
-console.log(white.getContrastRatio("#000000")); // Outputs: ~21
-console.log(white.isAccessibleWith("#000000", "AA")); // Outputs: true
+// Modify components
+color.in("hsl").set({ l: (l) => l * 1.2 });
+console.log(color.to("hsl")); // → "hsl(200 80% 48% / 0.5)"
 ```
 
 ## 💡 Examples
@@ -97,7 +58,7 @@ console.log(white.isAccessibleWith("#000000", "AA")); // Outputs: true
 ```typescript
 const color = Color.from("hsl(9, 100%, 60%)");
 console.log(color.to("rgb")); // rgb(255, 87, 51)
-console.log(color.to("hex")); // #ff5733
+console.log(color.to("hex-color")); // #ff5733
 ```
 
 ### Manipulating Components
@@ -112,47 +73,38 @@ console.log(hwb.to("hwb")); // hwb(100 7% 20%)
 
 ```typescript
 const red = Color.from("hsl(0, 100%, 50%)");
-const mixed = red.in("hsl").mixWith("hsl(120, 100%, 50%)");
-console.log(mixed.to("hsl")); // ~hsl(60, 100%, 50%)
-```
-
-### Applying Filters
-
-```typescript
-const firstInstance = Color.from("rgb(100, 150, 200)");
-console.log(firstInstance.invert(1).to("rgb")); // Outputs: rgb(155, 105, 55)
-
-const secondInstance = Color.from("rgb(100, 150, 200)");
-console.log(secondInstance.sepia(1).to("rgb")); // Outputs: rgb(192, 171, 133)
+const mixed = red.in("hsl").mix("hsl(120, 100%, 50%)", { hue: "shorter" });
+console.log(mixed.to("hsl")); // hsl(60, 100%, 50%)
 ```
 
 ### New Named Color Registration
 
 ```typescript
-Color.registerNamedColor("Test Color", [10, 20, 30]);
-const newColor = Color.from("rgb(10, 20, 30)");
-console.log(newColor.to("named")); // Outputs: testcolor
+Color.registerNamedColor("duskmint", [51, 178, 127]);
+const rgb = Color.from("rgb(51, 178, 127)");
+console.log(rgb.to("named-color")); // duskmint
 ```
 
-### New Format Registration
+### New Color Function Registration
 
 ```typescript
-const dummyConverter = {
-    pattern: /.*/,
-    model: "rgb", // The model that it's based on
-    toXYZA: () => [0, 0, 0, 1] as [number, number, number, number],
-    fromXYZA: () => "dummy output",
+const converter = {
+    targetGamut: "srgb",
+    supportsLegacy: false,
+    components: { h: {...}, s: {...}, v: {...} },
+    toXYZA: (hsv: number[]) => {...},
+    fromXYZA: (xyz: XYZ) => {...},
 };
 
-Color.registerFormat("dummy", dummyConverter);
-const newColor = Color.from("anything");
-console.log(newColor.to("dummy")); // Outputs: dummy output
+Color.registerFormat("hsv", converter);
+const rgb = Color.from("rgb(234, 32, 101)");
+console.log(rgb.to("hsv")); // hsv(340 86.3 91.8)
 ```
 
-### New Space Registration
+### New Color Space Registration
 
 ```typescript
-const dummySpace = {
+const converter = {
     toLinear: (c: number) => c,
     fromLinear: (c: number) => c,
     components: ["x", "y", "z"],
@@ -168,9 +120,23 @@ const dummySpace = {
     ],
 };
 
-Color.registerSpace("dummySpace", dummySpace);
-const newColor = Color.from("color(xyz 1 0 0)");
-console.log(newColor.to("dummySpace")); // Outputs: color(dummySpace 1 0 0)
+Color.registerSpace("aura", converter);
+const xyz = Color.from("color(xyz 1 0 0)");
+console.log(xyz.to("aura")); // color(aura 1 0 0)
+```
+
+### New Color Type Registration
+
+```typescript
+const converter = {
+    isValid: (str: string) => str.startsWith("hex("),
+    toXYZ: (str: string) => [0, 0, 0, 1],
+    fromXYZ: (xyz: XYZ) => "hex(000)",
+};
+
+Color.registerSpace("hex-function", converter);
+const rgb = Color.from("rgb(0 0 0)");
+console.log(rgb.to("hex-function")); // hex(000)
 ```
 
 ## 📜 License
