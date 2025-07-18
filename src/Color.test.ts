@@ -154,7 +154,7 @@ describe("Color", () => {
             h: (h) => h + 50,
             s: (s) => s - 20,
         });
-        const [h, s] = updated.getCoords();
+        const [h, s] = updated.getCoords("minmax");
         expect([h, s]).toStrictEqual([50, 80]);
     });
 
@@ -226,5 +226,15 @@ describe("Color", () => {
         }));
 
         expect(adjusted.to("rgb")).toBe("rgb(152 135 105)");
+    });
+
+    it("should return the same color-mix in different syntaxes", () => {
+        const expected = Color.from("hsl(240, 50%, 50%)").in("lch").mix("#bf4040ff").to("rgb");
+
+        const fromColorMix = Color.from("color-mix(in lch, hsl(240, 50%, 50%), #bf4040ff)").to("rgb");
+        const fromRelative = Color.from("hsl(from color-mix(in lch, hsl(240, 50%, 50%), #bf4040ff) h s l)").to("rgb");
+
+        expect(fromColorMix).toEqual(expected);
+        expect(fromRelative).toEqual(expected);
     });
 });

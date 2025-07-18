@@ -389,9 +389,9 @@ export const colorFunctionConverters = {
         supportsLegacy: true,
         targetGamut: "srgb",
         components: {
-            r: { index: 0, min: 0, max: 255, precision: 0 },
-            g: { index: 1, min: 0, max: 255, precision: 0 },
-            b: { index: 2, min: 0, max: 255, precision: 0 },
+            r: { index: 0, value: [0, 255], precision: 0 },
+            g: { index: 1, value: [0, 255], precision: 0 },
+            b: { index: 2, value: [0, 255], precision: 0 },
         },
         fromXYZ: (xyz: number[]) => {
             const M = [
@@ -445,9 +445,9 @@ export const colorFunctionConverters = {
         supportsLegacy: true,
         targetGamut: "srgb",
         components: {
-            h: { index: 0, min: 0, max: 360, loop: true, precision: 3 },
-            s: { index: 1, min: 0, max: 100, precision: 3 },
-            l: { index: 2, min: 0, max: 100, precision: 3 },
+            h: { index: 0, value: "hue", precision: 1 },
+            s: { index: 1, value: "percentage", precision: 1 },
+            l: { index: 2, value: "percentage", precision: 1 },
         },
         fromXYZ: (xyz: number[]) => {
             const [R, G, B] = colorFunctionConverters.rgb.fromXYZ(xyz).map((c) => c / 255);
@@ -504,16 +504,17 @@ export const colorFunctionConverters = {
         supportsLegacy: false,
         targetGamut: "srgb",
         components: {
-            h: { index: 0, min: 0, max: 360, loop: true, precision: 3 },
-            w: { index: 1, min: 0, max: 100, precision: 3 },
-            b: { index: 2, min: 0, max: 100, precision: 3 },
+            h: { index: 0, value: "hue", precision: 1 },
+            w: { index: 1, value: "percentage", precision: 1 },
+            b: { index: 2, value: "percentage", precision: 1 },
         },
         fromXYZ: (xyz: number[]) => {
             const sRGBToHue = (red: number, green: number, blue: number) => {
                 const max = Math.max(red, green, blue);
                 const min = Math.min(red, green, blue);
-                let hue = 0;
+                let hue = NaN;
                 const d = max - min;
+
                 if (d !== 0) {
                     switch (max) {
                         case red:
@@ -525,16 +526,25 @@ export const colorFunctionConverters = {
                         case blue:
                             hue = (red - green) / d + 4;
                     }
-
                     hue *= 60;
+                    if (hue >= 360) hue -= 360;
                 }
-                return hue >= 360 ? hue - 360 : hue;
+
+                return hue;
             };
+
             const [sR, sG, sB] = colorFunctionConverters.rgb.fromXYZ(xyz);
             const hue = sRGBToHue(sR, sG, sB);
             const white = Math.min(sR, sG, sB);
             const black = 1 - Math.max(sR, sG, sB);
-            return [hue, white * 100, black * 100];
+            const epsilon = 1 / 100000;
+
+            let adjustedHue = hue;
+            if (white + black >= 1 - epsilon) {
+                adjustedHue = NaN;
+            }
+
+            return [adjustedHue, white * 100, black * 100];
         },
         toXYZ: ([H, W, B]: number[]) => {
             W /= 100;
@@ -550,9 +560,9 @@ export const colorFunctionConverters = {
         supportsLegacy: false,
         targetGamut: null,
         components: {
-            l: { index: 0, min: 0, max: 100, precision: 5 },
-            a: { index: 1, min: -125, max: 125, precision: 5 },
-            b: { index: 2, min: -125, max: 125, precision: 5 },
+            l: { index: 0, value: "percentage", precision: 5 },
+            a: { index: 1, value: [-125, 125], precision: 5 },
+            b: { index: 2, value: [-125, 125], precision: 5 },
         },
         toXYZ: ([L, a, b]: number[]) => {
             const κ = 24389 / 27;
@@ -579,9 +589,9 @@ export const colorFunctionConverters = {
         supportsLegacy: false,
         targetGamut: null,
         components: {
-            l: { index: 0, min: 0, max: 100, precision: 5 },
-            c: { index: 1, min: 0, max: 150, precision: 5 },
-            h: { index: 2, min: 0, max: 360, loop: true, precision: 5 },
+            l: { index: 0, value: "percentage", precision: 5 },
+            c: { index: 1, value: [0, 150], precision: 5 },
+            h: { index: 2, value: "hue", precision: 5 },
         },
         toXYZ: ([L, C, H]: number[]) => {
             const [, a, b] = [L, C * Math.cos((H * Math.PI) / 180), C * Math.sin((H * Math.PI) / 180)];
@@ -598,9 +608,9 @@ export const colorFunctionConverters = {
         supportsLegacy: false,
         targetGamut: null,
         components: {
-            l: { index: 0, min: 0, max: 1, precision: 5 },
-            a: { index: 1, min: -0.4, max: 0.4, precision: 5 },
-            b: { index: 2, min: -0.4, max: 0.4, precision: 5 },
+            l: { index: 0, value: [0, 1], precision: 5 },
+            a: { index: 1, value: [-0.4, 0.4], precision: 5 },
+            b: { index: 2, value: [-0.4, 0.4], precision: 5 },
         },
         toXYZ: (lab: number[]) => {
             const LMStoXYZ = [
@@ -641,9 +651,9 @@ export const colorFunctionConverters = {
         supportsLegacy: false,
         targetGamut: null,
         components: {
-            l: { index: 0, min: 0, max: 1, precision: 5 },
-            c: { index: 1, min: 0, max: 0.4, precision: 5 },
-            h: { index: 2, min: 0, max: 360, loop: true, precision: 5 },
+            l: { index: 0, value: [0, 1], precision: 5 },
+            c: { index: 1, value: [0, 0.4], precision: 5 },
+            h: { index: 2, value: "hue", precision: 5 },
         },
         toXYZ: ([L, C, H]: number[]) => {
             const [, a, b] = [L, C * Math.cos((H * Math.PI) / 180), C * Math.sin((H * Math.PI) / 180)];
@@ -670,7 +680,10 @@ export const colorFunctions = Object.fromEntries(
 /** A collection of `<color-base>`s as <color> converters. */
 export const colorBases = {
     "hex-color": {
-        isValid: (str: string) => /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(str.trim()),
+        isValid: (str: string) => {
+            const cleaned = str.trim().toLowerCase();
+            return cleaned.startsWith("#");
+        },
         toXYZ: (str: string) => {
             const HEX = str.slice(1);
             const expand = (c: string) => parseInt(c.length === 1 ? c + c : c, 16);
@@ -746,7 +759,7 @@ export const colorBases = {
                 return weight2 / (weight1 + weight2);
             };
 
-            const cleaned = str.trim().toLowerCase();
+            const cleaned = str.replace(/\s+/g, " ").trim().toLowerCase();
             const inner = cleaned.slice(10, -1).trim();
 
             const parts: string[] = [];
@@ -807,7 +820,7 @@ export const colorTypes = {
             return cleaned.startsWith("contrast-color(") && cleaned.endsWith(")");
         },
         toXYZ: (str: string) => {
-            const cleaned = str.trim().slice(15, -1);
+            const cleaned = str.replace(/\s+/g, " ").trim().toLowerCase().slice(15, -1);
             const luminance = Color.from(cleaned).luminance();
             return Color.in("rgb").setCoords(luminance > 0.5 ? [0, 0, 0, 1] : [255, 255, 255, 1]).xyz;
         },
@@ -818,10 +831,11 @@ export const colorTypes = {
             return cleaned.startsWith("device-cmyk(") && cleaned.endsWith(")");
         },
         toXYZ: (str: string): XYZ => {
-            const match = str.match(/device-cmyk\([^)]*?,\s*(.+?)\s*\)$/i);
+            const cleaned = str.replace(/\s+/g, " ").trim().toLowerCase();
+            const match = cleaned.match(/device-cmyk\([^)]*?,\s*(.+?)\s*\)$/i);
             if (match && match[1]) return Color.from(match[1]).xyz;
 
-            const cmykBody = str.replace(/device-cmyk\(|\)/gi, "").trim();
+            const cmykBody = cleaned.replace(/device-cmyk\(|\)/gi, "").trim();
             const [componentsPart, alphaPart] = cmykBody.split("/");
             const components = componentsPart
                 .trim()
@@ -868,7 +882,7 @@ export const colorTypes = {
             return cleaned.startsWith("light-dark(") && cleaned.endsWith(")");
         },
         toXYZ: (str: string) => {
-            const cleaned = str.trim().slice(11, -1);
+            const cleaned = str.replace(/\s+/g, " ").trim().toLowerCase().slice(11, -1);
 
             let depth = 0;
             let splitIndex = -1;
@@ -899,6 +913,7 @@ export const colorTypes = {
         },
         toXYZ: (str: string): XYZ => {
             const { systemColors } = Color.config;
+            str = str.replace(/\s+/g, " ").trim();
             const key = Object.keys(systemColors).find((k) => k.toLowerCase() === str.trim().toLowerCase());
             const rgbArr = systemColors[key as keyof typeof systemColors][Color.config.theme === "light" ? 0 : 1];
             return [...colorFunctionConverters.rgb.toXYZ(rgbArr), 1] as XYZ;

@@ -118,11 +118,11 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
                 if (!props) {
                     throw new Error(`Missing component properties for index ${i}.`);
                 }
-                if (props.loop) {
-                    const range = props.max - props.min;
-                    return props.min + ((((value - props.min) % range) + range) % range);
+                if (props.value === "hue") {
+                    return ((value % 360) + 360) % 360;
                 } else {
-                    return Math.min(props.max, Math.max(props.min, value));
+                    const [min, max] = Array.isArray(props.value) ? props.value : [0, 100];
+                    return Math.min(max, Math.max(min, value));
                 }
             });
             return roundCoords(clipped);
@@ -267,79 +267,49 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
  * @param converter - An object implementing the color function's conversion logic and component definitions.
  * @returns A <color> convereter object.
  */
-// FIXME: fix the tokeninzing logic
 export function converterFromFunctionConverter(name: string, converter: ColorFunctionConverter) {
-    const tokenizeInner = (inner: string) => {
-        const tokens = [];
-        let i = 0;
-        inner = inner.trim();
-
-        if (inner.startsWith("from ")) {
-            tokens.push("from");
-            i += 5;
-
-            let colorToken = "";
-            let depth = 0;
-            while (i < inner.length) {
-                if (inner[i] === "(") depth++;
-                else if (inner[i] === ")") depth--;
-                if (depth < 0) break;
-                if (/\s/.test(inner[i]) && depth === 0) break;
-                colorToken += inner[i];
-                i++;
+    const evaluateComponent = (token: string, value: number[] | "hue" | "percentage", base: Record<string, number>) => {
+        const parsePercent = (str: string) => {
+            const percent = parseFloat(str);
+            if (!isNaN(percent)) {
+                if (value === "percentage") return percent;
+                return (percent / 100) * (max - min) + min;
             }
-            tokens.push(colorToken);
+        };
 
-            while (i < inner.length && /\s/.test(inner[i])) i++;
+        if (token === "none") return 0;
+
+        const [min, max] = Array.isArray(value) ? value : value === "hue" ? [0, 360] : [0, 100];
+
+        if (/^\d+(\.\d+)?$/.test(token)) return parseFloat(token);
+
+        if (token.endsWith("%")) {
+            return parsePercent(token);
         }
 
-        while (i < inner.length) {
-            if (/\s/.test(inner[i])) {
-                i++;
-                continue;
-            }
-            if (inner.slice(i, i + 5) === "calc(") {
-                let depth = 1;
-                let j = i + 5;
-                while (j < inner.length && depth > 0) {
-                    if (inner[j] === "(") depth++;
-                    else if (inner[j] === ")") depth--;
-                    j++;
-                }
-                tokens.push(inner.slice(i, j));
-                i = j;
-            } else if (inner[i] === "/") {
-                tokens.push("/");
-                i++;
-            } else {
-                let j = i;
-                while (
-                    j < inner.length &&
-                    !/\s/.test(inner[j]) &&
-                    inner[j] !== "/" &&
-                    inner.slice(j, j + 5) !== "calc("
-                ) {
-                    j++;
-                }
-                tokens.push(inner.slice(i, j));
-                i = j;
-            }
-        }
-        return tokens;
-    };
+        if (/deg|rad|grad|turn$/.test(token)) {
+            const value = parseFloat(token);
+            if (isNaN(value)) return 0;
 
-    const evaluateComponent = (
-        componentString: string,
-        baseComponents: Record<string, number>,
-        componentDef: { min: number; max: number }
-    ) => {
-        if (componentString === "none") return 0;
-        if (componentString === "calc(infinity)") return componentDef.max;
-        if (componentString === "calc(-infinity)") return componentDef.min;
-        if (/^\d+(\.\d+)?$/.test(componentString)) return parseFloat(componentString);
-        if (componentString.startsWith("calc(")) {
-            let expr = componentString.slice(5, -1).trim();
-            for (const [key, value] of Object.entries(baseComponents)) {
+            if (token.endsWith("deg")) return value;
+            if (token.endsWith("rad")) return value * (180 / Math.PI);
+            if (token.endsWith("grad")) return value * 0.9;
+            if (token.endsWith("turn")) return value * 360;
+
+            return 0;
+        }
+
+        if (token.startsWith("calc(")) {
+            const inner = token.slice(5, -1);
+            if (inner === "infinity") return max;
+            if (inner === "-infinity") return min;
+
+            if (/\d+(\.\d+)?%/i.test(inner)) {
+                return parsePercent(inner);
+            }
+
+            let expr = inner;
+            for (const [key, value] of Object.entries(base)) {
                 expr = expr.replace(new RegExp(`\\b${key}\\b`, "g"), value.toString());
             }
             try {
@@ -347,99 +317,167 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
             } catch {
                 return 0;
             }
+        }
+
+        const number = parseFloat(token);
+        const fromBase = base[token];
+        return fromBase !== undefined ? fromBase : !isNaN(number) ? number : 0;
+    };
+
+    const parseTokens = (tokens: string[]) => {
+        const funcName = tokens[0];
+
+        const { components } = converter;
+        components.alpha = {
+            index: 3,
+            value: [0, 1],
+            precision: 3,
+        };
+
+        if (tokens[1] === "from") {
+            let colorSpace;
+            let componentStartIndex;
+            if (funcName === "color") {
+                colorSpace = tokens[3];
+                componentStartIndex = 4;
+            } else {
+                colorSpace = funcName;
+                componentStartIndex = 3;
+            }
+
+            const baseColor = tokens[2];
+            const componentTokens = tokens.slice(componentStartIndex);
+
+            const baseComponents = Color.from(baseColor).in(colorSpace).get();
+
+            const evaluatedComponents = componentTokens.map((token, i) => {
+                const sorted = Object.entries(components).sort((a, b) => a[1].index - b[1].index);
+                const [, meta] = sorted[i];
+                return evaluateComponent(token, meta.value, baseComponents);
+            });
+
+            return evaluatedComponents.slice(0, 4);
         } else {
-            return baseComponents[componentString] || 0;
+            const result: number[] = [];
+            const sorted = Object.entries(components).sort((a, b) => a[1].index - b[1].index);
+
+            for (let i = 0; i < sorted.length; i++) {
+                const [, meta] = sorted[i];
+                const token = tokens[i + 1];
+                if (token) {
+                    const value = evaluateComponent(token, meta.value, {});
+                    result[meta.index] = value;
+                }
+            }
+
+            return result.slice(0, 4);
         }
     };
 
     const tokenize = (str: string) => {
-        const cleaned = str.trim().toLowerCase();
-        let inner;
-        if (cleaned.startsWith("color(")) {
-            inner = cleaned.slice(6, -1).trim();
-        } else {
-            inner = cleaned.slice(name.length + 1, -1).trim();
+        const tokens = [];
+        let i = 0;
+        let funcName = "";
+        while (i < str.length && str[i] !== "(") {
+            funcName += str[i];
+            i++;
         }
-        return tokenizeInner(inner);
-    };
+        funcName = funcName.trim();
+        tokens.push(funcName);
 
-    const parseTokens = (tokens: string[]) => {
-        if (tokens[0] === "from") {
-            const baseColorIndex = 1;
-            let colorSpace;
-            let componentStartIndex;
-            if (name === "color") {
-                colorSpace = tokens[2];
-                componentStartIndex = 3;
-            } else {
-                colorSpace = name;
-                componentStartIndex = 2;
-            }
-            const baseColor = tokens[baseColorIndex];
-            const componentTokens = tokens.slice(componentStartIndex);
-            const alphaIndex = componentTokens.indexOf("/");
-            let alphaToken;
-            if (alphaIndex !== -1) {
-                alphaToken = componentTokens[alphaIndex + 1];
-                componentTokens.splice(alphaIndex, 2);
-            }
-            const baseComponents = Color.from(baseColor).in(colorSpace).get();
-            const componentNames = Object.keys(converter.components).sort(
-                (a, b) => converter.components[a].index - converter.components[b].index
-            );
-            const evaluatedComponents = componentTokens.map((token, i) => {
-                const componentDef = converter.components[componentNames[i]];
-                return evaluateComponent(token, baseComponents, componentDef);
-            });
-            const alphaDef = { min: 0, max: 1, index: 3 };
-            const alpha = alphaToken ? evaluateComponent(alphaToken, baseComponents, alphaDef) : 1;
-            return [evaluatedComponents[0], evaluatedComponents[1], evaluatedComponents[2], alpha];
-        } else {
-            const result: number[] = [];
-            const comps = converter.components;
-            const sorted = Object.entries(comps).sort((a, b) => a[1].index - b[1].index);
-            for (let i = 0; i < sorted.length; i++) {
-                const [, meta] = sorted[i];
-                const token = tokens[i];
-                const value = parseComponentValue(token, meta);
-                result[meta.index] = value;
-            }
-            const slashIndex = tokens.indexOf("/");
-            if (slashIndex !== -1 && slashIndex + 1 < tokens.length) {
-                const alphaToken = tokens[slashIndex + 1];
-                result[3] = parseFloat(alphaToken);
-            } else if (tokens[3]) result[3] = parseFloat(tokens[3]);
-            return result;
-        }
-    };
+        const innerStart = str.indexOf("(") + 1;
+        const innerEnd = str.lastIndexOf(")");
+        const innerStr = str.slice(innerStart, innerEnd).trim();
 
-    const parseComponentValue = (token: string, component: { min: number; max: number }) => {
-        token = token.trim().toLowerCase();
-        if (token === "none") return 0;
-        if (token === "calc(infinity)") return component.max;
-        if (token === "calc(-infinity)") return component.min;
-        if (token.startsWith("calc(")) {
-            const innerExpr = token.slice(5, -1).trim();
-            if (innerExpr.endsWith("%")) {
-                const percent = parseFloat(innerExpr.slice(0, -1));
-                if (!isNaN(percent)) {
-                    return (percent / 100) * (component.max - component.min) + component.min;
+        i = 0;
+        if (innerStr.startsWith("from ")) {
+            tokens.push("from");
+
+            i += 5;
+            while (i < innerStr.length && innerStr[i] === " ") i++;
+
+            const colorStart = i;
+            while (i < innerStr.length && innerStr[i] !== " ") i++;
+            const colorStr = innerStr.slice(colorStart, i);
+
+            if (colorStr.includes("(")) {
+                let depth = 1;
+                let funcStr = colorStr;
+                while (i < innerStr.length && depth > 0) {
+                    if (innerStr[i] === "(") depth++;
+                    else if (innerStr[i] === ")") depth--;
+                    if (depth > 0) funcStr += innerStr[i];
+                    i++;
                 }
+                funcStr += ")";
+                tokens.push(funcStr);
+            } else {
+                tokens.push(colorStr);
             }
-            return evaluateComponent(token, {}, component);
+            while (i < innerStr.length && innerStr[i] === " ") i++;
         }
-        if (token.endsWith("%")) {
-            const percent = parseFloat(token.slice(0, -1));
-            if (!isNaN(percent)) {
-                return (percent / 100) * (component.max - component.min) + component.min;
+
+        if (tokens[0] === "color" && i < innerStr.length) {
+            const spaceStart = i;
+            while (i < innerStr.length && innerStr[i] !== " ") i++;
+            tokens.push(innerStr.slice(spaceStart, i));
+            while (i < innerStr.length && innerStr[i] === " ") i++;
+        }
+
+        while (i < innerStr.length) {
+            while (i < innerStr.length && innerStr[i] === " ") i++;
+            if (i >= innerStr.length) break;
+
+            const char = innerStr[i];
+            if (/[a-zA-Z-]/.test(char)) {
+                let ident = "";
+                while (i < innerStr.length && /[a-zA-Z0-9-]/.test(innerStr[i])) {
+                    ident += innerStr[i];
+                    i++;
+                }
+                if (i < innerStr.length && innerStr[i] === "(") {
+                    let depth = 1;
+                    let funcStr = ident + "(";
+                    i++;
+                    while (i < innerStr.length && depth > 0) {
+                        if (innerStr[i] === "(") depth++;
+                        else if (innerStr[i] === ")") depth--;
+                        if (depth > 0) funcStr += innerStr[i];
+                        i++;
+                    }
+                    funcStr += ")";
+                    tokens.push(funcStr);
+                } else {
+                    tokens.push(ident);
+                }
+            } else if (/[\d.-]/.test(char)) {
+                let num = "";
+                while (i < innerStr.length && /[\d.eE+-]/.test(innerStr[i])) {
+                    num += innerStr[i];
+                    i++;
+                }
+                if (i < innerStr.length && innerStr[i] === "%") {
+                    num += "%";
+                    i++;
+                    tokens.push(num);
+                } else if (i < innerStr.length && /[a-zA-Z]/.test(innerStr[i])) {
+                    let unit = "";
+                    while (i < innerStr.length && /[a-zA-Z]/.test(innerStr[i])) {
+                        unit += innerStr[i];
+                        i++;
+                    }
+                    tokens.push(num + unit);
+                } else {
+                    tokens.push(num);
+                }
+            } else if (char === "/" || char === ",") {
+                i++;
+            } else {
+                throw new Error(`Unexpected character: ${char}`);
             }
         }
-        if (/deg|rad|grad|turn$/.test(token)) {
-            const value = parseFloat(token);
-            return isNaN(value) ? 0 : value;
-        }
-        const value = parseFloat(token);
-        return isNaN(value) ? 0 : value;
+
+        return tokens;
     };
 
     const validateRelativeColorSpace = (str: string, name: string) => {
@@ -475,46 +513,47 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
         return colorSpace === name;
     };
 
-    name = name.trim().toLowerCase();
+    const cleanedName = name.replace(/\s+/g, " ").trim().toLowerCase();
 
     return {
         isValid: (str: string) => {
-            const cleaned = str.trim().toLowerCase();
-            if (name in colorSpaceConverters) {
+            const cleanedStr = str.trim().toLowerCase();
+            if (cleanedName in colorSpaceConverters) {
                 return (
-                    (cleaned.startsWith(`color(${name} `) ||
-                        (cleaned.startsWith("color(from ") && validateRelativeColorSpace(str, name))) &&
-                    cleaned.endsWith(")")
+                    (cleanedStr.startsWith(`color(${cleanedName} `) ||
+                        (cleanedStr.startsWith("color(from ") && validateRelativeColorSpace(str, cleanedName))) &&
+                    cleanedStr.endsWith(")")
                 );
             }
             return (
-                (cleaned.startsWith(`${name}(`) ||
-                    cleaned.startsWith(`${name}${converter.supportsLegacy ? "a" : ""}(`)) &&
-                cleaned.endsWith(")")
+                (cleanedStr.startsWith(`${cleanedName}(`) ||
+                    cleanedStr.startsWith(`${cleanedName}${converter.supportsLegacy ? "a" : ""}(`)) &&
+                cleanedStr.endsWith(")")
             );
         },
         toXYZ: (str: string) => {
-            const tokens = tokenize(str);
+            const cleaned = str.replace(/\s+/g, " ").trim().toLowerCase();
+            const tokens = tokenize(cleaned);
             const components = parseTokens(tokens);
-            return [...converter.toXYZ([components[0], components[1], components[2]]), components[3] ?? 1];
+            return [...converter.toXYZ(components.slice(0, 3)), components[3] ?? 1];
         },
         fromXYZ: (xyz: XYZ, options: FormattingOptions = {}) => {
             const { legacy = false, fit: fitMethod = "minmax", precision = undefined } = options;
             const [c1, c2, c3, alpha] = [...converter.fromXYZ(xyz), xyz[3] ?? 1];
 
-            const clipped = fit([c1, c2, c3], name as ColorFunction, fitMethod, precision);
+            const clipped = fit([c1, c2, c3], cleanedName as ColorFunction, fitMethod, precision);
             const alphaFormatted = Math.min(Math.max(alpha, 0), 1).toFixed(3);
 
-            if (name in colorSpaceConverters) {
-                return `color(${name} ${clipped.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
+            if (cleanedName in colorSpaceConverters) {
+                return `color(${cleanedName} ${clipped.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
             }
 
             if (legacy === true && converter.supportsLegacy === true && alpha > 1) {
-                if (alpha === 1) return `${name}(${clipped.join(", ")})`;
-                return `${name}a(${clipped.join(", ")}, ${alphaFormatted})`;
+                if (alpha === 1) return `${cleanedName}(${clipped.join(", ")})`;
+                return `${cleanedName}a(${clipped.join(", ")}, ${alphaFormatted})`;
             }
 
-            return `${name}(${clipped.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
+            return `${cleanedName}(${clipped.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
         },
     };
 }
@@ -531,29 +570,29 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
  */
 export function functionConverterFromSpaceConverter<const C extends readonly string[]>(
     name: string,
-    space: Omit<ColorSpaceConverter, "components"> & { components: C }
+    converter: Omit<ColorSpaceConverter, "components"> & { components: C }
 ) {
-    const isD50 = space.whitePoint === "D50";
-    const toXYZMatrix = isD50 ? multiplyMatrices(D50_to_D65, space.toXYZMatrix) : space.toXYZMatrix;
-    const fromXYZMatrix = isD50 ? multiplyMatrices(space.fromXYZMatrix, D65_to_D50) : space.fromXYZMatrix;
+    const isD50 = converter.whitePoint === "D50";
+    const toXYZMatrix = isD50 ? multiplyMatrices(D50_to_D65, converter.toXYZMatrix) : converter.toXYZMatrix;
+    const fromXYZMatrix = isD50 ? multiplyMatrices(converter.fromXYZMatrix, D65_to_D50) : converter.fromXYZMatrix;
 
     return {
         supportsLegacy: false,
-        targetGamut: space.targetGamut === null ? null : name,
+        targetGamut: converter.targetGamut === null ? null : name,
         components: Object.fromEntries(
-            space.components.map((comp, index) => [comp, { index, min: 0, max: 1, precision: 5 }])
+            converter.components.map((comp, index) => [comp, { index, value: [0, 1], precision: 5 }])
         ) as Record<C[number], ComponentDefinition>,
 
         toXYZ: ([c1, c2, c3]: number[]) => {
-            const linear = [space.toLinear(c1), space.toLinear(c2), space.toLinear(c3)];
+            const linear = [converter.toLinear(c1), converter.toLinear(c2), converter.toLinear(c3)];
             return multiplyMatrices(toXYZMatrix, linear);
         },
 
         fromXYZ: (xyz: number[]) => {
             const [lc1, lc2, lc3] = multiplyMatrices(fromXYZMatrix, xyz);
-            const c1 = space.fromLinear ? space.fromLinear(lc1) : lc1;
-            const c2 = space.fromLinear ? space.fromLinear(lc2) : lc2;
-            const c3 = space.fromLinear ? space.fromLinear(lc3) : lc3;
+            const c1 = converter.fromLinear ? converter.fromLinear(lc1) : lc1;
+            const c2 = converter.fromLinear ? converter.fromLinear(lc2) : lc2;
+            const c3 = converter.fromLinear ? converter.fromLinear(lc3) : lc3;
             return [c1, c2, c3];
         },
     } satisfies ColorFunctionConverter;

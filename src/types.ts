@@ -90,39 +90,21 @@ export interface ComponentDefinition {
     /** Position of the component in the color array */
     index: number;
 
-    /** Minimum allowed value */
-    min: number;
-
-    /** Maximum allowed value */
-    max: number;
-
-    /** Whether the value loops (e.g., hue in HSL) */
-    loop?: boolean;
+    /** The value type for the component, which can be a tuple of two numbers representing a range, or a string indicating a special type ("hue" or "percentage"). */
+    value: number[] | "hue" | "percentage";
 
     /** Precision for rounding the component value */
     precision?: number;
 }
 
 /**
- * Extracts the component names from a converter's component definitions,
- * adding the "alpha" channel as a possible component.
- *
- * @template T - A export type which may include a `components` property.
- */
-export type ComponentNames<T> = T extends {
-    components: Record<infer N, ComponentDefinition>;
-}
-    ? N | "alpha"
-    : never;
-
-/**
  * Represents a component export type for a given color model.
  *
  * @template M - The color model type.
  */
-export type Component<M extends keyof typeof colorFunctionConverters> = ComponentNames<
-    (typeof colorFunctionConverters)[M]
->;
+export type Component<M extends keyof typeof colorFunctionConverters> =
+    | keyof (typeof colorFunctionConverters)[M]["components"]
+    | "alpha";
 
 /** Defines operations on a color within a specific `Model`, enabling method chaining. */
 export interface Interface<M extends ColorFunction> {

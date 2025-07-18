@@ -131,7 +131,6 @@ class Color {
             const colorType = colorTypes[type as keyof typeof colorTypes];
             if (colorType.isValid(color)) {
                 const [x, y, z, alpha] = colorType.toXYZ(color) || [0, 0, 0, 1];
-                console.log({ alpha });
                 return new Color(x, y, z, alpha);
             }
         }
@@ -350,8 +349,7 @@ class Color {
         >;
         components.alpha = {
             index: 3,
-            min: 0,
-            max: 1,
+            value: [0, 1],
             precision: 3,
         };
 
@@ -389,9 +387,6 @@ class Color {
                       ? this.currentInterface.coords
                       : converter.fromXYZ(this.xyz);
 
-            console.log({ xyz: this.xyz });
-            console.log({ coords });
-
             if (fitMethod) {
                 const clipped = fit(coords.slice(0, 3), model as M, fitMethod);
                 return [...clipped, this.xyz[3]];
@@ -419,12 +414,13 @@ class Color {
 
             compNames.forEach((comp) => {
                 if (comp in values) {
-                    const { index, min, max } = components[comp as keyof typeof components] as ComponentDefinition;
+                    const { index, value } = components[comp as keyof typeof components] as ComponentDefinition;
                     const currentValue = coords[index];
                     const valueOrFunc = values[comp];
                     let newValue = typeof valueOrFunc === "function" ? valueOrFunc(currentValue) : valueOrFunc;
 
                     if (typeof newValue === "number") {
+                        const [min, max] = Array.isArray(value) ? value : value === "hue" ? [0, 360] : [0, 100];
                         if (Number.isNaN(newValue)) {
                             newValue = 0;
                         } else if (newValue === Infinity) {
@@ -455,14 +451,16 @@ class Color {
 
             const adjustedCoords = baseCoords.map((current, index) => {
                 const incoming = newCoords[index];
-                const compDef = indexToComponent[index];
-                if (!compDef) return current;
+                const { value } = indexToComponent[index];
+                if (!value) return current;
 
                 if (typeof incoming !== "number") return current;
 
+                const [min, max] = Array.isArray(value) ? value : value === "hue" ? [0, 360] : [0, 100];
+
                 if (Number.isNaN(incoming)) return 0;
-                if (incoming === Infinity) return compDef.max;
-                if (incoming === -Infinity) return compDef.min;
+                if (incoming === Infinity) return max;
+                if (incoming === -Infinity) return min;
 
                 return incoming;
             });
@@ -954,7 +952,8 @@ class Color {
         if (targetGamut === null) return true;
 
         for (const [, props] of Object.entries(components)) {
-            const [value, min, max] = [coords[props.index], props.min, props.max];
+            const value = coords[props.index];
+            const [min, max] = Array.isArray(props.value) ? props.value : props.value === "hue" ? [0, 360] : [0, 100];
             if (value < min - epsilon || value > max + epsilon) {
                 return false;
             }
