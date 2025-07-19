@@ -90,7 +90,7 @@ export function multiplyMatrices<A extends number[] | number[][], B extends numb
  * - `"chroma-reduction"`: Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
  * - `"css-gamut-map"`: CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
  */
-export function fit(coords: number[], model: ColorFunction, method: FitMethod = "minmax", precision?: number) {
+export function fit(coords: number[], model: ColorFunction, method: FitMethod = "clip", precision?: number) {
     const roundCoords = (coords: number[]) => {
         return coords.map((value, i) => {
             const p = precision ?? componentProps[i]?.precision ?? 3;
@@ -106,13 +106,13 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
     }
 
     switch (method) {
-        case "no-fit":
+        case "none":
             return coords;
 
-        case "round-only":
+        case "round-unclipped":
             return roundCoords(coords);
 
-        case "minmax": {
+        case "clip": {
             const clipped = coords.slice(0, 3).map((value, i) => {
                 const props = componentProps[i];
                 if (!props) {
@@ -181,7 +181,7 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
 
                 if (candidate_color.inGamut(targetGamut as ColorSpace, 1e-5)) C_low = C_mid;
                 else {
-                    const clipped_coords = fit(candidate_color.getCoords().slice(0, 3), model, "minmax");
+                    const clipped_coords = fit(candidate_color.getCoords().slice(0, 3), model, "clip");
                     const clipped_color = Color.in(model).setCoords(clipped_coords);
                     const deltaE = candidate_color.deltaEOK(clipped_color);
                     if (deltaE < 2) {
@@ -218,7 +218,7 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
             const epsilon = 0.0001;
 
             const current = Color.in("oklch").setCoords([L, C, H]);
-            let clipped: number[] = fit(current.in(model).getCoords().slice(0, 3), model, "minmax");
+            let clipped: number[] = fit(current.in(model).getCoords().slice(0, 3), model, "clip");
 
             const initialClippedColor = Color.in(model).setCoords(clipped);
             const E = current.deltaEOK(initialClippedColor);
@@ -235,7 +235,7 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
 
                 if (min_inGamut && candidate.inGamut(targetGamut as ColorSpace, 1e-5)) min = chroma;
                 else {
-                    const clippedCoords = fit(candidate.in(model).getCoords().slice(0, 3), model, "minmax");
+                    const clippedCoords = fit(candidate.in(model).getCoords().slice(0, 3), model, "clip");
                     clipped = clippedCoords;
                     const clippedColor = Color.in(model).setCoords(clippedCoords);
                     const deltaE = candidate.deltaEOK(clippedColor);
@@ -431,7 +431,7 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
             const char = innerStr[i];
             if (/[a-zA-Z-]/.test(char)) {
                 let ident = "";
-                while (i < innerStr.length && /[a-zA-Z0-9-]/.test(innerStr[i])) {
+                while (i < innerStr.length && /[a-zA-Z0-9-%]/.test(innerStr[i])) {
                     ident += innerStr[i];
                     i++;
                 }
@@ -538,11 +538,11 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
             return [...converter.toXYZ(components.slice(0, 3)), components[3] ?? 1];
         },
         fromXYZ: (xyz: XYZ, options: FormattingOptions = {}) => {
-            const { legacy = false, fit: fitMethod = "minmax", precision = undefined } = options;
+            const { legacy = false, fit: fitMethod = "clip", precision = undefined, units = false } = options;
             const [c1, c2, c3, alpha] = [...converter.fromXYZ(xyz), xyz[3] ?? 1];
 
             const clipped = fit([c1, c2, c3], cleanedName as ColorFunction, fitMethod, precision);
-            const alphaFormatted = Math.min(Math.max(alpha, 0), 1).toFixed(3);
+            const alphaFormatted = Number(Math.min(Math.max(alpha, 0), 1).toFixed(3)).toString();
 
             if (cleanedName in colorSpaceConverters) {
                 return `color(${cleanedName} ${clipped.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;

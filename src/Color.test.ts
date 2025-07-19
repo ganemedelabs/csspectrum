@@ -32,17 +32,19 @@ describe("Color", () => {
     });
 
     it("should return correct arrays of components", () => {
-        const fit = "minmax";
+        const fit = "clip";
         expect(Color.from("blanchedalmond").in("rgb").getCoords(fit)).toEqual([255, 235, 205, 1]);
         expect(Color.from("#7a7239").in("rgb").getCoords(fit)).toEqual([122, 114, 57, 1]);
         expect(Color.from("rgb(68% 16% 50% / 0.3)").in("rgb").getCoords(fit)).toEqual([173, 41, 128, 0.3]);
         expect(Color.from("hsla(182, 43%, 33%, 0.8)").in("hsl").getCoords(fit)).toEqual([182, 43, 33, 0.8]);
         expect(Color.from("hwb(228 6% 9% / 0.6)").in("hwb").getCoords(fit)).toEqual([228, 6, 9, 0.6]);
         expect(Color.from("lab(52.23% 40.16% 59.99% / 0.5)").in("lab").getCoords(fit)).toEqual([
-            52.23, 50.2, 74.9875, 0.5,
+            52.23, -24.6, 24.975, 0.5,
         ]);
         expect(Color.from("lch(62.23% 59.2% 126.2 / 0.5)").in("lch").getCoords(fit)).toEqual([62.23, 88.8, 126.2, 0.5]);
-        expect(Color.from("oklab(42.1% 41% -25% / 0.5)").in("oklab").getCoords(fit)).toEqual([0.421, 0.164, -0.1, 0.5]);
+        expect(Color.from("oklab(42.1% 41% -25% / 0.5)").in("oklab").getCoords(fit)).toEqual([
+            0.421, -0.072, -0.4, 0.5,
+        ]);
         expect(Color.from("oklch(72.32% 0.12% 247.99 / 0.5)").in("oklch").getCoords(fit)).toEqual([
             0.7232, 0.00048, 247.99, 0.5,
         ]);
@@ -104,7 +106,6 @@ describe("Color", () => {
 
     it("should return a random color", () => {
         const randomColor = Color.random("named-color");
-        console.log(randomColor);
         expect(Color.type(randomColor)).toBe("named-color");
     });
 
@@ -137,7 +138,7 @@ describe("Color", () => {
     it("should return correct component values using get()", () => {
         const rgbColor = Color.from("rgb(0, 157, 255)");
         const rgbInterface = rgbColor.in("rgb");
-        const fit = "minmax";
+        const fit = "clip";
         const rgb = rgbInterface.get(fit);
         expect(rgb).toEqual({ r: 0, g: 157, b: 255, alpha: 1 });
     });
@@ -145,7 +146,7 @@ describe("Color", () => {
     it("should retrieve the correct array of components using getArray()", () => {
         const rgbColor = Color.from("rgb(0, 157, 255)");
         const rgbInterface = rgbColor.in("rgb");
-        expect(rgbInterface.getCoords("minmax")).toEqual([0, 157, 255, 1]);
+        expect(rgbInterface.getCoords("clip")).toEqual([0, 157, 255, 1]);
     });
 
     it("should update multiple components with set()", () => {
@@ -154,7 +155,7 @@ describe("Color", () => {
             h: (h) => h + 50,
             s: (s) => s - 20,
         });
-        const [h, s] = updated.getCoords("minmax");
+        const [h, s] = updated.getCoords("clip");
         expect([h, s]).toStrictEqual([50, 80]);
     });
 
@@ -172,7 +173,7 @@ describe("Color", () => {
 
     it("should clamp component values when getting components", () => {
         const rgbColor = Color.from("rgb(200, 100, 50)").in("rgb").set({ g: 400 });
-        const [, g] = rgbColor.getCoords("minmax");
+        const [, g] = rgbColor.getCoords("clip");
         expect(g).toBe(255);
     });
 

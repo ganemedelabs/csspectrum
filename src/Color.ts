@@ -321,7 +321,7 @@ class Color {
     to(format: string, options?: FormattingOptions): string; // eslint-disable-line no-unused-vars
     to(format: OutputType, options?: FormattingOptions): string; // eslint-disable-line no-unused-vars
     to(format: OutputType | string, options: FormattingOptions = {}) {
-        const { legacy = false, fit = "minmax", precision = undefined } = options;
+        const { legacy = false, fit = "clip", precision = undefined, units = false } = options;
         const converter = colorTypes[format as OutputType];
 
         if (!converter) throw new Error(`Unsupported color format: ${String(format)}.`);
@@ -330,7 +330,7 @@ class Color {
             throw new Error(`Invalid output type: ${String(format)}.`);
         }
 
-        return converter.fromXYZ(this.xyz, { legacy, fit, precision });
+        return converter.fromXYZ(this.xyz, { legacy, fit, precision, units });
     }
 
     /**
@@ -357,7 +357,7 @@ class Color {
             throw new Error(`Model ${model} does not have defined components.`);
         }
 
-        const get = (fitMethod: FitMethod = "no-fit") => {
+        const get = (fitMethod: FitMethod = "none") => {
             const coords = getCoords();
 
             // eslint-disable-next-line no-unused-vars
@@ -379,7 +379,7 @@ class Color {
             return result;
         };
 
-        const getCoords = (fitMethod: FitMethod = "no-fit") => {
+        const getCoords = (fitMethod: FitMethod = "none") => {
             const coords =
                 model === "xyz" || model === "xyz-d65"
                     ? this.xyz
@@ -396,15 +396,21 @@ class Color {
         };
 
         const set = (
-            values:
-                | Partial<{ [K in Component<M>]: number | ((prev: number) => number) }> // eslint-disable-line no-unused-vars
-                | ((components: { [K in Component<M>]: number }) => Partial<{ [K in Component<M>]?: number }>) // eslint-disable-line no-unused-vars
+            values: // eslint-disable-next-line no-unused-vars
+            | Partial<{ [K in Component<M> | "alpha"]: number | ((prev: number) => number) }>
+                // eslint-disable-next-line no-unused-vars
+                | ((components: { [K in Component<M> | "alpha"]: number }) => Partial<{
+                      // eslint-disable-next-line no-unused-vars
+                      [K in Component<M> | "alpha"]?: number;
+                  }>)
         ) => {
             const coords = getCoords();
-            const compNames = Object.keys(components) as Component<M>[];
+            const compNames = Object.keys(components) as (Component<M> | "alpha")[];
+
+            let newAlpha = this.xyz[3];
 
             if (typeof values === "function") {
-                const currentComponents = {} as { [K in Component<M>]: number }; // eslint-disable-line no-unused-vars
+                const currentComponents = {} as { [K in Component<M> | "alpha"]: number }; // eslint-disable-line no-unused-vars
                 compNames.forEach((comp) => {
                     const { index } = components[comp as keyof typeof components] as ComponentDefinition;
                     currentComponents[comp] = coords[index];
@@ -430,12 +436,16 @@ class Color {
                         }
                     }
 
-                    coords[index] = newValue as number;
+                    if (comp === "alpha") {
+                        newAlpha = newValue as number;
+                    } else {
+                        coords[index] = newValue as number;
+                    }
                 }
             });
 
-            this.xyz = [...converter.toXYZ(coords), this.xyz[3]] as XYZ;
-            this.currentInterface = { model: model as M, coords: [...coords.slice(0, 3), this.xyz[3]] };
+            this.xyz = [...converter.toXYZ(coords), newAlpha] as XYZ;
+            this.currentInterface = { model: model as M, coords: [...coords.slice(0, 3), newAlpha] };
             return Object.assign(this, { ...this.in(model) }) as typeof this & Interface<M>;
         };
 
@@ -571,29 +581,18 @@ class Color {
     /**
      * Calculates the luminance of the color.
      *
-     * @param background - The background color used if the color is not fully opaque. Defaults to white.
      * @param space - The color space to use for luminance calculation. Can be "xyz" (default) or "oklab".
      * @returns The luminance value of the color, a number between 0 and 1.
      */
-    luminance(
-        background: string | Color = Color.in("srgb").setCoords([1, 1, 1]),
-        space: "xyz" | "oklab" = "xyz"
-    ): number {
-        const bgColor = typeof background === "string" ? Color.from(background) : background;
+    luminance(space: "xyz" | "oklab" = "xyz"): number {
         switch (space) {
             case "xyz": {
-                const [, Y, , alpha = 1] = this.xyz;
-                if (alpha === 1) return Y;
-                const [, bgY] = bgColor.xyz;
-                const blendedY = (1 - alpha) * bgY + alpha * Y;
-                return blendedY;
+                const [, Y] = this.in("xyz").getCoords();
+                return Y;
             }
             case "oklab": {
-                const [L, , , alpha] = this.in("oklab").getCoords();
-                if (alpha === 1) return L;
-                const [bgL] = bgColor.in("oklab").getCoords();
-                const blendedL = (1 - alpha) * bgL + alpha * L;
-                return blendedL;
+                const [L] = this.in("oklab").getCoords();
+                return L;
             }
             default:
                 throw new Error(`Invalid color space for luminance: must be 'xyz' or 'oklab'.`);
@@ -603,7 +602,7 @@ class Color {
     /**
      * Calculates the contrast ratio between the current color and a given color.
      *
-     * @param background - The color to compare against, represented as a string (e.g., hex, RGB, etc.).
+     * @param other - The color to compare against (as a Color instance or string).
      * @param algorithm - The contrast algorithm to use: "wcag21" (default), "apca", or "oklab".
      *                  - "wcag21": Uses WCAG 2.1 contrast ratio (1 to 21). Limited by sRGB assumptions and poor hue handling.
      *                  - "apca": Uses APCA-W3 (Lc 0 to ~100), better for perceptual accuracy. See https://git.myndex.com.
@@ -613,23 +612,22 @@ class Color {
      *          - "wcag21": Ratio from 1 to 21.
      *          - "apca": Lc value (positive for light text on dark background, negative for dark text).
      *          - "oklab": Lightness difference (0 to 1).
-     * @throws If the algorithm or background is invalid.
+     * @throws If the algorithm is invalid.
      */
-    contrast(background: string | Color, algorithm: "wcag21" | "apca" | "oklab" = "wcag21"): number {
-        const bgColor = typeof background === "string" ? Color.from(background) : background;
-        if (!bgColor) throw new Error(`Invalid background color: ${background}.`);
+    contrast(other: Color | string, algorithm: "wcag21" | "apca" | "oklab" = "wcag21"): number {
+        const otherColor = typeof other === "string" ? Color.from(other) : other;
 
         if (algorithm === "wcag21") {
-            const L_bg = bgColor.luminance(undefined, "xyz");
-            const L_text = this.luminance(background, "xyz");
+            const L_bg = otherColor.luminance();
+            const L_text = this.luminance();
             return (Math.max(L_text, L_bg) + 0.05) / (Math.min(L_text, L_bg) + 0.05);
         } else if (algorithm === "oklab") {
             const oklab1 = this.in("oklab").getCoords();
-            const oklab2 = bgColor.in("oklab").getCoords();
+            const oklab2 = otherColor.in("oklab").getCoords();
             return Math.abs(oklab1[0] - oklab2[0]);
         } else if (algorithm === "apca") {
-            const L_text = this.luminance(background, "xyz");
-            const L_bg = bgColor.luminance(undefined, "xyz");
+            const L_text = this.luminance();
+            const L_bg = otherColor.luminance();
 
             const Ntx = 0.57;
             const Nbg = 0.56;
@@ -661,12 +659,12 @@ class Color {
     /**
      * Evaluates the accessibility of the current color against another color using WCAG 2.x or alternative contrast guidelines.
      *
-     * @param background - The background color to evaluate against.
+     * @param other - The other color to evaluate against (as a Color instance or string).
      * @param options - Optional settings to customize the evaluation.
      * @returns An object with accessibility status, contrast, required contrast, and helpful info.
-     * @throws If the algorithm, background, level, or font parameters are invalid.
+     * @throws If the algorithm, level, or font parameters are invalid.
      */
-    accessibility(background: string | Color, options: EvaluateAccessibilityOptions = {}) {
+    accessibility(other: Color | string, options: EvaluateAccessibilityOptions = {}) {
         const { type = "text", level = "AA", fontSize = 12, fontWeight = 400, algorithm = "wcag21" } = options;
 
         if (!["AA", "AAA"].includes(level)) {
@@ -679,9 +677,9 @@ class Color {
         if (type === "text" && (fontWeight < 100 || fontWeight > 900)) {
             throw new Error("Invalid fontWeight: must be 100-900.");
         }
-        const backgroundColor = typeof background === "string" ? Color.from(background) : background;
+        const otherColor = typeof other === "string" ? Color.from(other) : other;
 
-        const contrast = this.contrast(background, algorithm);
+        const contrast = this.contrast(otherColor, algorithm);
         let requiredContrast: number, wcagSuccessCriterion: string, message: string;
 
         if (algorithm === "wcag21") {
@@ -764,7 +762,7 @@ class Color {
             fontSize: type === "text" ? fontSize : undefined,
             fontWeight: type === "text" ? fontWeight : undefined,
             textColor: this as Color,
-            backgroundColor,
+            otherColor,
             wcagSuccessCriterion,
             impact,
             algorithm,
@@ -775,7 +773,7 @@ class Color {
     /**
      * Calculates the color difference (ΔEOK) between the current color and another color using the OKLAB color space.
      *
-     * @param other - The other color to compare against.
+     * @param other - The other color to compare against (as a Color instance or string).
      * @returns The ΔEOK value (a non-negative number; smaller indicates more similar colors).
      *
      * @remarks
@@ -796,133 +794,147 @@ class Color {
     }
 
     /**
-     * Calculates the color difference (ΔE) between the current color and another color using CIE LAB-based methods.
+     * Calculates the color difference (ΔE) between two colors using the CIE76 formula.
+     * This is a simple Euclidean distance in LAB color space.
      *
-     * @param other - The other color to compare against, specified as a string.
-     * @param method - The Delta E method to use: "76" (CIE76), "94" (CIE94), or "2000" (CIEDE2000). Defaults to "94".
-     * @returns The ΔE value (a non-negative number; smaller indicates more similar colors).
-     * @throws If an unsupported method is specified.
-     *
-     * @remarks
-     * This method calculates the perceptual difference between two colors in CIE LAB color space using one of three methods:
-     * - CIE76: Simple Euclidean distance in LAB space.
-     * - CIE94: Improved weighting for better perceptual accuracy.
-     * - CIEDE2000: Most accurate, accounting for hue, chroma, and lightness interactions.
-     * The choice of method affects the accuracy and computational complexity, with CIEDE2000 being the most sophisticated.
+     * @param other - The other color to compare against (as a Color instance or string).
+     * @returns The ΔE76 value — a non-negative number where smaller values indicate more similar colors.
      */
-    deltaE(other: Color | string, method: "76" | "94" | "2000" = "94") {
+    deltaE76(other: Color | string) {
         const [L1, a1, b1] = this.in("lab").getCoords();
         const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("lab").getCoords();
 
         const ΔL = L1 - L2;
         const ΔA = a1 - a2;
         const ΔB = b1 - b2;
+
+        return Math.sqrt(ΔL * ΔL + ΔA * ΔA + ΔB * ΔB);
+    }
+
+    /**
+     * Calculates the color difference (ΔE) between two colors using the CIE94 formula.
+     * This method improves perceptual accuracy over CIE76 by applying weighting factors.
+     *
+     * @param other - The other color to compare against (as a Color instance or string).
+     * @returns The ΔE94 value — a non-negative number where smaller values indicate more similar colors.
+     */
+    deltaE94(other: Color | string): number {
+        const [L1, a1, b1] = this.in("lab").getCoords();
+        const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("lab").getCoords();
+
+        const ΔL = L1 - L2;
+        const ΔA = a1 - a2;
+        const ΔB = b1 - b2;
+
         const C1 = Math.sqrt(a1 * a1 + b1 * b1);
         const C2 = Math.sqrt(a2 * a2 + b2 * b2);
         const ΔC = C1 - C2;
         const ΔH = Math.sqrt(Math.max(0, ΔA * ΔA + ΔB * ΔB - ΔC * ΔC));
 
-        if (method === "76") {
-            return Math.sqrt(ΔL * ΔL + ΔA * ΔA + ΔB * ΔB);
-        }
+        const kL = 1,
+            kC = 1,
+            kH = 1;
+        const K1 = 0.045,
+            K2 = 0.015;
 
-        if (method === "94") {
-            const kL = 1;
-            const kC = 1;
-            const kH = 1;
-            const K1 = 0.045;
-            const K2 = 0.015;
+        const sC = 1 + K1 * C1;
+        const sH = 1 + K2 * C1;
 
-            const sC = 1 + K1 * C1;
-            const sH = 1 + K2 * C1;
+        return Math.sqrt((ΔL / kL) ** 2 + (ΔC / (kC * sC)) ** 2 + (ΔH / (kH * sH)) ** 2);
+    }
 
-            const ΔE94 = Math.sqrt((ΔL / kL) ** 2 + (ΔC / (kC * sC)) ** 2 + (ΔH / (kH * sH)) ** 2);
+    /**
+     * Calculates the color difference (ΔE) between two colors using the CIEDE2000 formula.
+     * This is the most perceptually accurate method, accounting for interactions between hue, chroma, and lightness.
+     *
+     * @param other - The other color to compare against (as a Color instance or string).
+     * @returns The ΔE2000 value — a non-negative number where smaller values indicate more similar colors.
+     */
+    deltaE2000(other: Color | string): number {
+        const [L1, a1, b1] = this.in("lab").getCoords();
+        const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("lab").getCoords();
 
-            return ΔE94;
-        }
+        const π = Math.PI,
+            d2r = π / 180,
+            r2d = 180 / π;
 
-        if (method === "2000") {
-            const C1 = Math.sqrt(a1 ** 2 + b1 ** 2);
-            const C2 = Math.sqrt(a2 ** 2 + b2 ** 2);
+        const C1 = Math.sqrt(a1 ** 2 + b1 ** 2);
+        const C2 = Math.sqrt(a2 ** 2 + b2 ** 2);
+        const Cbar = (C1 + C2) / 2;
 
-            const Cbar = (C1 + C2) / 2;
+        const Gfactor = Math.pow(25, 7);
+        const C7 = Math.pow(Cbar, 7);
+        const G = 0.5 * (1 - Math.sqrt(C7 / (C7 + Gfactor)));
 
-            const C7 = Math.pow(Cbar, 7);
-            const Gfactor = Math.pow(25, 7);
-            const G = 0.5 * (1 - Math.sqrt(C7 / (C7 + Gfactor)));
+        const adash1 = (1 + G) * a1;
+        const adash2 = (1 + G) * a2;
 
-            const adash1 = (1 + G) * a1;
-            const adash2 = (1 + G) * a2;
+        const Cdash1 = Math.sqrt(adash1 ** 2 + b1 ** 2);
+        const Cdash2 = Math.sqrt(adash2 ** 2 + b2 ** 2);
 
-            const Cdash1 = Math.sqrt(adash1 ** 2 + b1 ** 2);
-            const Cdash2 = Math.sqrt(adash2 ** 2 + b2 ** 2);
+        let h1 = Math.atan2(b1, adash1);
+        let h2 = Math.atan2(b2, adash2);
+        if (h1 < 0) h1 += 2 * π;
+        if (h2 < 0) h2 += 2 * π;
+        h1 *= r2d;
+        h2 *= r2d;
 
-            const π = Math.PI;
-            const r2d = 180 / π;
-            const d2r = π / 180;
-            let h1 = adash1 === 0 && b1 === 0 ? 0 : Math.atan2(b1, adash1);
-            let h2 = adash2 === 0 && b2 === 0 ? 0 : Math.atan2(b2, adash2);
+        const ΔL = L2 - L1;
+        const ΔC = Cdash2 - Cdash1;
 
-            if (h1 < 0) h1 += 2 * π;
-            if (h2 < 0) h2 += 2 * π;
-
-            h1 *= r2d;
-            h2 *= r2d;
-
-            const ΔL = L2 - L1;
-            const ΔC = Cdash2 - Cdash1;
-
-            const hdiff = h2 - h1;
-            const hsum = h1 + h2;
-            const habs = Math.abs(hdiff);
-            let Δh;
-
-            if (Cdash1 * Cdash2 === 0) Δh = 0;
-            else if (habs <= 180) Δh = hdiff;
+        const hdiff = h2 - h1;
+        const habs = Math.abs(hdiff);
+        let Δh = 0;
+        if (Cdash1 * Cdash2 !== 0) {
+            if (habs <= 180) Δh = hdiff;
             else if (hdiff > 180) Δh = hdiff - 360;
             else Δh = hdiff + 360;
+        }
+        const ΔH = 2 * Math.sqrt(Cdash1 * Cdash2) * Math.sin((Δh * d2r) / 2);
 
-            const ΔH = 2 * Math.sqrt(Cdash2 * Cdash1) * Math.sin((Δh * d2r) / 2);
+        const Ldash = (L1 + L2) / 2;
+        const Cdash = (Cdash1 + Cdash2) / 2;
+        const Cdash7 = Math.pow(Cdash, 7);
 
-            const Ldash = (L1 + L2) / 2;
-            const Cdash = (Cdash1 + Cdash2) / 2;
-            const Cdash7 = Math.pow(Cdash, 7);
-
-            let hdash;
-            if (Cdash1 == 0 && Cdash2 == 0) hdash = hsum;
-            else if (habs <= 180) hdash = hsum / 2;
-            else if (hsum < 360) hdash = (hsum + 360) / 2;
-            else hdash = (hsum - 360) / 2;
-
-            const lsq = (Ldash - 50) ** 2;
-            const SL = 1 + (0.015 * lsq) / Math.sqrt(20 + lsq);
-            const SC = 1 + 0.045 * Cdash;
-
-            let T = 1;
-            T -= 0.17 * Math.cos((hdash - 30) * d2r);
-            T += 0.24 * Math.cos(2 * hdash * d2r);
-            T += 0.32 * Math.cos((3 * hdash + 6) * d2r);
-            T -= 0.2 * Math.cos((4 * hdash - 63) * d2r);
-
-            const SH = 1 + 0.015 * Cdash * T;
-            const Δθ = 30 * Math.exp(-1 * ((hdash - 275) / 25) ** 2);
-            const RC = 2 * Math.sqrt(Cdash7 / (Cdash7 + Gfactor));
-            const RT = -1 * Math.sin(2 * Δθ * d2r) * RC;
-
-            let dE = (ΔL / SL) ** 2;
-            dE += (ΔC / SC) ** 2;
-            dE += (ΔH / SH) ** 2;
-            dE += RT * (ΔC / SC) * (ΔH / SH);
-            return Math.sqrt(dE);
+        const hsum = h1 + h2;
+        let hdash = 0;
+        if (Cdash1 === 0 && Cdash2 === 0) {
+            hdash = hsum;
+        } else if (habs <= 180) {
+            hdash = hsum / 2;
+        } else if (hsum < 360) {
+            hdash = (hsum + 360) / 2;
+        } else {
+            hdash = (hsum - 360) / 2;
         }
 
-        throw new Error(`Unsupported Delta E method: must be '76', '94', or '2000'.`);
+        const lsq = (Ldash - 50) ** 2;
+        const SL = 1 + (0.015 * lsq) / Math.sqrt(20 + lsq);
+        const SC = 1 + 0.045 * Cdash;
+
+        let T = 1;
+        T -= 0.17 * Math.cos((hdash - 30) * d2r);
+        T += 0.24 * Math.cos(2 * hdash * d2r);
+        T += 0.32 * Math.cos((3 * hdash + 6) * d2r);
+        T -= 0.2 * Math.cos((4 * hdash - 63) * d2r);
+
+        const SH = 1 + 0.015 * Cdash * T;
+        const Δθ = 30 * Math.exp(-1 * ((hdash - 275) / 25) ** 2);
+        const RC = 2 * Math.sqrt(Cdash7 / (Cdash7 + Gfactor));
+        const RT = -1 * Math.sin(2 * Δθ * d2r) * RC;
+
+        let dE = (ΔL / SL) ** 2;
+        dE += (ΔC / SC) ** 2;
+        dE += (ΔH / SH) ** 2;
+        dE += RT * (ΔC / SC) * (ΔH / SH);
+
+        return Math.sqrt(dE);
     }
 
     /**
      * Compares the current color object with another color string or Color object.
      *
-     * @param other - The color string or Color object to compare with the current color object.
+     * @param other - The other color to compare against (as a Color instance or string).
      * @param epsilon - Tolerance for floating point comparison. Defaults to 1e-5.
      * @returns Whether the two colors are equal within the given epsilon.
      */

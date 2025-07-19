@@ -8,7 +8,26 @@ import type {
     NamedColor,
     XYZ,
 } from "./types.js";
-import { D50, converterFromFunctionConverter, functionConverterFromSpaceConverter, multiplyMatrices } from "./utils.js";
+import {
+    D50,
+    converterFromFunctionConverter,
+    functionConverterFromSpaceConverter,
+    multiplyMatrices,
+    fit,
+} from "./utils.js";
+
+function hslToRgb([h, s, l]: number[]) {
+    s /= 100;
+    l /= 100;
+
+    const f = (n: number) => {
+        const k = (n + h / 30) % 12;
+        const a = s * Math.min(l, 1 - l);
+        return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    };
+
+    return [f(0), f(8), f(4)];
+}
 
 /** A collection of `<named-color>`s and their RGB values. */
 export const namedColors = {
@@ -487,17 +506,9 @@ export const colorFunctionConverters = {
             if (S === 0 || l === 0) h = 0;
             return [h, s, l];
         },
-        toXYZ: ([h, s, l]: number[]) => {
-            s /= 100;
-            l /= 100;
-
-            const f = (n: number) => {
-                const k = (n + h / 30) % 12;
-                const a = s * Math.min(l, 1 - l);
-                return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
-            };
-
-            return colorFunctionConverters.rgb.toXYZ([f(0) * 255, f(8) * 255, f(4) * 255]);
+        toXYZ: (hsl: number[]) => {
+            const rgb = hslToRgb(hsl).map((c) => c * 255);
+            return colorFunctionConverters.rgb.toXYZ(rgb);
         },
     },
     hwb: {
@@ -509,7 +520,7 @@ export const colorFunctionConverters = {
             b: { index: 2, value: "percentage", precision: 1 },
         },
         fromXYZ: (xyz: number[]) => {
-            const sRGBToHue = (red: number, green: number, blue: number) => {
+            const rgbToHue = (red: number, green: number, blue: number) => {
                 const max = Math.max(red, green, blue);
                 const min = Math.min(red, green, blue);
                 let hue = NaN;
@@ -533,18 +544,12 @@ export const colorFunctionConverters = {
                 return hue;
             };
 
-            const [sR, sG, sB] = colorFunctionConverters.rgb.fromXYZ(xyz);
-            const hue = sRGBToHue(sR, sG, sB);
+            const [sR, sG, sB] = colorFunctionConverters.rgb.fromXYZ(xyz).map((c) => c / 255);
+            const hue = rgbToHue(sR, sG, sB);
             const white = Math.min(sR, sG, sB);
             const black = 1 - Math.max(sR, sG, sB);
-            const epsilon = 1 / 100000;
 
-            let adjustedHue = hue;
-            if (white + black >= 1 - epsilon) {
-                adjustedHue = NaN;
-            }
-
-            return [adjustedHue, white * 100, black * 100];
+            return [hue, white * 100, black * 100];
         },
         toXYZ: ([H, W, B]: number[]) => {
             W /= 100;
@@ -553,7 +558,12 @@ export const colorFunctionConverters = {
                 const gray = W / (W + B);
                 return [gray, gray, gray];
             }
-            return colorFunctionConverters.hsl.toXYZ([H, 100, 50]);
+            const rgb = hslToRgb([H, 100, 50]);
+            for (let i = 0; i < 3; i++) {
+                rgb[i] *= 1 - W - B;
+                rgb[i] += W;
+            }
+            return colorFunctionConverters.rgb.toXYZ(rgb.map((c) => c * 255));
         },
     },
     lab: {
@@ -860,20 +870,32 @@ export const colorTypes = {
             return [...colorFunctionConverters.rgb.toXYZ([red * 255, green * 255, blue * 255]), alpha] as XYZ;
         },
         fromXYZ: (xyz: XYZ, options: FormattingOptions = {}) => {
-            const { legacy = false, precision = 3 } = options;
+            const { legacy = false, precision = 3, fit: fitMethod = "clip" } = options;
             const [red, green, blue, alpha = 1] = colorFunctionConverters.rgb.fromXYZ(xyz);
-            const r = red / 255;
-            const g = green / 255;
-            const b = blue / 255;
+
+            const [fr, fg, fb] = fit([red, green, blue], "rgb", fitMethod);
+
+            const r = fr / 255;
+            const g = fg / 255;
+            const b = fb / 255;
             const k = 1 - Math.max(r, g, b);
-            const C = Number(k === 1 ? 0 : (1 - r - k) / (1 - k)).toFixed(precision);
-            const M = Number(k === 1 ? 0 : (1 - g - k) / (1 - k)).toFixed(precision);
-            const Y = Number(k === 1 ? 0 : (1 - b - k) / (1 - k)).toFixed(precision);
-            const K = Number(k).toFixed(precision);
+
+            const formatComponent = (value: number) => Number(value.toFixed(precision)).toString();
+
+            const c = formatComponent(k === 1 ? 0 : (1 - r - k) / (1 - k));
+            const m = formatComponent(k === 1 ? 0 : (1 - g - k) / (1 - k));
+            const y = formatComponent(k === 1 ? 0 : (1 - b - k) / (1 - k));
+            const kFormatted = formatComponent(k);
+            const alphaFormatted = Number(alpha.toFixed(3)).toString();
+
+            const alphaPart = alpha < 1 ? (legacy ? `, ${alphaFormatted}` : ` / ${alphaFormatted}`) : "";
+
             if (legacy) {
-                return `device-cmyk(${C}, ${M}, ${Y}, ${K}%${alpha < 1 ? `, ${alpha.toFixed(3)}` : ""})`;
+                return `device-cmyk(${c}, ${m}, ${y}, ${kFormatted}${alphaPart})`;
             }
-            return `device-cmyk(${C} ${M} ${K} ${K}${alpha < 1 ? ` / ${alpha.toFixed(3)}` : ""}, rgb(${red} ${green} ${blue}${alpha < 1 ? ` / ${alpha.toFixed(3)}` : ""}))`;
+
+            const rgbPart = `rgb(${fr} ${fg} ${fb}${alpha < 1 ? ` / ${alphaFormatted}` : ""})`;
+            return `device-cmyk(${c} ${m} ${y} ${kFormatted}${alphaPart}, ${rgbPart})`;
         },
     },
     "light-dark": {

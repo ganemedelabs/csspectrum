@@ -112,9 +112,9 @@ export interface Interface<M extends ColorFunction> {
     get: (
         /**
          * Method for fitting the color into the target gamut.
-         * - `"no-fit"`: Returns the original coordinates without modification.
-         * - `"round-only"`: Rounds the coordinates according to the component precision withput gamut mapping.
-         * - `"minmax"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
+         * - `"none"`: Returns the original coordinates without modification.
+         * - `"round-unclipped"`: Rounds the coordinates according to the component precision withput gamut mapping.
+         * - `"clip"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
          * - `"chroma-reduction"`: Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
          * - `"css-gamut-map"`: CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
          */
@@ -125,9 +125,9 @@ export interface Interface<M extends ColorFunction> {
     getCoords: (
         /**
          * Method for fitting the color into the target gamut.
-         * - `"no-fit"`: Returns the original coordinates without modification.
-         * - `"round-only"`: Rounds the coordinates according to the component precision withput gamut mapping.
-         * - `"minmax"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
+         * - `"none"`: Returns the original coordinates without modification.
+         * - `"round-unclipped"`: Rounds the coordinates according to the component precision withput gamut mapping.
+         * - `"clip"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
          * - `"chroma-reduction"`: Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
          * - `"css-gamut-map"`: CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
          */
@@ -196,13 +196,13 @@ export type Easing = keyof typeof EASINGS;
 
 /**
  * Describes the available methods for fitting the color into the target gamut.
- * - `"no-fit"`: Returns the original coordinates without modification.
- * - `"round-only"`: Rounds the coordinates according to the component precision withput gamut mapping.
- * - `"minmax"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
+ * - `"none"`: Returns the original coordinates without modification.
+ * - `"round-unclipped"`: Rounds the coordinates according to the component precision withput gamut mapping.
+ * - `"clip"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
  * - `"chroma-reduction"`: Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
  * - `"css-gamut-map"`: CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
  */
-export type FitMethod = "minmax" | "chroma-reduction" | "css-gamut-map" | "no-fit" | "round-only";
+export type FitMethod = "clip" | "chroma-reduction" | "css-gamut-map" | "none" | "round-unclipped";
 
 /** Options for formatting color output. */
 export interface FormattingOptions {
@@ -211,9 +211,9 @@ export interface FormattingOptions {
 
     /**
      * Method for fitting the color into the target gamut.
-     * - `"no-fit"`: Returns the original coordinates without modification.
-     * - `"round-only"`: Rounds the coordinates according to the component precision withput gamut mapping.
-     * - `"minmax"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
+     * - `"none"`: Returns the original coordinates without modification.
+     * - `"round-unclipped"`: Rounds the coordinates according to the component precision withput gamut mapping.
+     * - `"clip"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
      * - `"chroma-reduction"`: Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
      * - `"css-gamut-map"`: CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
      */
@@ -221,6 +221,9 @@ export interface FormattingOptions {
 
     /** Overrides the precision of the output color. */
     precision?: number;
+
+    /** Output components with units (e.g., `hsl(250deg 74% 54%)`) */
+    units?: boolean;
 }
 
 /** Options for mixing two colors. */
