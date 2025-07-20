@@ -1,4 +1,47 @@
-export { default as Color } from "./Color.js";
-export * from "./types.js";
-export * from "./utils.js";
-export * from "./converters.js";
+export { Color } from "./Color.js";
+export type {
+    XYZ,
+    ColorType,
+    ColorBase,
+    ColorFunction,
+    ColorSpace,
+    NamedColor,
+    OutputType,
+    ColorConverter,
+    ColorFunctionConverter,
+    ColorSpaceConverter,
+    ComponentDefinition,
+    Component,
+    Interface,
+    InterfaceWithSetOnly,
+    HueInterpolationMethod,
+    Easing,
+    FitMethod,
+    FormattingOptions,
+    MixOptions,
+    EvaluateAccessibilityOptions,
+} from "./types.js";
+export {
+    D50_to_D65,
+    D65_to_D50,
+    D50,
+    D65,
+    EASINGS,
+    multiplyMatrices,
+    registerColorType,
+    registerColorBase,
+    registerColorFunction,
+    registerColorSpace,
+    registerNamedColor,
+    fit,
+    converterFromFunctionConverter,
+    functionConverterFromSpaceConverter,
+} from "./utils.js";
+export {
+    namedColors,
+    colorSpaceConverters,
+    colorFunctionConverters,
+    colorFunctions,
+    colorBases,
+    colorTypes,
+} from "./converters.js";

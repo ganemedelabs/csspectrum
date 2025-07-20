@@ -1,6 +1,7 @@
-import Color from "./Color.js";
-import { colorFunctionConverters, colorSpaceConverters } from "./converters.js";
+import { Color } from "./Color.js";
+import { colorBases, colorFunctionConverters, colorSpaceConverters, colorTypes, namedColors } from "./converters.js";
 import type {
+    ColorConverter,
     ColorFunction,
     ColorFunctionConverter,
     ColorSpace,
@@ -8,6 +9,7 @@ import type {
     ComponentDefinition,
     FitMethod,
     FormattingOptions,
+    NamedColor,
     XYZ,
 } from "./types.js";
 
@@ -73,6 +75,105 @@ export function multiplyMatrices<A extends number[] | number[][], B extends numb
 }
 
 /**
+ * Registers a new `<color>` converter under the specified name.
+ *
+ * @param name - The unique name to associate with the color converter.
+ * @param converter - The converter object implementing the color conversion logic.
+ * @throws If a color name is already used.
+ */
+export function registerColorType(name: string, converter: ColorConverter) {
+    const cleaned = name.replace(/(?:\s+)/g, "-").toLowerCase();
+    const obj = colorTypes as unknown as Record<string, ColorConverter>;
+
+    if (cleaned in colorTypes) {
+        throw new Error(`The name "${cleaned}" is already used.`);
+    }
+
+    obj[cleaned] = converter;
+}
+
+/**
+ * Registers a new `<color-base>` converter under the specified name.
+ *
+ * @param name - The unique name to associate with the color base converter.
+ * @param converter - The converter object implementing the color base conversion logic.
+ * @throws If a color base name is already used.
+ */
+export function registerColorBase(name: string, converter: ColorConverter) {
+    const cleaned = name.replace(/(?:\s+)/g, "-").toLowerCase();
+    const obj = colorBases as unknown as Record<string, ColorConverter>;
+
+    if (cleaned in colorTypes) {
+        throw new Error(`The name "${cleaned}" is already used.`);
+    }
+
+    obj[cleaned] = converter;
+}
+
+/**
+ * Registers a new `<color-function>` converter under the specified name.
+ *
+ * @param name - The unique name to associate with the color function converter.
+ * @param converter - The converter object implementing the color function conversion logic.
+ * @throws If a color function name is already used.
+ */
+export function registerColorFunction(name: string, converter: ColorFunctionConverter) {
+    const cleaned = name.replace(/(?:\s+)/g, "").toLowerCase();
+    const obj = colorFunctionConverters as unknown as Record<string, ColorFunctionConverter>;
+
+    if (cleaned in colorTypes) {
+        throw new Error(`The name "${cleaned}" is already used.`);
+    }
+
+    obj[cleaned] = converter;
+}
+
+/**
+ * Registers a new color space converter for `<color()>` function under the specified name.
+ *
+ * @param name - The unique name to associate with the color space converter.
+ * @param converter - The converter object implementing the color space conversion logic.
+ * @throws If a color space name is already used.
+ */
+export function registerColorSpace(name: string, converter: ColorSpaceConverter) {
+    const cleaned = name.replace(/(?:\s+)/g, "-").toLowerCase();
+    const obj = colorSpaceConverters as unknown as Record<string, ColorFunctionConverter>;
+
+    if (cleaned in colorTypes) {
+        throw new Error(`The name "${cleaned}" is already used.`);
+    }
+
+    obj[cleaned] = functionConverterFromSpaceConverter(cleaned, converter);
+}
+
+/**
+ * Registers a new `<named-color>` with the specified RGB value.
+ *
+ * @param name - The name to register for the color.
+ * @param rgb - The RGB tuple representing the color, as an array of three numbers [red, green, blue].
+ * @throws If the color name is already registered.
+ * @throws If the RGB value is already registered under a different name.
+ */
+export function registerNamedColor(name: string, rgb: [number, number, number]) {
+    const cleaned = name.replace(/[^a-zA-Z]/g, "").toLowerCase();
+    const colorMap = namedColors as Record<NamedColor, [number, number, number]>;
+
+    if (colorMap[cleaned as NamedColor]) {
+        throw new Error(`<named-color> "${name}" is already registered.`);
+    }
+
+    const existingName = Object.entries(colorMap).find(([, value]) =>
+        value.every((channel, i) => channel === rgb[i])
+    )?.[0];
+
+    if (existingName) {
+        throw new Error(`RGB value [${rgb.join(", ")}] is already registered as "${existingName}".`);
+    }
+
+    colorMap[cleaned as NamedColor] = rgb;
+}
+
+/**
  * Fits or clips a set of color coordinates to a specified color model and gamut using the given fitting method.
  *
  * @param coords - The color coordinates to fit or clip.
@@ -84,13 +185,13 @@ export function multiplyMatrices<A extends number[] | number[][], B extends numb
  *
  * @remarks
  * This function supports several fitting methods:
- * - `"no-fit"`: Returns the original coordinates without modification.
- * - `"round-only"`: Rounds the coordinates according to the component precision withput gamut mapping.
- * - `"minmax"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
+ * - `"none"`: Returns the original coordinates without modification.
+ * - `"round-unclipped"`: Rounds the coordinates according to the component precision withput gamut mapping.
+ * - `"clip"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
  * - `"chroma-reduction"`: Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
  * - `"css-gamut-map"`: CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
  */
-export function fit(coords: number[], model: ColorFunction, method: FitMethod = "clip", precision?: number) {
+export function fit(coords: number[], options: { model?: ColorFunction; method?: FitMethod; precision?: number } = {}) {
     const roundCoords = (coords: number[]) => {
         return coords.map((value, i) => {
             const p = precision ?? componentProps[i]?.precision ?? 3;
@@ -98,6 +199,7 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
         });
     };
 
+    const { model = "srgb", method = "clip", precision } = options;
     const { targetGamut, components } = colorFunctionConverters[model];
 
     const componentProps: ComponentDefinition[] = [];
@@ -181,7 +283,7 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
 
                 if (candidate_color.inGamut(targetGamut as ColorSpace, 1e-5)) C_low = C_mid;
                 else {
-                    const clipped_coords = fit(candidate_color.getCoords().slice(0, 3), model, "clip");
+                    const clipped_coords = fit(candidate_color.getCoords().slice(0, 3), { model, method: "clip" });
                     const clipped_color = Color.in(model).setCoords(clipped_coords);
                     const deltaE = candidate_color.deltaEOK(clipped_color);
                     if (deltaE < 2) {
@@ -218,7 +320,7 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
             const epsilon = 0.0001;
 
             const current = Color.in("oklch").setCoords([L, C, H]);
-            let clipped: number[] = fit(current.in(model).getCoords().slice(0, 3), model, "clip");
+            let clipped: number[] = fit(current.in(model).getCoords().slice(0, 3), { model, method: "clip" });
 
             const initialClippedColor = Color.in(model).setCoords(clipped);
             const E = current.deltaEOK(initialClippedColor);
@@ -235,7 +337,7 @@ export function fit(coords: number[], model: ColorFunction, method: FitMethod = 
 
                 if (min_inGamut && candidate.inGamut(targetGamut as ColorSpace, 1e-5)) min = chroma;
                 else {
-                    const clippedCoords = fit(candidate.in(model).getCoords().slice(0, 3), model, "clip");
+                    const clippedCoords = fit(candidate.in(model).getCoords().slice(0, 3), { model, method: "clip" });
                     clipped = clippedCoords;
                     const clippedColor = Color.in(model).setCoords(clippedCoords);
                     const deltaE = candidate.deltaEOK(clippedColor);
@@ -521,7 +623,7 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
             if (cleanedName in colorSpaceConverters) {
                 return (
                     (cleanedStr.startsWith(`color(${cleanedName} `) ||
-                        (cleanedStr.startsWith("color(from ") && validateRelativeColorSpace(str, cleanedName))) &&
+                        (/^color\(\s*from\s+/i.test(cleanedStr) && validateRelativeColorSpace(str, cleanedName))) &&
                     cleanedStr.endsWith(")")
                 );
             }
@@ -541,19 +643,37 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
             const { legacy = false, fit: fitMethod = "clip", precision = undefined, units = false } = options;
             const [c1, c2, c3, alpha] = [...converter.fromXYZ(xyz), xyz[3] ?? 1];
 
-            const clipped = fit([c1, c2, c3], cleanedName as ColorFunction, fitMethod, precision);
+            const clipped = fit([c1, c2, c3], { model: cleanedName as ColorFunction, method: fitMethod, precision });
             const alphaFormatted = Number(Math.min(Math.max(alpha, 0), 1).toFixed(3)).toString();
 
+            let formattedComponents: string[];
+
+            if (units && converter.components) {
+                formattedComponents = clipped.map((value, index) => {
+                    const componentConfig = Object.values(converter.components).find((comp) => comp.index === index);
+                    if (!componentConfig) return value.toString();
+
+                    if (componentConfig.value === "percentage") {
+                        return `${value}%`;
+                    } else if (componentConfig.value === "hue") {
+                        return `${value}deg`;
+                    }
+                    return value.toString();
+                });
+            } else {
+                formattedComponents = clipped.map((val) => val.toString());
+            }
+
             if (cleanedName in colorSpaceConverters) {
-                return `color(${cleanedName} ${clipped.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
+                return `color(${cleanedName} ${formattedComponents.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
             }
 
-            if (legacy === true && converter.supportsLegacy === true && alpha > 1) {
-                if (alpha === 1) return `${cleanedName}(${clipped.join(", ")})`;
-                return `${cleanedName}a(${clipped.join(", ")}, ${alphaFormatted})`;
+            if (legacy === true && converter.supportsLegacy === true) {
+                if (alpha === 1) return `${cleanedName}(${formattedComponents.join(", ")})`;
+                return `${cleanedName}a(${formattedComponents.join(", ")}, ${alphaFormatted})`;
             }
 
-            return `${cleanedName}(${clipped.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
+            return `${cleanedName}(${formattedComponents.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
         },
     };
 }

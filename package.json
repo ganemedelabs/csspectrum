@@ -4,33 +4,41 @@
     "description": "A TypeScript library for working with CSS color formats, providing conversion, manipulation, and analysis tools for various color models and spaces.",
     "type": "module",
     "private": false,
+    "author": "ganemedelabs",
+    "license": "MIT",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
     "exports": {
         ".": {
             "import": "./dist/index.js",
             "types": "./dist/index.d.ts"
         },
-        "./package.json": "./package.json",
-        "./README.md": "./README.md",
-        "./LICENSE": "./LICENSE"
+        "./Color": {
+            "import": "./dist/Color.js",
+            "types": "./dist/Color.d.ts"
+        },
+        "./types": {
+            "import": "./dist/types.js",
+            "types": "./dist/types.d.ts"
+        },
+        "./utils": {
+            "import": "./dist/utils.js",
+            "types": "./dist/utils.d.ts"
+        },
+        "./converters": {
+            "import": "./dist/converters.js",
+            "types": "./dist/converters.d.ts"
+        }
     },
-    "main": "dist/index.js",
-    "types": "dist/index.d.ts",
+    "sideEffects": false,
     "repository": {
         "type": "git",
         "url": "https://github.com/ganemedelabs/saturon.git"
     },
-    "author": "ganemedelabs",
-    "license": "MIT",
     "bugs": {
         "url": "https://github.com/ganemedelabs/saturon/issues"
     },
     "homepage": "https://github.com/ganemedelabs/saturon#readme",
-    "files": [
-        "dist",
-        "README.md",
-        "LICENSE",
-        "package.json"
-    ],
     "scripts": {
         "build": "tsc",
         "test": "jest",
@@ -57,6 +65,12 @@
         "ts-node": "^10.9.2",
         "typescript": "^5.7.2"
     },
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE",
+        "package.json"
+    ],
     "keywords": [
         "color-converter",
         "css-colors",

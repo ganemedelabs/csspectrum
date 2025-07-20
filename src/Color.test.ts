@@ -1,4 +1,4 @@
-import Color from "./Color";
+import { Color } from "./Color";
 
 describe("Color", () => {
     it("should correctly identify all supported color functions", () => {
@@ -48,6 +48,21 @@ describe("Color", () => {
         expect(Color.from("oklch(72.32% 0.12% 247.99 / 0.5)").in("oklch").getCoords(fit)).toEqual([
             0.7232, 0.00048, 247.99, 0.5,
         ]);
+    });
+
+    it("should parse deeply nested colors", () => {
+        const color = Color.from(`
+            color-mix(
+                in oklch longer hue,
+                color(
+                    from hsl(240deg none calc(-infinity) / 0.5)
+                    display-p3
+                    r calc(g + b) 100 / alpha
+                ),
+                rebeccapurple 20%
+            )
+        `);
+        expect(color.to("hwb")).toBeDefined();
     });
 
     it("should convert HEX to RGB", () => {
@@ -190,19 +205,19 @@ describe("Color", () => {
     it("should adjust saturation correctly", () => {
         const color = Color.from("hsl(120, 80%, 50%)");
         const adjusted = color.in("hsl").set({ s: 10 });
-        expect(adjusted.to("hsl")).toBe("hsl(120 10 50)");
+        expect(adjusted.to("hsl", { units: true })).toBe("hsl(120deg 10% 50%)");
     });
 
     it("should adjust hue correctly", () => {
         const color = Color.from("hsl(30, 100%, 50%)");
         const adjusted = color.in("hsl").set({ h: (h) => h - 70 });
-        expect(adjusted.to("hsl")).toBe("hsl(320 100 50)");
+        expect(adjusted.to("hsl", { units: true })).toBe("hsl(320deg 100% 50%)");
     });
 
     it("should adjust brightness correctly", () => {
         const color = Color.from("hsl(50, 100%, 30%)");
         const adjusted = color.in("hsl").set({ l: 50 });
-        expect(adjusted.to("hsl")).toBe("hsl(50 100 50)");
+        expect(adjusted.to("hsl", { units: true })).toBe("hsl(50deg 100% 50%)");
     });
 
     it("should adjust contrast correctly", () => {
@@ -239,3 +254,9 @@ describe("Color", () => {
         expect(fromRelative).toEqual(expected);
     });
 });
+
+// describe("Color registration system", () => {
+//     it("should register a named-color", () => {
+//         Color.registerNamedColor("duskmint")
+//     })
+// })

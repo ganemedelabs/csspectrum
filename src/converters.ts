@@ -1,4 +1,4 @@
-import Color from "./Color.js";
+import { Color } from "./Color.js";
 import type {
     ColorConverter,
     ColorFunction,
@@ -739,7 +739,9 @@ export const colorBases = {
         },
 
         toXYZ: (str: string) => {
+            // FIXME: this should use the same method as the one in converterFromFunctionConverter to extract the color string
             const extractColorAndWeight = (colorStr: string) => {
+                console.log({ colorStr });
                 const regex = /^(.*?)(?:\s+(\d+%))?$/;
                 const match = colorStr.match(regex);
                 if (!match) {
@@ -780,19 +782,22 @@ export const colorBases = {
                 if (char === ")") depth--;
                 if (char === "," && depth === 0) {
                     parts.push(current.trim());
+                    console.log({ current });
                     current = "";
                 } else {
                     current += char;
                 }
             }
             parts.push(current.trim());
+            console.log({ current });
 
             if (parts.length !== 3) {
                 throw new Error("color-mix must have three comma-separated parts");
             }
 
             const inPart = parts[0];
-            const inMatch = inPart.match(/^in\s+([a-z0-9-]+)(?:\s+(shorter|longer|increasing|decreasing))?$/);
+            console.log({ inPart });
+            const inMatch = inPart.match(/^in\s+([a-z0-9-]+)(?:\s+(shorter|longer|increasing|decreasing)\s+hue)?$/);
             if (!inMatch) {
                 throw new Error("Invalid model and hue format");
             }
@@ -873,7 +878,7 @@ export const colorTypes = {
             const { legacy = false, precision = 3, fit: fitMethod = "clip" } = options;
             const [red, green, blue, alpha = 1] = colorFunctionConverters.rgb.fromXYZ(xyz);
 
-            const [fr, fg, fb] = fit([red, green, blue], "rgb", fitMethod);
+            const [fr, fg, fb] = fit([red, green, blue], { model: "rgb", method: fitMethod });
 
             const r = fr / 255;
             const g = fg / 255;

@@ -1,5 +1,5 @@
-import { colorFunctionConverters, colorTypes, namedColors, colorSpaceConverters, colorBases } from "./converters.js";
-import { EASINGS, fit, functionConverterFromSpaceConverter } from "./utils.js";
+import { colorFunctionConverters, colorTypes, namedColors, colorSpaceConverters } from "./converters.js";
+import { EASINGS, fit } from "./utils.js";
 import type {
     XYZ,
     ComponentDefinition,
@@ -14,9 +14,6 @@ import type {
     FormattingOptions,
     NamedColor,
     ColorSpace,
-    ColorFunctionConverter,
-    ColorSpaceConverter,
-    ColorConverter,
     FitMethod,
 } from "./types.js";
 
@@ -94,7 +91,7 @@ const config = {
  * The `Color` class represents a dynamic CSS color object, allowing for the manipulation
  * and retrieval of colors in various formats (e.g., RGB, HEX, HSL).
  */
-class Color {
+export class Color {
     /** The color represented as an XYZ tuple, with the last value being alpha (opacity). */
     xyz: XYZ = [0, 0, 0, 1];
     currentInterface: { model: ColorFunction; coords: number[] } = {
@@ -103,19 +100,12 @@ class Color {
     };
 
     static config = config;
-    static plugins: ((colorClass: typeof Color) => void)[] = []; // eslint-disable-line no-unused-vars
 
     constructor(x: number, y: number, z: number, alpha: number = 1) {
         if (typeof x !== "number" || typeof y !== "number" || typeof z !== "number" || typeof alpha !== "number") {
             throw new TypeError("Color constructor expects four numeric arguments: x, y, z, and alpha.");
         }
         this.xyz = [x, y, z, alpha];
-    }
-
-    // eslint-disable-next-line no-unused-vars
-    static use(plugin: (colorClass: typeof Color) => void): void {
-        this.plugins.push(plugin);
-        plugin(this);
     }
 
     /**
@@ -190,105 +180,6 @@ class Color {
         const randomChannel = () => Math.floor(Math.random() * 200 + 30);
         const randomColor = this.in("rgb").setCoords([randomChannel(), randomChannel(), randomChannel()]);
         return randomColor.to(type);
-    }
-
-    /**
-     * Registers a new `<color>` converter under the specified name.
-     *
-     * @param name - The unique name to associate with the color converter.
-     * @param converter - The converter object implementing the color conversion logic.
-     * @throws If a color name is already used.
-     */
-    static registerColorType(name: string, converter: ColorConverter) {
-        const cleanedName = name.replace(/(?:\s+)/g, "").toLowerCase();
-        const obj = colorTypes as unknown as Record<string, ColorConverter>;
-
-        if (cleanedName in colorTypes) {
-            throw new Error(`The name "${cleanedName}" is already used.`);
-        }
-
-        obj[cleanedName] = converter;
-    }
-
-    /**
-     * Registers a new `<color-base>` converter under the specified name.
-     *
-     * @param name - The unique name to associate with the color base converter.
-     * @param converter - The converter object implementing the color base conversion logic.
-     * @throws If a color base name is already used.
-     */
-    static registerColorBase(name: string, converter: ColorConverter) {
-        const cleanedName = name.replace(/(?:\s+)/g, "").toLowerCase();
-        const obj = colorBases as unknown as Record<string, ColorConverter>;
-
-        if (cleanedName in colorTypes) {
-            throw new Error(`The name "${cleanedName}" is already used.`);
-        }
-
-        obj[cleanedName] = converter;
-    }
-
-    /**
-     * Registers a new `<color-function>` converter under the specified name.
-     *
-     * @param name - The unique name to associate with the color function converter.
-     * @param converter - The converter object implementing the color function conversion logic.
-     * @throws If a color function name is already used.
-     */
-    static registerColorFunction(name: string, converter: ColorFunctionConverter) {
-        const cleanedName = name.replace(/(?:\s+)/g, "").toLowerCase();
-        const obj = colorFunctionConverters as unknown as Record<string, ColorFunctionConverter>;
-
-        if (cleanedName in colorTypes) {
-            throw new Error(`The name "${cleanedName}" is already used.`);
-        }
-
-        obj[cleanedName] = converter;
-    }
-
-    /**
-     * Registers a new color space converter for `<color()>` function under the specified name.
-     *
-     * @param name - The unique name to associate with the color space converter.
-     * @param converter - The converter object implementing the color space conversion logic.
-     * @throws If a color space name is already used.
-     */
-    static registerColorSpace(name: string, converter: ColorSpaceConverter) {
-        const cleanedName = name.replace(/(?:\s+)/g, "").toLowerCase();
-        const obj = colorSpaceConverters as unknown as Record<string, ColorFunctionConverter>;
-
-        if (cleanedName in colorTypes) {
-            throw new Error(`The name "${cleanedName}" is already used.`);
-        }
-
-        obj[cleanedName] = functionConverterFromSpaceConverter(cleanedName, converter);
-    }
-
-    /**
-     * Registers a new `<named-color>` with the specified RGB value.
-     *
-     * @param name - The name to register for the color.
-     * @param rgb - The RGB tuple representing the color, as an array of three numbers [red, green, blue].
-     * @throws If the color name is already registered.
-     * @throws If the RGB value is already registered under a different name.
-     */
-    static registerNamedColor(name: string, rgb: [number, number, number]) {
-        const cleanedName = name.replace(/(?:\s+|-)/g, "").toLowerCase();
-        const colorMap = namedColors as Record<NamedColor, [number, number, number]>;
-
-        if (colorMap[cleanedName as NamedColor]) {
-            throw new Error(`<named-color> "${name}" is already registered.`);
-        }
-
-        const existingName = Object.entries(colorMap).find(([, value]) =>
-            value.every((channel, i) => channel === rgb[i])
-        )?.[0];
-
-        if (existingName) {
-            throw new Error(`RGB value [${rgb.join(", ")}] is already registered as "${existingName}".`);
-        }
-
-        colorMap[cleanedName as NamedColor] = rgb;
     }
 
     /**
@@ -367,7 +258,7 @@ class Color {
 
             for (const [comp, { index }] of Object.entries(components)) {
                 if (fitMethod) {
-                    const clipped = fit(coords.slice(0, 3), model as M, fitMethod);
+                    const clipped = fit(coords.slice(0, 3), { model: model as M, method: fitMethod });
                     result[comp as Component<M>] = clipped[index];
                 } else {
                     result[comp as Component<M>] = coords[index];
@@ -388,7 +279,7 @@ class Color {
                       : converter.fromXYZ(this.xyz);
 
             if (fitMethod) {
-                const clipped = fit(coords.slice(0, 3), model as M, fitMethod);
+                const clipped = fit(coords.slice(0, 3), { model: model as M, method: fitMethod });
                 return [...clipped, this.xyz[3]];
             }
 
@@ -974,5 +865,3 @@ class Color {
         return true;
     }
 }
-
-export default Color;
