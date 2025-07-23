@@ -1,11 +1,15 @@
-import { colorFunctionConverters, colorTypes, namedColors, colorSpaceConverters } from "./converters.js";
+import {
+    colorFunctionConverters,
+    colorTypes,
+    namedColors,
+    colorSpaceConverters,
+    colorFunctions,
+} from "./converters.js";
 import { EASINGS, fit } from "./utils.js";
 import type {
-    XYZ,
     ComponentDefinition,
     Component,
     Interface,
-    InterfaceWithSetOnly,
     MixOptions,
     EvaluateAccessibilityOptions,
     ColorFunction,
@@ -15,6 +19,7 @@ import type {
     NamedColor,
     ColorSpace,
     FitMethod,
+    ColorFunctionConverter,
 } from "./types.js";
 
 const config = {
@@ -91,54 +96,103 @@ const config = {
  * The `Color` class represents a dynamic CSS color object, allowing for the manipulation
  * and retrieval of colors in various formats (e.g., RGB, HEX, HSL).
  */
-export class Color {
-    /** The color represented as an XYZ tuple, with the last value being alpha (opacity). */
-    xyz: XYZ = [0, 0, 0, 1];
-    currentInterface: { model: ColorFunction; coords: number[] } = {
-        model: "xyz",
-        coords: [0, 0, 0, 1],
-    };
+export class Color<M extends ColorFunction> {
+    current: { model: ColorFunction; coords: number[] } = { model: "rgb", coords: [0, 0, 0, 1] };
 
     static config = config;
 
-    constructor(x: number, y: number, z: number, alpha: number = 1) {
-        if (typeof x !== "number" || typeof y !== "number" || typeof z !== "number" || typeof alpha !== "number") {
-            throw new TypeError("Color constructor expects four numeric arguments: x, y, z, and alpha.");
+    // ERROR: Type parameters cannot appear on a constructor declaration.
+    constructor(model: M, coords: number[] | Partial<Record<Component<M>, number>>) {
+        if (!(model in colorFunctions)) {
+            throw new Error(`Unsupported color model: ${model}`);
         }
-        this.xyz = [x, y, z, alpha];
+
+        if (
+            Array.isArray(coords) &&
+            coords.every((c) => typeof c !== "number" && !Number.isNaN(c) && c !== Infinity && c !== -Infinity)
+        ) {
+            this.current = { model, coords };
+        } else if (Array.isArray(coords)) {
+            const newCoords = coords.slice(0, 3).map((c, i) => {
+                const { components } = colorFunctionConverters[model];
+                const indexToComponent = Object.values(components).reduce(
+                    (map: { [index: number]: ComponentDefinition }, def) => {
+                        map[def.index] = def;
+                        return map;
+                    },
+                    {} as { [index: number]: ComponentDefinition }
+                );
+
+                const { value } = indexToComponent[i];
+                if (!value) return 0;
+
+                if (typeof c !== "number") {
+                    throw new Error(`Invalid coordinate value: ${c}`);
+                }
+
+                const [min, max] = Array.isArray(value) ? value : value === "hue" ? [0, 360] : [0, 100];
+
+                if (Number.isNaN(c)) return 0;
+                if (c === Infinity) return max;
+                if (c === -Infinity) return min;
+
+                return c;
+            });
+
+            this.current = { model, coords: [...newCoords, coords[3] ?? 1] };
+        } else if (typeof coords === "object") {
+            const { components } = colorFunctionConverters[model];
+
+            const coordsArray = Object.entries(components)
+                .map(([comp, def]) => {
+                    let value: number;
+                    if (comp === "alpha") {
+                        value = coords[comp] ?? 1;
+                    } else if (comp in coords) {
+                        const coordValue = coords[comp as keyof typeof coords];
+                        if (typeof coordValue !== "number") {
+                            throw new Error(`Invalid coordinate value for ${comp}: ${coordValue}`);
+                        }
+                        value = coordValue;
+                    } else {
+                        value = def.value[0];
+                    }
+
+                    return { index: def.index, value };
+                })
+                .sort((a, b) => a.index - b.index)
+                .map((item) => item.value);
+
+            this.current = { model, coords: coordsArray };
+        } else {
+            throw new Error(`Invalid coordinates: ${coords}. Expected an array or object.`);
+        }
+
+        return this;
     }
 
     /**
-     * Creates a new `Color` instance from a given color string and optional format.
+     * Creates a new `Color` instance from a given color string.
      *
      * @param color - The color string to convert.
      * @returns A new `Color` instance.
      */
-    static from(color: NamedColor): Color; // eslint-disable-line no-unused-vars
-    static from(color: string): Color; // eslint-disable-line no-unused-vars
+    static from(color: NamedColor): Color<any>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
+    static from(color: string): Color<any>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
     static from(color: NamedColor | string) {
         for (const type in colorTypes) {
             const colorType = colorTypes[type as keyof typeof colorTypes];
             if (colorType.isValid(color)) {
-                const [x, y, z, alpha] = colorType.toXYZ(color) || [0, 0, 0, 1];
-                return new Color(x, y, z, alpha);
+                if (type in colorFunctions) {
+                    return new Color(type as ColorFunction, colorType.parse(color));
+                }
+
+                const { bridge, toBridge, parse } = colorType;
+                const coords = toBridge(parse(color));
+                return new Color(bridge as ColorFunction, coords);
             }
         }
         throw new Error(`Unsupported or invalid color format: ${color}`);
-    }
-
-    /**
-     * Defines a color from individual components in a color model.
-     *
-     * @param model - The color model to create components from.
-     * @returns Set functions to define numbers for each component in the specified color model.
-     */
-    static in<M extends ColorFunction>(model: M): InterfaceWithSetOnly<Interface<M>>; // eslint-disable-line no-unused-vars
-    static in(model: string): InterfaceWithSetOnly<Interface<any>>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
-    static in<M extends ColorFunction>(model: string | M): InterfaceWithSetOnly<Interface<M>> {
-        const color = new Color(0, 0, 0, 1);
-        const result = Object.fromEntries(Object.entries(color.in(model)).filter(([key]) => key.startsWith("set")));
-        return result as InterfaceWithSetOnly<Interface<M>>;
     }
 
     /**
@@ -168,7 +222,7 @@ export class Color {
     static random(type?: OutputType | string) {
         if (!type) {
             const types = Object.entries(colorTypes)
-                .filter(([, t]) => "fromXYZ" in t)
+                .filter(([, t]) => "fromBridge" in t)
                 .map(([key]) => key);
             type = types[Math.floor(Math.random() * types.length)];
         }
@@ -178,7 +232,7 @@ export class Color {
         }
 
         const randomChannel = () => Math.floor(Math.random() * 200 + 30);
-        const randomColor = this.in("rgb").setCoords([randomChannel(), randomChannel(), randomChannel()]);
+        const randomColor = new Color("rgb", [randomChannel(), randomChannel(), randomChannel()]);
         return randomColor.to(type);
     }
 
@@ -189,7 +243,7 @@ export class Color {
      */
     static getSupportedOutputTypes() {
         return Object.keys(colorTypes).filter(
-            (key) => typeof (colorTypes as any)[key]?.fromXYZ === "function" // eslint-disable-line @typescript-eslint/no-explicit-any
+            (key) => typeof (colorTypes as any)[key]?.fromBridge === "function" // eslint-disable-line @typescript-eslint/no-explicit-any
         ) as OutputType[];
     }
 
@@ -209,19 +263,22 @@ export class Color {
      * @param options - Formatting options.
      * @returns The color in the specified format.
      */
-    to(format: string, options?: FormattingOptions): string; // eslint-disable-line no-unused-vars
-    to(format: OutputType, options?: FormattingOptions): string; // eslint-disable-line no-unused-vars
-    to(format: OutputType | string, options: FormattingOptions = {}) {
+    to(type: string, options?: FormattingOptions): string; // eslint-disable-line no-unused-vars
+    to(type: OutputType, options?: FormattingOptions): string; // eslint-disable-line no-unused-vars
+    to(type: OutputType | string, options: FormattingOptions = {}) {
         const { legacy = false, fit = "clip", precision = undefined, units = false } = options;
-        const converter = colorTypes[format as OutputType];
+        const converter = colorTypes[type as OutputType];
 
-        if (!converter) throw new Error(`Unsupported color format: ${String(format)}.`);
+        if (!converter) throw new Error(`Unsupported color type: ${String(type)}.`);
 
-        if (typeof converter.fromXYZ !== "function") {
-            throw new Error(`Invalid output type: ${String(format)}.`);
+        const { fromBridge, bridge, format } = converter;
+
+        if (!fromBridge || !format) {
+            throw new Error(`Invalid output type: ${String(type)}.`);
         }
 
-        return converter.fromXYZ(this.xyz, { legacy, fit, precision, units });
+        const coords = this.in(bridge).getCoords();
+        return format(fromBridge(coords), { legacy, fit, precision, units });
     }
 
     /**
@@ -230,13 +287,13 @@ export class Color {
      * @param model - The target color model.
      * @returns An object containing methods to get, set, and mix color components in the specified color model.
      */
-    in<M extends ColorFunction>(model: M): Interface<M>; // eslint-disable-line no-unused-vars
+    in<N extends ColorFunction>(model: N): Interface<N>; // eslint-disable-line no-unused-vars
     in(model: string): Interface<any>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
-    in<M extends ColorFunction>(model: string | M): Interface<M> {
-        const converter = colorFunctionConverters[model as M];
+    in<N extends ColorFunction>(model: string | N): Interface<N> {
+        const converter = colorFunctionConverters[model as N];
         const { components } = converter as unknown as Record<
             string,
-            Record<Component<M> | "alpha", ComponentDefinition>
+            Record<Component<N> | "alpha", ComponentDefinition>
         >;
         components.alpha = {
             index: 3,
@@ -252,56 +309,127 @@ export class Color {
             const coords = getCoords();
 
             // eslint-disable-next-line no-unused-vars
-            const result: { [key in Component<M> | "alpha"]: number } = {} as {
-                [key in Component<M> | "alpha"]: number; // eslint-disable-line no-unused-vars
+            const result: { [key in Component<N> | "alpha"]: number } = {} as {
+                [key in Component<N> | "alpha"]: number; // eslint-disable-line no-unused-vars
             };
 
             for (const [comp, { index }] of Object.entries(components)) {
                 if (fitMethod) {
-                    const clipped = fit(coords.slice(0, 3), { model: model as M, method: fitMethod });
-                    result[comp as Component<M>] = clipped[index];
+                    const clipped = fit(coords.slice(0, 3), { model: model as N, method: fitMethod });
+                    result[comp as Component<N>] = clipped[index];
                 } else {
-                    result[comp as Component<M>] = coords[index];
+                    result[comp as Component<N>] = coords[index];
                 }
             }
 
-            result.alpha = this.xyz[3];
+            result.alpha = this.current.coords[3];
 
             return result;
         };
 
         const getCoords = (fitMethod: FitMethod = "none") => {
-            const coords =
-                model === "xyz" || model === "xyz-d65"
-                    ? this.xyz
-                    : model === this.currentInterface.model
-                      ? this.currentInterface.coords
-                      : converter.fromXYZ(this.xyz);
+            const current = this.current.model;
+            const currentCoords = this.current.coords;
 
-            if (fitMethod) {
-                const clipped = fit(coords.slice(0, 3), { model: model as M, method: fitMethod });
-                return [...clipped, this.xyz[3]];
+            const converters = { ...colorFunctionConverters, ...colorSpaceConverters };
+
+            let value = currentCoords;
+
+            if (model === current) {
+                value = currentCoords.slice(0, 3);
+            } else {
+                const buildGraph = () => {
+                    const graph: { [key: string]: string[] } = {};
+
+                    for (const [modelName, conv] of Object.entries(converters)) {
+                        if (!graph[modelName]) graph[modelName] = [];
+
+                        if ((conv as ColorFunctionConverter).toBridge && conv.bridge) {
+                            graph[modelName].push(conv.bridge);
+                            graph[conv.bridge] = graph[conv.bridge] || [];
+                        }
+
+                        if ((conv as ColorFunctionConverter).fromBridge && conv.bridge) {
+                            graph[conv.bridge] = graph[conv.bridge] || [];
+                            graph[conv.bridge].push(modelName);
+                        }
+                    }
+
+                    return graph;
+                };
+
+                const graph = buildGraph();
+
+                const findPath = (start: string, end: string) => {
+                    const visited = new Set();
+                    const queue = [[start]];
+
+                    while (queue.length > 0) {
+                        const path = queue.shift() as string[];
+                        const node = path[path.length - 1];
+
+                        if (node === end) {
+                            return path;
+                        }
+
+                        if (!visited.has(node)) {
+                            visited.add(node);
+                            (graph[node] || []).forEach((neighbor) => {
+                                queue.push([...path, neighbor]);
+                            });
+                        }
+                    }
+
+                    return null;
+                };
+
+                const path = findPath(current, model);
+
+                if (!path) {
+                    throw new Error(`Cannot convert from ${current} to ${model}. No path found.`);
+                }
+
+                for (let i = 0; i < path.length - 1; i++) {
+                    const from = path[i];
+                    const to = path[i + 1];
+
+                    const conv = converters[from as keyof typeof converters] as ColorFunctionConverter;
+                    const toConv = converters[to as keyof typeof converters] as ColorFunctionConverter;
+
+                    if (conv.toBridge && conv.bridge === to) {
+                        value = conv.toBridge(value);
+                    } else if (toConv?.fromBridge && toConv.bridge === from) {
+                        value = toConv.fromBridge(value);
+                    } else {
+                        throw new Error(`No conversion found between ${from} and ${to}`);
+                    }
+                }
             }
 
-            return [...coords.slice(0, 3), this.xyz[3]];
+            if (fitMethod) {
+                const clipped = fit(value.slice(0, 3), { model: model as N, method: fitMethod });
+                return [...clipped, this.current.coords[3]];
+            }
+
+            return [...value.slice(0, 3), this.current.coords[3]];
         };
 
         const set = (
             values: // eslint-disable-next-line no-unused-vars
-            | Partial<{ [K in Component<M> | "alpha"]: number | ((prev: number) => number) }>
+            | Partial<{ [K in Component<N> | "alpha"]: number | ((prev: number) => number) }>
                 // eslint-disable-next-line no-unused-vars
-                | ((components: { [K in Component<M> | "alpha"]: number }) => Partial<{
+                | ((components: { [K in Component<N> | "alpha"]: number }) => Partial<{
                       // eslint-disable-next-line no-unused-vars
-                      [K in Component<M> | "alpha"]?: number;
+                      [K in Component<N> | "alpha"]?: number;
                   }>)
         ) => {
             const coords = getCoords();
-            const compNames = Object.keys(components) as (Component<M> | "alpha")[];
+            const compNames = Object.keys(components) as (Component<N> | "alpha")[];
 
-            let newAlpha = this.xyz[3];
+            let newAlpha = this.current.coords[3];
 
             if (typeof values === "function") {
-                const currentComponents = {} as { [K in Component<M> | "alpha"]: number }; // eslint-disable-line no-unused-vars
+                const currentComponents = {} as { [K in Component<N> | "alpha"]: number }; // eslint-disable-line no-unused-vars
                 compNames.forEach((comp) => {
                     const { index } = components[comp as keyof typeof components] as ComponentDefinition;
                     currentComponents[comp] = coords[index];
@@ -335,9 +463,7 @@ export class Color {
                 }
             });
 
-            this.xyz = [...converter.toXYZ(coords), newAlpha] as XYZ;
-            this.currentInterface = { model: model as M, coords: [...coords.slice(0, 3), newAlpha] };
-            return Object.assign(this, { ...this.in(model) }) as typeof this & Interface<M>;
+            return new Color(model as N, [...coords.slice(0, 3), newAlpha]);
         };
 
         const setCoords = (newCoords: (number | undefined)[]) => {
@@ -366,12 +492,10 @@ export class Color {
                 return incoming;
             });
 
-            this.xyz = [...converter.toXYZ(adjustedCoords), newCoords[3] ?? this.xyz[3]] as XYZ;
-            this.currentInterface = { model: model as M, coords: [...adjustedCoords.slice(0, 3), this.xyz[3]] };
-            return Object.assign(this, { ...this.in(model) }) as typeof this & Interface<M>;
+            return new Color(model as N, [...adjustedCoords.slice(0, 3), this.current.coords[3]]);
         };
 
-        const mix = (other: Color | string, options: MixOptions = {}) => {
+        const mix = (other: Color<N> | string, options: MixOptions = {}) => {
             const interpolateHue = (from: number, to: number, t: number, method: string) => {
                 const deltaHue = (a: number, b: number) => {
                     const d = (((b - a) % 360) + 360) % 360;
@@ -415,15 +539,15 @@ export class Color {
             const otherColor = typeof other === "string" ? Color.from(other) : other;
             const otherCoords = otherColor.in(model).getCoords().slice(0, 3);
 
-            const thisAlpha = this.xyz[3];
-            const otherAlpha = otherColor.xyz[3];
+            const thisAlpha = this.current.coords[3];
+            const otherAlpha = otherColor.current.coords[3];
 
             const hueIndex = Object.entries(components).find(([k]) => k === "h")?.[1].index;
 
             if (amount === 0) {
-                setCoords([...thisCoords, thisAlpha]);
+                return setCoords([...thisCoords, thisAlpha]);
             } else if (amount === 1) {
-                setCoords([...otherCoords, otherAlpha]);
+                return setCoords([...otherCoords, otherAlpha]);
             } else if (thisAlpha < 1 || otherAlpha < 1) {
                 const premixed = thisCoords.map((start, index) => {
                     const end = otherCoords[index];
@@ -444,7 +568,7 @@ export class Color {
                         ? premixed.map((c, i) => (i === hueIndex ? c : c / mixedAlpha))
                         : thisCoords.map((_, i) => (i === hueIndex ? premixed[i] : 0));
 
-                setCoords([...mixed, mixedAlpha]);
+                return setCoords([...mixed, mixedAlpha]);
             } else {
                 const mixedCoords = thisCoords.map((start, index) => {
                     const compEntry = Object.entries(components).find(([, def]) => def.index === index);
@@ -460,13 +584,45 @@ export class Color {
                     return start + (end - start) * gammaCorrectedT;
                 });
 
-                setCoords([...mixedCoords, 1]);
+                return setCoords([...mixedCoords, 1]);
             }
-
-            return Object.assign(this, { ...this.in(model) }) as typeof this & Interface<M>;
         };
 
         return { get, getCoords, set, setCoords, mix };
+    }
+
+    // eslint-disable-next-line no-unused-vars
+    get(fitMethod: FitMethod = "none"): { [key in Component<M>]: number } {
+        return this.in(this.current.model).get(fitMethod) as { [key in Component<M>]: number }; // eslint-disable-line no-unused-vars
+    }
+
+    getCoords(fitMethod: FitMethod = "none") {
+        return this.in(this.current.model).getCoords(fitMethod);
+    }
+
+    set(
+        values: // eslint-disable-next-line no-unused-vars
+        | Partial<{ [K in Component<M> | "alpha"]: number | ((prev: number) => number) }>
+            // eslint-disable-next-line no-unused-vars
+            | ((components: { [K in Component<M> | "alpha"]: number }) => Partial<{
+                  // eslint-disable-next-line no-unused-vars
+                  [K in Component<M> | "alpha"]?: number;
+              }>)
+    ): Color<M> {
+        return this.in(this.current.model).set(
+            // eslint-disable-next-line no-unused-vars
+            values as Partial<{ [K in Component<M> | "alpha"]: number | ((prev: number) => number) }>
+        ) as Color<M>;
+    }
+
+    setCoords(newCoords: (number | undefined)[]): Color<M> {
+        return this.in(this.current.model).setCoords(newCoords) as Color<M>;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mix(other: Color<any> | string, options: MixOptions = {}): Color<M> {
+        const otherColor = typeof other === "string" ? Color.from(other) : other;
+        return this.in(this.current.model).mix(otherColor as Color<any>, options) as Color<M>; // eslint-disable-line @typescript-eslint/no-explicit-any
     }
 
     /**
@@ -505,7 +661,8 @@ export class Color {
      *          - "oklab": Lightness difference (0 to 1).
      * @throws If the algorithm is invalid.
      */
-    contrast(other: Color | string, algorithm: "wcag21" | "apca" | "oklab" = "wcag21"): number {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    contrast(other: Color<any> | string, algorithm: "wcag21" | "apca" | "oklab" = "wcag21"): number {
         const otherColor = typeof other === "string" ? Color.from(other) : other;
 
         if (algorithm === "wcag21") {
@@ -555,7 +712,8 @@ export class Color {
      * @returns An object with accessibility status, contrast, required contrast, and helpful info.
      * @throws If the algorithm, level, or font parameters are invalid.
      */
-    accessibility(other: Color | string, options: EvaluateAccessibilityOptions = {}) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    accessibility(other: Color<any> | string, options: EvaluateAccessibilityOptions = {}) {
         const { type = "text", level = "AA", fontSize = 12, fontWeight = 400, algorithm = "wcag21" } = options;
 
         if (!["AA", "AAA"].includes(level)) {
@@ -652,7 +810,7 @@ export class Color {
             level,
             fontSize: type === "text" ? fontSize : undefined,
             fontWeight: type === "text" ? fontWeight : undefined,
-            textColor: this as Color,
+            textColor: this as Color<any>, // eslint-disable-line @typescript-eslint/no-explicit-any
             otherColor,
             wcagSuccessCriterion,
             impact,
@@ -672,7 +830,8 @@ export class Color {
      * OKLAB's perceptual uniformity allows for a straightforward distance calculation without additional weighting.
      * The result is normalized by a factor of 100 to align with OKLAB's L range (0-1) and approximate the JND scale.
      */
-    deltaEOK(other: Color | string) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    deltaEOK(other: Color<any> | string) {
         const [L1, a1, b1] = this.in("oklab").getCoords();
         const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("oklab").getCoords();
 
@@ -691,7 +850,8 @@ export class Color {
      * @param other - The other color to compare against (as a Color instance or string).
      * @returns The ΔE76 value — a non-negative number where smaller values indicate more similar colors.
      */
-    deltaE76(other: Color | string) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    deltaE76(other: Color<any> | string) {
         const [L1, a1, b1] = this.in("lab").getCoords();
         const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("lab").getCoords();
 
@@ -709,7 +869,8 @@ export class Color {
      * @param other - The other color to compare against (as a Color instance or string).
      * @returns The ΔE94 value — a non-negative number where smaller values indicate more similar colors.
      */
-    deltaE94(other: Color | string): number {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    deltaE94(other: Color<any> | string): number {
         const [L1, a1, b1] = this.in("lab").getCoords();
         const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("lab").getCoords();
 
@@ -741,7 +902,8 @@ export class Color {
      * @param other - The other color to compare against (as a Color instance or string).
      * @returns The ΔE2000 value — a non-negative number where smaller values indicate more similar colors.
      */
-    deltaE2000(other: Color | string): number {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    deltaE2000(other: Color<any> | string): number {
         const [L1, a1, b1] = this.in("lab").getCoords();
         const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("lab").getCoords();
 
@@ -829,13 +991,17 @@ export class Color {
      * @param epsilon - Tolerance for floating point comparison. Defaults to 1e-5.
      * @returns Whether the two colors are equal within the given epsilon.
      */
-    equals(other: Color | string, epsilon = 1e-5): boolean {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    equals(other: Color<any> | string, epsilon = 1e-5): boolean {
         const otherColor = typeof other === "string" ? Color.from(other) : other;
 
-        return (
-            this.xyz.length === otherColor.xyz.length &&
-            this.xyz.every((value, i) => Math.abs(value - otherColor.xyz[i]) <= epsilon)
-        );
+        if (otherColor.current.model !== this.current.model) {
+            return this.current.coords.every((value, i) => Math.abs(value - otherColor.current.coords[i]) <= epsilon);
+        }
+
+        const thisXyz = this.in("xyz").getCoords();
+        const otherXyz = otherColor.in("xyz").getCoords();
+        return thisXyz.every((value, i) => Math.abs(value - otherXyz[i]) <= epsilon);
     }
 
     /**
@@ -850,9 +1016,10 @@ export class Color {
             throw new Error(`Unsupported color gamut: ${gamut}.`);
         }
         const { components, targetGamut } = colorFunctionConverters[gamut];
-        const coords = this.in(gamut).getCoords();
 
         if (targetGamut === null) return true;
+
+        const coords = this.in(gamut).getCoords();
 
         for (const [, props] of Object.entries(components)) {
             const value = coords[props.index];

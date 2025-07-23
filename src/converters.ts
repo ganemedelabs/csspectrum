@@ -6,7 +6,6 @@ import type {
     FormattingOptions,
     HueInterpolationMethod,
     NamedColor,
-    XYZ,
 } from "./types.js";
 import {
     D50,
@@ -181,10 +180,11 @@ export const namedColors = {
     yellowgreen: [154, 205, 50],
 } satisfies { [named: string]: [number, number, number] };
 
-/** A collection of color spaces for <color()> function and their conversion logic. */
+/** A collection of color spaces for `<color()>` function and their conversion logic. */
 export const colorSpaceConverters = {
     srgb: functionConverterFromSpaceConverter("srgb", {
         components: ["r", "g", "b"],
+        bridge: "xyz",
         toLinear: (c: number) => {
             const sign = c < 0 ? -1 : 1;
             const abs = Math.abs(c);
@@ -201,36 +201,34 @@ export const colorSpaceConverters = {
             }
             return sign * (12.92 * abs);
         },
-        toXYZMatrix: [
+        toBridgeMatrix: [
             [506752 / 1228815, 87881 / 245763, 12673 / 70218],
             [87098 / 409605, 175762 / 245763, 12673 / 175545],
             [7918 / 409605, 87881 / 737289, 1001167 / 1053270],
         ],
-        fromXYZMatrix: [
+        fromBridgeMatrix: [
             [12831 / 3959, -329 / 214, -1974 / 3959],
             [-851781 / 878810, 1648619 / 878810, 36519 / 878810],
             [705 / 12673, -2585 / 12673, 705 / 667],
         ],
-        whitePoint: "D65",
     }),
     "srgb-linear": functionConverterFromSpaceConverter("srgb-linear", {
         components: ["r", "g", "b"],
-        toLinear: (c: number) => c,
-        fromLinear: (c: number) => c,
-        toXYZMatrix: [
+        bridge: "xyz",
+        toBridgeMatrix: [
             [506752 / 1228815, 87881 / 245763, 12673 / 70218],
             [87098 / 409605, 175762 / 245763, 12673 / 175545],
             [7918 / 409605, 87881 / 737289, 1001167 / 1053270],
         ],
-        fromXYZMatrix: [
+        fromBridgeMatrix: [
             [12831 / 3959, -329 / 214, -1974 / 3959],
             [-851781 / 878810, 1648619 / 878810, 36519 / 878810],
             [705 / 12673, -2585 / 12673, 705 / 667],
         ],
-        whitePoint: "D65",
     }),
     "display-p3": functionConverterFromSpaceConverter("display-p3", {
         components: ["r", "g", "b"],
+        bridge: "xyz",
         toLinear: (c: number) => {
             const sign = c < 0 ? -1 : 1;
             const abs = Math.abs(c);
@@ -247,20 +245,20 @@ export const colorSpaceConverters = {
             }
             return sign * (12.92 * abs);
         },
-        toXYZMatrix: [
+        toBridgeMatrix: [
             [608311 / 1250200, 189793 / 714400, 198249 / 1000160],
             [35783 / 156275, 247089 / 357200, 198249 / 2500400],
             [0 / 1, 32229 / 714400, 5220557 / 5000800],
         ],
-        fromXYZMatrix: [
+        fromBridgeMatrix: [
             [446124 / 178915, -333277 / 357830, -72051 / 178915],
             [-14852 / 17905, 63121 / 35810, 423 / 17905],
             [11844 / 330415, -50337 / 660830, 316169 / 330415],
         ],
-        whitePoint: "D65",
     }),
     rec2020: functionConverterFromSpaceConverter("rec2020", {
         components: ["r", "g", "b"],
+        bridge: "xyz",
         toLinear: (c: number) => {
             const α = 1.09929682680944;
             const β = 0.018053968510807;
@@ -281,20 +279,20 @@ export const colorSpaceConverters = {
             }
             return sign * (4.5 * abs);
         },
-        toXYZMatrix: [
+        toBridgeMatrix: [
             [63426534 / 99577255, 20160776 / 139408157, 47086771 / 278816314],
             [26158966 / 99577255, 472592308 / 697040785, 8267143 / 139408157],
             [0 / 1, 19567812 / 697040785, 295819943 / 278816314],
         ],
-        fromXYZMatrix: [
+        fromBridgeMatrix: [
             [30757411 / 17917100, -6372589 / 17917100, -4539589 / 17917100],
             [-19765991 / 29648200, 47925759 / 29648200, 467509 / 29648200],
             [792561 / 44930125, -1921689 / 44930125, 42328811 / 44930125],
         ],
-        whitePoint: "D65",
     }),
     "a98-rgb": functionConverterFromSpaceConverter("a98-rgb", {
         components: ["r", "g", "b"],
+        bridge: "xyz",
         toLinear: (c: number) => {
             const sign = c < 0 ? -1 : 1;
             const abs = Math.abs(c);
@@ -305,20 +303,20 @@ export const colorSpaceConverters = {
             const abs = Math.abs(c);
             return sign * Math.pow(abs, 256 / 563);
         },
-        toXYZMatrix: [
+        toBridgeMatrix: [
             [573536 / 994567, 263643 / 1420810, 187206 / 994567],
             [591459 / 1989134, 6239551 / 9945670, 374412 / 4972835],
             [53769 / 1989134, 351524 / 4972835, 4929758 / 4972835],
         ],
-        fromXYZMatrix: [
+        fromBridgeMatrix: [
             [1829569 / 896150, -506331 / 896150, -308931 / 896150],
             [-851781 / 878810, 1648619 / 878810, 36519 / 878810],
             [16779 / 1248040, -147721 / 1248040, 1266979 / 1248040],
         ],
-        whitePoint: "D65",
     }),
     "prophoto-rgb": functionConverterFromSpaceConverter("prophoto-rgb", {
         components: ["r", "g", "b"],
+        bridge: "xyz",
         toLinear: (c: number) => {
             const Et2 = 16 / 512;
             const sign = c < 0 ? -1 : 1;
@@ -337,12 +335,12 @@ export const colorSpaceConverters = {
             }
             return sign * (16 * abs);
         },
-        toXYZMatrix: [
+        toBridgeMatrix: [
             [0.7977666449006423, 0.13518129740053308, 0.0313477341283922],
             [0.2880748288194013, 0.711835234241873, 0.00008993693872564],
             [0.0, 0.0, 0.8251046025104602],
         ],
-        fromXYZMatrix: [
+        fromBridgeMatrix: [
             [1.3457868816471583, -0.25557208737979464, -0.05110186497554526],
             [-0.5446307051249019, 1.5082477428451468, 0.02052744743642139],
             [0.0, 0.0, 1.2119675456389452],
@@ -352,31 +350,28 @@ export const colorSpaceConverters = {
     "xyz-d65": functionConverterFromSpaceConverter("xyz-d65", {
         targetGamut: null,
         components: ["x", "y", "z"],
-        toLinear: (c: number) => c,
-        fromLinear: (c: number) => c,
-        toXYZMatrix: [
+        bridge: "xyz",
+        toBridgeMatrix: [
             [1, 0, 0],
             [0, 1, 0],
             [0, 0, 1],
         ],
-        fromXYZMatrix: [
+        fromBridgeMatrix: [
             [1, 0, 0],
             [0, 1, 0],
             [0, 0, 1],
         ],
-        whitePoint: "D65",
     }),
     "xyz-d50": functionConverterFromSpaceConverter("xyz-d50", {
         targetGamut: null,
         components: ["x", "y", "z"],
-        toLinear: (c: number) => c,
-        fromLinear: (c: number) => c,
-        toXYZMatrix: [
+        bridge: "xyz",
+        toBridgeMatrix: [
             [1, 0, 0],
             [0, 1, 0],
             [0, 0, 1],
         ],
-        fromXYZMatrix: [
+        fromBridgeMatrix: [
             [1, 0, 0],
             [0, 1, 0],
             [0, 0, 1],
@@ -386,19 +381,17 @@ export const colorSpaceConverters = {
     xyz: functionConverterFromSpaceConverter("xyz", {
         targetGamut: null,
         components: ["x", "y", "z"],
-        toLinear: (c: number) => c,
-        fromLinear: (c: number) => c,
-        toXYZMatrix: [
+        bridge: "xyz",
+        toBridgeMatrix: [
             [1, 0, 0],
             [0, 1, 0],
             [0, 0, 1],
         ],
-        fromXYZMatrix: [
+        fromBridgeMatrix: [
             [1, 0, 0],
             [0, 1, 0],
             [0, 0, 1],
         ],
-        whitePoint: "D65",
     }),
 } as const satisfies Record<string, ColorFunctionConverter>;
 
@@ -406,37 +399,13 @@ export const colorSpaceConverters = {
 export const colorFunctionConverters = {
     rgb: {
         supportsLegacy: true,
-        targetGamut: "srgb",
         components: {
             r: { index: 0, value: [0, 255], precision: 0 },
             g: { index: 1, value: [0, 255], precision: 0 },
             b: { index: 2, value: [0, 255], precision: 0 },
         },
-        fromXYZ: (xyz: number[]) => {
-            const M = [
-                [12831 / 3959, -329 / 214, -1974 / 3959],
-                [-851781 / 878810, 1648619 / 878810, 36519 / 878810],
-                [705 / 12673, -2585 / 12673, 705 / 667],
-            ];
-
-            const linRGB = multiplyMatrices(M, xyz);
-
-            const gam_sRGB = (RGB: number[]) =>
-                RGB.map((val) => {
-                    const sign = val < 0 ? -1 : 1;
-                    const abs = Math.abs(val);
-                    if (abs > 0.0031308) {
-                        return sign * (1.055 * Math.pow(abs, 1 / 2.4) - 0.055);
-                    }
-                    return 12.92 * val;
-                });
-
-            const gammaRGB = gam_sRGB(linRGB);
-
-            return gammaRGB.map((v) => v * 255);
-        },
-
-        toXYZ: (rgb: number[]) => {
+        bridge: "xyz",
+        toBridge: (rgb: number[]) => {
             const rgbNorm = rgb.map((v) => v / 255);
 
             const lin_sRGB = (RGB: number[]) =>
@@ -459,17 +428,43 @@ export const colorFunctionConverters = {
 
             return multiplyMatrices(M, linearRGB);
         },
+        fromBridge: (xyz: number[]) => {
+            const M = [
+                [12831 / 3959, -329 / 214, -1974 / 3959],
+                [-851781 / 878810, 1648619 / 878810, 36519 / 878810],
+                [705 / 12673, -2585 / 12673, 705 / 667],
+            ];
+
+            const linRGB = multiplyMatrices(M, xyz);
+
+            const gam_sRGB = (RGB: number[]) =>
+                RGB.map((val) => {
+                    const sign = val < 0 ? -1 : 1;
+                    const abs = Math.abs(val);
+                    if (abs > 0.0031308) {
+                        return sign * (1.055 * Math.pow(abs, 1 / 2.4) - 0.055);
+                    }
+                    return 12.92 * val;
+                });
+
+            const gammaRGB = gam_sRGB(linRGB);
+
+            return gammaRGB.map((v) => v * 255);
+        },
     },
     hsl: {
         supportsLegacy: true,
-        targetGamut: "srgb",
         components: {
             h: { index: 0, value: "hue", precision: 1 },
             s: { index: 1, value: "percentage", precision: 1 },
             l: { index: 2, value: "percentage", precision: 1 },
         },
-        fromXYZ: (xyz: number[]) => {
-            const [R, G, B] = colorFunctionConverters.rgb.fromXYZ(xyz).map((c) => c / 255);
+        bridge: "rgb",
+        toBridge: (hsl: number[]) => {
+            return hslToRgb(hsl).map((c) => c * 255);
+        },
+        fromBridge: (rgb: number[]) => {
+            const [R, G, B] = rgb.map((c) => c / 255);
             const max = Math.max(R, G, B);
             const min = Math.min(R, G, B);
             let [H, S] = [0, 0];
@@ -506,20 +501,29 @@ export const colorFunctionConverters = {
             if (S === 0 || l === 0) h = 0;
             return [h, s, l];
         },
-        toXYZ: (hsl: number[]) => {
-            const rgb = hslToRgb(hsl).map((c) => c * 255);
-            return colorFunctionConverters.rgb.toXYZ(rgb);
-        },
     },
     hwb: {
-        supportsLegacy: false,
-        targetGamut: "srgb",
         components: {
             h: { index: 0, value: "hue", precision: 1 },
             w: { index: 1, value: "percentage", precision: 1 },
             b: { index: 2, value: "percentage", precision: 1 },
         },
-        fromXYZ: (xyz: number[]) => {
+        bridge: "rgb",
+        toBridge: ([H, W, B]: number[]) => {
+            W /= 100;
+            B /= 100;
+            if (W + B >= 1) {
+                const gray = W / (W + B);
+                return [gray, gray, gray];
+            }
+            const rgb = hslToRgb([H, 100, 50]);
+            for (let i = 0; i < 3; i++) {
+                rgb[i] *= 1 - W - B;
+                rgb[i] += W;
+            }
+            return rgb.map((c) => c * 255);
+        },
+        fromBridge: (rgb: number[]) => {
             const rgbToHue = (red: number, green: number, blue: number) => {
                 const max = Math.max(red, green, blue);
                 const min = Math.min(red, green, blue);
@@ -544,37 +548,23 @@ export const colorFunctionConverters = {
                 return hue;
             };
 
-            const [sR, sG, sB] = colorFunctionConverters.rgb.fromXYZ(xyz).map((c) => c / 255);
+            const [sR, sG, sB] = rgb.map((c) => c / 255);
             const hue = rgbToHue(sR, sG, sB);
             const white = Math.min(sR, sG, sB);
             const black = 1 - Math.max(sR, sG, sB);
 
             return [hue, white * 100, black * 100];
         },
-        toXYZ: ([H, W, B]: number[]) => {
-            W /= 100;
-            B /= 100;
-            if (W + B >= 1) {
-                const gray = W / (W + B);
-                return [gray, gray, gray];
-            }
-            const rgb = hslToRgb([H, 100, 50]);
-            for (let i = 0; i < 3; i++) {
-                rgb[i] *= 1 - W - B;
-                rgb[i] += W;
-            }
-            return colorFunctionConverters.rgb.toXYZ(rgb.map((c) => c * 255));
-        },
     },
     lab: {
-        supportsLegacy: false,
         targetGamut: null,
         components: {
             l: { index: 0, value: "percentage", precision: 5 },
             a: { index: 1, value: [-125, 125], precision: 5 },
             b: { index: 2, value: [-125, 125], precision: 5 },
         },
-        toXYZ: ([L, a, b]: number[]) => {
+        bridge: "xyz",
+        toBridge: ([L, a, b]: number[]) => {
             const κ = 24389 / 27;
             const ε = 216 / 24389;
             const fy = (L + 16) / 116;
@@ -587,7 +577,7 @@ export const colorFunctionConverters = {
             ];
             return xyz.map((value, i) => value * D50[i]);
         },
-        fromXYZ: (xyz: number[]) => {
+        fromBridge: (xyz: number[]) => {
             const ε = 216 / 24389;
             const κ = 24389 / 27;
             const xyz_d50 = xyz.map((value, i) => value / D50[i]);
@@ -596,34 +586,33 @@ export const colorFunctionConverters = {
         },
     },
     lch: {
-        supportsLegacy: false,
         targetGamut: null,
         components: {
             l: { index: 0, value: "percentage", precision: 5 },
             c: { index: 1, value: [0, 150], precision: 5 },
             h: { index: 2, value: "hue", precision: 5 },
         },
-        toXYZ: ([L, C, H]: number[]) => {
+        bridge: "lab",
+        toBridge: ([L, C, H]: number[]) => {
             const [, a, b] = [L, C * Math.cos((H * Math.PI) / 180), C * Math.sin((H * Math.PI) / 180)];
-            return colorFunctionConverters.lab.toXYZ([L, a, b]);
+            return [L, a, b];
         },
-        fromXYZ: (xyz: number[]) => {
-            const [L, a, b] = colorFunctionConverters.lab.fromXYZ(xyz);
+        fromBridge: ([L, a, b]: number[]) => {
             const C = Math.sqrt(Math.pow(a, 2) + Math.pow(b, 2));
             const H = (Math.atan2(b, a) * 180) / Math.PI;
             return [L, C, H < 0 ? H + 360 : H];
         },
     },
     oklab: {
-        supportsLegacy: false,
         targetGamut: null,
         components: {
             l: { index: 0, value: [0, 1], precision: 5 },
             a: { index: 1, value: [-0.4, 0.4], precision: 5 },
             b: { index: 2, value: [-0.4, 0.4], precision: 5 },
         },
-        toXYZ: (lab: number[]) => {
-            const LMStoXYZ = [
+        bridge: "xyz",
+        toBridge: (lab: number[]) => {
+            const LMStoBridge = [
                 [1.2268798758459243, -0.5578149944602171, 0.2813910456659647],
                 [-0.0405757452148008, 1.112286803280317, -0.0717110580655164],
                 [-0.0763729366746601, -0.4214933324022432, 1.5869240198367816],
@@ -635,11 +624,11 @@ export const colorFunctionConverters = {
             ];
             const LMSnl = multiplyMatrices(OKLabtoLMS, lab);
             return multiplyMatrices(
-                LMStoXYZ,
+                LMStoBridge,
                 LMSnl.map((c) => c ** 3)
             );
         },
-        fromXYZ: (xyz: number[]) => {
+        fromBridge: (xyz: number[]) => {
             const XYZtoLMS = [
                 [0.819022437996703, 0.3619062600528904, -0.1288737815209879],
                 [0.0329836539323885, 0.9292868615863434, 0.0361446663506424],
@@ -658,19 +647,18 @@ export const colorFunctionConverters = {
         },
     },
     oklch: {
-        supportsLegacy: false,
         targetGamut: null,
         components: {
             l: { index: 0, value: [0, 1], precision: 5 },
             c: { index: 1, value: [0, 0.4], precision: 5 },
             h: { index: 2, value: "hue", precision: 5 },
         },
-        toXYZ: ([L, C, H]: number[]) => {
+        bridge: "oklab",
+        toBridge: ([L, C, H]: number[]) => {
             const [, a, b] = [L, C * Math.cos((H * Math.PI) / 180), C * Math.sin((H * Math.PI) / 180)];
-            return colorFunctionConverters.oklab.toXYZ([L, a, b]);
+            return [L, a, b];
         },
-        fromXYZ: (xyz: number[]) => {
-            const [L, a, b] = colorFunctionConverters.oklab.fromXYZ(xyz);
+        fromBridge: ([L, a, b]: number[]) => {
             const H = (Math.atan2(b, a) * 180) / Math.PI;
             const C = Math.sqrt(a ** 2 + b ** 2);
             return [L, C, H < 0 ? H + 360 : H];
@@ -694,7 +682,9 @@ export const colorBases = {
             const cleaned = str.trim().toLowerCase();
             return cleaned.startsWith("#");
         },
-        toXYZ: (str: string) => {
+        bridge: "rgb",
+        toBridge: (coords: number[]) => coords,
+        parse: (str: string) => {
             const HEX = str.slice(1);
             const expand = (c: string) => parseInt(c.length === 1 ? c + c : c, 16);
             const [r, g, b, a = 255] =
@@ -703,11 +693,10 @@ export const colorBases = {
                     : [HEX.slice(0, 2), HEX.slice(2, 4), HEX.slice(4, 6), HEX.slice(6, 8)].map((c) =>
                           parseInt(c || "ff", 16)
                       );
-            const [X, Y, Z] = colorFunctionConverters.rgb.toXYZ([r, g, b]);
-            return [X, Y, Z, a / 255];
+            return [r, g, b, a / 255];
         },
-        fromXYZ: (xyz: XYZ) => {
-            const [r, g, b, a = 1] = colorFunctionConverters.rgb.fromXYZ(xyz);
+        fromBridge: (coords: number[]) => coords,
+        format: ([r, g, b, a = 1]: number[]) => {
             const toHex = (v: number) => v.toString(16).padStart(2, "0");
             const hex = [r, g, b].map((v) => toHex(Math.round(Math.max(0, Math.min(255, v))))).join("");
             return `#${hex}${a < 1 ? toHex(Math.round(a * 255)) : ""}`.toUpperCase();
@@ -717,16 +706,17 @@ export const colorBases = {
         isValid: (str: string) => {
             return Object.keys(namedColors).some((key) => key === str.trim().toLowerCase());
         },
-        toXYZ: (name: string) => {
+        bridge: "rgb",
+        toBridge: (coords: number[]) => coords,
+        parse: (name: string) => {
             const key = name.replace(/[\s-]/g, "").toLowerCase() as NamedColor;
             const rgb = namedColors[key];
             if (!rgb) throw new Error(`Invalid named-color: ${name}`);
-            return [...colorFunctionConverters.rgb.toXYZ(rgb), 1] as XYZ;
+            return [...rgb, 1];
         },
-        fromXYZ: (xyz: XYZ) => {
-            const [r, g, b] = colorFunctionConverters.rgb
-                .fromXYZ(xyz)
-                .map((v, i) => (i < 3 ? Math.round(Math.min(255, Math.max(0, v))) : v));
+        fromBridge: (coords: number[]) => coords,
+        format: (rgb: number[]) => {
+            const [r, g, b] = rgb.map((v, i) => (i < 3 ? Math.round(Math.min(255, Math.max(0, v))) : v));
             for (const [name, [nr, ng, nb]] of Object.entries(namedColors)) {
                 if (r === nr && g === ng && b === nb) return name;
             }
@@ -737,11 +727,11 @@ export const colorBases = {
             const cleaned = str.trim().toLowerCase();
             return cleaned.startsWith("color-mix(") && cleaned.endsWith(")");
         },
-
-        toXYZ: (str: string) => {
+        bridge: "rgb",
+        toBridge: (coords: number[]) => coords,
+        parse: (str: string) => {
             // FIXME: this should use the same method as the one in converterFromFunctionConverter to extract the color string
             const extractColorAndWeight = (colorStr: string) => {
-                console.log({ colorStr });
                 const regex = /^(.*?)(?:\s+(\d+%))?$/;
                 const match = colorStr.match(regex);
                 if (!match) {
@@ -782,21 +772,18 @@ export const colorBases = {
                 if (char === ")") depth--;
                 if (char === "," && depth === 0) {
                     parts.push(current.trim());
-                    console.log({ current });
                     current = "";
                 } else {
                     current += char;
                 }
             }
             parts.push(current.trim());
-            console.log({ current });
 
             if (parts.length !== 3) {
                 throw new Error("color-mix must have three comma-separated parts");
             }
 
             const inPart = parts[0];
-            console.log({ inPart });
             const inMatch = inPart.match(/^in\s+([a-z0-9-]+)(?:\s+(shorter|longer|increasing|decreasing)\s+hue)?$/);
             if (!inMatch) {
                 throw new Error("Invalid model and hue format");
@@ -809,35 +796,41 @@ export const colorBases = {
 
             const amount = getWeight2Prime(weight1, weight2);
 
-            return color1.in(model).mix(color2, { amount, hue }).xyz;
+            return color1.in(model).mix(color2, { amount, hue }).current.coords;
         },
     },
     transparent: {
         isValid: (str: string) => str.trim().toLowerCase() === "transparent",
-        toXYZ: (str: string) => [0, 0, 0, 0], // eslint-disable-line no-unused-vars
+        bridge: "rgb",
+        toBridge: (coords: number[]) => coords,
+        parse: (str: string) => [0, 0, 0, 0], // eslint-disable-line no-unused-vars
     },
     ...colorFunctions,
 } satisfies Record<string, ColorConverter>;
 
 /**
- * A collection of <color> converters.
+ * A collection of `<color>` converters.
  *
  * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
  */
 export const colorTypes = {
     currentColor: {
         isValid: (str: string) => str.trim().toLowerCase() === "currentcolor",
-        toXYZ: (str: string) => [0, 0, 0, 1], // eslint-disable-line no-unused-vars
+        bridge: "rgb",
+        toBridge: (coords: number[]) => coords,
+        parse: (str: string) => [0, 0, 0, 1], // eslint-disable-line no-unused-vars
     },
     "contrast-color": {
         isValid: (str: string) => {
             const cleaned = str.trim().toLowerCase();
             return cleaned.startsWith("contrast-color(") && cleaned.endsWith(")");
         },
-        toXYZ: (str: string) => {
+        bridge: "rgb",
+        toBridge: (coords: number[]) => coords,
+        parse: (str: string) => {
             const cleaned = str.replace(/\s+/g, " ").trim().toLowerCase().slice(15, -1);
             const luminance = Color.from(cleaned).luminance();
-            return Color.in("rgb").setCoords(luminance > 0.5 ? [0, 0, 0, 1] : [255, 255, 255, 1]).xyz;
+            return luminance > 0.5 ? [0, 0, 0, 1] : [255, 255, 255, 1];
         },
     },
     "device-cmyk": {
@@ -845,10 +838,12 @@ export const colorTypes = {
             const cleaned = str.trim().toLowerCase();
             return cleaned.startsWith("device-cmyk(") && cleaned.endsWith(")");
         },
-        toXYZ: (str: string): XYZ => {
+        bridge: "rgb",
+        toBridge: (coords: number[]) => coords,
+        parse: (str: string) => {
             const cleaned = str.replace(/\s+/g, " ").trim().toLowerCase();
             const match = cleaned.match(/device-cmyk\([^)]*?,\s*(.+?)\s*\)$/i);
-            if (match && match[1]) return Color.from(match[1]).xyz;
+            if (match && match[1]) return Color.from(match[1]).current.coords;
 
             const cmykBody = cleaned.replace(/device-cmyk\(|\)/gi, "").trim();
             const [componentsPart, alphaPart] = cmykBody.split("/");
@@ -857,27 +852,27 @@ export const colorTypes = {
                 .split(/[\s,]+/)
                 .filter(Boolean)
                 .map((v) => (v.endsWith("%") ? parseFloat(v) / 100 : parseFloat(v)));
-            const [cyan, magenta, yellow, black] = [
-                components[0] ?? 0,
-                components[1] ?? 0,
-                components[2] ?? 0,
-                components[3] ?? 0,
-            ];
             const alpha =
                 alphaPart !== undefined
                     ? alphaPart.trim().endsWith("%")
                         ? parseFloat(alphaPart.trim()) / 100
                         : parseFloat(alphaPart.trim())
                     : 1;
+            const [cyan, magenta, yellow, black] = [
+                components[0] ?? 0,
+                components[1] ?? 0,
+                components[2] ?? 0,
+                components[3] ?? 0,
+                alpha,
+            ];
             const red = 1 - Math.min(1, cyan * (1 - black) + black);
             const green = 1 - Math.min(1, magenta * (1 - black) + black);
             const blue = 1 - Math.min(1, yellow * (1 - black) + black);
-            return [...colorFunctionConverters.rgb.toXYZ([red * 255, green * 255, blue * 255]), alpha] as XYZ;
+            return [red * 255, green * 255, blue * 255, alpha];
         },
-        fromXYZ: (xyz: XYZ, options: FormattingOptions = {}) => {
+        fromBridge: (coords: number[]) => coords,
+        format: ([red, green, blue, alpha = 1]: number[], options: FormattingOptions = {}) => {
             const { legacy = false, precision = 3, fit: fitMethod = "clip" } = options;
-            const [red, green, blue, alpha = 1] = colorFunctionConverters.rgb.fromXYZ(xyz);
-
             const [fr, fg, fb] = fit([red, green, blue], { model: "rgb", method: fitMethod });
 
             const r = fr / 255;
@@ -908,7 +903,9 @@ export const colorTypes = {
             const cleaned = str.trim().toLowerCase();
             return cleaned.startsWith("light-dark(") && cleaned.endsWith(")");
         },
-        toXYZ: (str: string) => {
+        bridge: "rgb",
+        toBridge: (coords: number[]) => coords,
+        parse: (str: string) => {
             const cleaned = str.replace(/\s+/g, " ").trim().toLowerCase().slice(11, -1);
 
             let depth = 0;
@@ -930,7 +927,7 @@ export const colorTypes = {
             const color2 = cleaned.slice(splitIndex + 1).trim();
 
             const { theme } = Color.config;
-            return Color.from(theme === "light" ? color1 : color2).xyz;
+            return Color.from(theme === "light" ? color1 : color2).current.coords;
         },
     },
     "system-color": {
@@ -938,12 +935,14 @@ export const colorTypes = {
             const { systemColors } = Color.config;
             return Object.keys(systemColors).some((key) => key.toLowerCase() === str.trim().toLowerCase());
         },
-        toXYZ: (str: string): XYZ => {
+        bridge: "rgb",
+        toBridge: (coords: number[]) => coords,
+        parse: (str: string) => {
             const { systemColors } = Color.config;
             str = str.replace(/\s+/g, " ").trim();
             const key = Object.keys(systemColors).find((k) => k.toLowerCase() === str.trim().toLowerCase());
             const rgbArr = systemColors[key as keyof typeof systemColors][Color.config.theme === "light" ? 0 : 1];
-            return [...colorFunctionConverters.rgb.toXYZ(rgbArr), 1] as XYZ;
+            return [...rgbArr, 1];
         },
     },
     ...colorBases,

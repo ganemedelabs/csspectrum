@@ -10,7 +10,6 @@ import type {
     FitMethod,
     FormattingOptions,
     NamedColor,
-    XYZ,
 } from "./types.js";
 
 export const D50_to_D65 = [
@@ -200,7 +199,13 @@ export function fit(coords: number[], options: { model?: ColorFunction; method?:
     };
 
     const { model = "srgb", method = "clip", precision } = options;
-    const { targetGamut, components } = colorFunctionConverters[model];
+
+    if (method === "none") return coords;
+
+    const converter = colorFunctionConverters[model] as ColorFunctionConverter;
+    const components = converter.components;
+    let targetGamut = converter.targetGamut;
+    if (targetGamut !== null && typeof targetGamut !== "string") targetGamut = "srgb";
 
     const componentProps: ComponentDefinition[] = [];
     for (const [, props] of Object.entries(components)) {
@@ -208,9 +213,6 @@ export function fit(coords: number[], options: { model?: ColorFunction; method?:
     }
 
     switch (method) {
-        case "none":
-            return coords;
-
         case "round-unclipped":
             return roundCoords(coords);
 
@@ -236,7 +238,7 @@ export function fit(coords: number[], options: { model?: ColorFunction; method?:
                 const epsilon = 1e-5;
 
                 const isInGamut = (L: number) => {
-                    const color = Color.in("oklch").setCoords([L, C, H]);
+                    const color = new Color("oklch", [L, C, H]);
                     return color.inGamut(targetGamut as ColorSpace, epsilon);
                 };
 
@@ -265,7 +267,7 @@ export function fit(coords: number[], options: { model?: ColorFunction; method?:
                 return [searchMinL(), searchMaxL()];
             };
 
-            const color = Color.in(model).setCoords(coords);
+            const color = new Color(model, coords);
             if (targetGamut === null || color.inGamut(targetGamut as ColorSpace, 1e-5)) return roundCoords(coords);
 
             const [L, , H] = color.in("oklch").getCoords();
@@ -279,12 +281,12 @@ export function fit(coords: number[], options: { model?: ColorFunction; method?:
 
             while (C_high - C_low > epsilon) {
                 const C_mid = (C_low + C_high) / 2;
-                const candidate_color = Color.in("oklch").setCoords([L_adjusted, C_mid, H]);
+                const candidate_color = new Color("oklch", [L_adjusted, C_mid, H]);
 
                 if (candidate_color.inGamut(targetGamut as ColorSpace, 1e-5)) C_low = C_mid;
                 else {
                     const clipped_coords = fit(candidate_color.getCoords().slice(0, 3), { model, method: "clip" });
-                    const clipped_color = Color.in(model).setCoords(clipped_coords);
+                    const clipped_color = new Color(model, clipped_coords);
                     const deltaE = candidate_color.deltaEOK(clipped_color);
                     if (deltaE < 2) {
                         clipped = clipped_coords;
@@ -293,7 +295,7 @@ export function fit(coords: number[], options: { model?: ColorFunction; method?:
                 }
             }
 
-            const finalColor = Color.in("oklch").setCoords([L_adjusted, C_low, H]);
+            const finalColor = new Color("oklch", [L_adjusted, C_low, H]);
             clipped = finalColor.in(model).getCoords();
             return roundCoords(clipped);
         }
@@ -301,16 +303,16 @@ export function fit(coords: number[], options: { model?: ColorFunction; method?:
         case "css-gamut-map": {
             if (targetGamut === null) return roundCoords(coords);
 
-            const color = Color.in(model).setCoords(coords);
+            const color = new Color(model, coords);
             const [L, C, H] = color.in("oklch").getCoords();
 
             if (L >= 1.0) {
-                const white = Color.in("oklab").setCoords([1, 0, 0]);
+                const white = new Color("oklab", [1, 0, 0]);
                 return roundCoords(white.in(model).getCoords());
             }
 
             if (L <= 0.0) {
-                const black = Color.in("oklab").setCoords([0, 0, 0]);
+                const black = new Color("oklab", [0, 0, 0]);
                 return roundCoords(black.in(model).getCoords());
             }
 
@@ -319,10 +321,10 @@ export function fit(coords: number[], options: { model?: ColorFunction; method?:
             const JND = 0.02;
             const epsilon = 0.0001;
 
-            const current = Color.in("oklch").setCoords([L, C, H]);
+            const current = new Color("oklch", [L, C, H]);
             let clipped: number[] = fit(current.in(model).getCoords().slice(0, 3), { model, method: "clip" });
 
-            const initialClippedColor = Color.in(model).setCoords(clipped);
+            const initialClippedColor = new Color(model, clipped);
             const E = current.deltaEOK(initialClippedColor);
 
             if (E < JND) return roundCoords(clipped);
@@ -333,13 +335,13 @@ export function fit(coords: number[], options: { model?: ColorFunction; method?:
 
             while (max - min > epsilon) {
                 const chroma = (min + max) / 2;
-                const candidate = Color.in("oklch").setCoords([L, chroma, H]);
+                const candidate = new Color("oklch", [L, chroma, H]);
 
                 if (min_inGamut && candidate.inGamut(targetGamut as ColorSpace, 1e-5)) min = chroma;
                 else {
                     const clippedCoords = fit(candidate.in(model).getCoords().slice(0, 3), { model, method: "clip" });
                     clipped = clippedCoords;
-                    const clippedColor = Color.in(model).setCoords(clippedCoords);
+                    const clippedColor = new Color(model, clippedCoords);
                     const deltaE = candidate.deltaEOK(clippedColor);
 
                     if (deltaE < JND) {
@@ -363,11 +365,11 @@ export function fit(coords: number[], options: { model?: ColorFunction; method?:
 }
 
 /**
- * Creates a <color> converter for a given <color-function> converter.
+ * Creates a `<color>` converter for a given `<color-function>` converter.
  *
  * @param name - The name of the color function (e.g., "rgb", "hsl", "lab", etc.).
  * @param converter - An object implementing the color function's conversion logic and component definitions.
- * @returns A <color> convereter object.
+ * @returns An object of type `ColorConverter`.
  */
 export function converterFromFunctionConverter(name: string, converter: ColorFunctionConverter) {
     const evaluateComponent = (token: string, value: number[] | "hue" | "percentage", base: Record<string, number>) => {
@@ -633,15 +635,17 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
                 cleanedStr.endsWith(")")
             );
         },
-        toXYZ: (str: string) => {
+        bridge: converter.bridge,
+        toBridge: (coords: number[]) => [...converter.toBridge(coords.slice(0, 3)), coords[3] ?? 1],
+        parse: (str: string) => {
             const cleaned = str.replace(/\s+/g, " ").trim().toLowerCase();
             const tokens = tokenize(cleaned);
             const components = parseTokens(tokens);
-            return [...converter.toXYZ(components.slice(0, 3)), components[3] ?? 1];
+            return [...components.slice(0, 3), components[3] ?? 1];
         },
-        fromXYZ: (xyz: XYZ, options: FormattingOptions = {}) => {
+        fromBridge: (coords: number[]) => [...converter.fromBridge(coords), coords[3] ?? 1],
+        format: ([c1, c2, c3, alpha = 1]: number[], options: FormattingOptions = {}) => {
             const { legacy = false, fit: fitMethod = "clip", precision = undefined, units = false } = options;
-            const [c1, c2, c3, alpha] = [...converter.fromXYZ(xyz), xyz[3] ?? 1];
 
             const clipped = fit([c1, c2, c3], { model: cleanedName as ColorFunction, method: fitMethod, precision });
             const alphaFormatted = Number(Math.min(Math.max(alpha, 0), 1).toFixed(3)).toString();
@@ -679,22 +683,23 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
 }
 
 /**
- * Creates a <color-function> converter object from a given color space converter definition.
+ * Creates a `<color-function>` converter object from a given color space converter definition.
  *
- * @template C - A tuple of component names for the color space (e.g., ['r', 'g', 'b']).
+ * @template C - A tuple of component names for the color space (e.g., ["r", "g", "b"]).
  * @param name - The name of the color space (used for target gamut identification).
- * @param space - The color space converter definition, including component names,
- *                conversion matrices, linearization functions, and white point.
- * @returns An object implementing the `ColorFunctionConverter` interface, with methods
- *          for converting to and from XYZ color space, and component metadata.
+ * @param converter - The color space converter definition.
+ * @returns An object of type `ColorFunctionConverter`.
  */
 export function functionConverterFromSpaceConverter<const C extends readonly string[]>(
     name: string,
     converter: Omit<ColorSpaceConverter, "components"> & { components: C }
 ) {
-    const isD50 = converter.whitePoint === "D50";
-    const toXYZMatrix = isD50 ? multiplyMatrices(D50_to_D65, converter.toXYZMatrix) : converter.toXYZMatrix;
-    const fromXYZMatrix = isD50 ? multiplyMatrices(converter.fromXYZMatrix, D65_to_D50) : converter.fromXYZMatrix;
+    const { fromLinear = (c) => c, toLinear = (c) => c, whitePoint = "D65" } = converter;
+    const isD50 = whitePoint === "D50";
+    const toBridgeMatrix = isD50 ? multiplyMatrices(D50_to_D65, converter.toBridgeMatrix) : converter.toBridgeMatrix;
+    const fromBridgeMatrix = isD50
+        ? multiplyMatrices(converter.fromBridgeMatrix, D65_to_D50)
+        : converter.fromBridgeMatrix;
 
     return {
         supportsLegacy: false,
@@ -702,18 +707,13 @@ export function functionConverterFromSpaceConverter<const C extends readonly str
         components: Object.fromEntries(
             converter.components.map((comp, index) => [comp, { index, value: [0, 1], precision: 5 }])
         ) as Record<C[number], ComponentDefinition>,
-
-        toXYZ: ([c1, c2, c3]: number[]) => {
-            const linear = [converter.toLinear(c1), converter.toLinear(c2), converter.toLinear(c3)];
-            return multiplyMatrices(toXYZMatrix, linear);
+        bridge: converter.bridge,
+        toBridge: (coords: number[]) => {
+            return multiplyMatrices(
+                toBridgeMatrix,
+                coords.map((c) => toLinear(c))
+            );
         },
-
-        fromXYZ: (xyz: number[]) => {
-            const [lc1, lc2, lc3] = multiplyMatrices(fromXYZMatrix, xyz);
-            const c1 = converter.fromLinear ? converter.fromLinear(lc1) : lc1;
-            const c2 = converter.fromLinear ? converter.fromLinear(lc2) : lc2;
-            const c3 = converter.fromLinear ? converter.fromLinear(lc3) : lc3;
-            return [c1, c2, c3];
-        },
+        fromBridge: (coords: number[]) => multiplyMatrices(fromBridgeMatrix, coords).map((c) => fromLinear(c)),
     } satisfies ColorFunctionConverter;
 }

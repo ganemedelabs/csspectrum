@@ -4,9 +4,6 @@ import { EASINGS } from "./utils.js";
 
 /* eslint-disable no-unused-vars */
 
-/** Represents a color in the XYZ color space with an alpha channel. */
-export type XYZ = [number, number, number, number];
-
 /** Represents the available `<color>s`. */
 export type ColorType = keyof typeof colorTypes;
 
@@ -25,44 +22,38 @@ export type NamedColor = keyof typeof namedColors;
 /** Represents the color types that support conversion from XYZ. */
 export type OutputType = {
     [K in keyof typeof colorTypes]: (typeof colorTypes)[K] extends {
-        fromXYZ?: (xyz: XYZ, options?: FormattingOptions) => string | undefined;
+        fromBridge?: (components: number[]) => number[];
     }
         ? K
         : never;
 }[keyof typeof colorTypes];
 
 /** Represents a converter for `<color>`s. */
-export interface ColorConverter {
-    /** Checks if the provided string is a valid color representation for this converter. */
+export type ColorConverter = {
     isValid: (str: string) => boolean;
-
-    /** Converts a valid color string to its corresponding XYZ color space representation. */
-    toXYZ: (str: string) => XYZ;
-
-    /** Converts an XYZ color value back to a string representation, with optional formatting options. */
-    fromXYZ?: (xyz: XYZ, options?: FormattingOptions) => string | undefined;
-}
+    bridge: string;
+    toBridge: (coords: number[]) => number[];
+    parse: (str: string) => number[];
+} & (
+    | {
+          fromBridge: (coords: number[]) => number[];
+          format: (coords: number[], options?: FormattingOptions) => string | undefined;
+      }
+    | { fromBridge?: undefined; format?: undefined }
+);
 
 /** Represents a converter for `<color-function>`s. */
-export interface ColorFunctionConverter {
-    /** The target color gamut for the conversion, or `null` if not applicable. */
-    targetGamut: string | null;
-
-    /** Indicates whether legacy format (comma-separated) is supported. */
-    supportsLegacy: boolean;
-
-    /** A mapping of component names to their definitions. */
+export type ColorFunctionConverter = {
+    targetGamut?: string | null;
+    supportsLegacy?: boolean;
     components: Record<string, ComponentDefinition>;
-
-    /** Converts an array of color components to the XYZ color space. */
-    toXYZ: (components: number[]) => number[];
-
-    /** Converts a color from the XYZ color space to the target color space. */
-    fromXYZ: (xyz: number[], options?: FormattingOptions) => number[];
-}
+    bridge: string;
+    toBridge: (coords: number[]) => number[];
+    fromBridge: (coords: number[]) => number[];
+};
 
 /** Represents a converter for the color spaces used in `<color()>` function. */
-export interface ColorSpaceConverter {
+export type ColorSpaceConverter = {
     /** The target color gamut for conversion. If not specified, defaults to null. */
     targetGamut?: null;
 
@@ -70,23 +61,25 @@ export interface ColorSpaceConverter {
     components: string[];
 
     /** Linearization function. */
-    toLinear: (c: number) => number;
+    toLinear?: (c: number) => number;
 
     /** Inverse linearization. */
-    fromLinear: (c: number) => number;
+    fromLinear?: (c: number) => number;
+
+    bridge: string;
 
     /** Matrix to convert to XYZ. */
-    toXYZMatrix: number[][];
+    toBridgeMatrix: number[][];
 
     /** Matrix to convert from XYZ. */
-    fromXYZMatrix: number[][];
+    fromBridgeMatrix: number[][];
 
     /** The reference white point for this color space, either "D65" or "D50". */
-    whitePoint: "D65" | "D50";
-}
+    whitePoint?: "D65" | "D50";
+};
 
 /** Defines the properties of a color component within a converter. */
-export interface ComponentDefinition {
+export type ComponentDefinition = {
     /** Position of the component in the color array */
     index: number;
 
@@ -95,7 +88,7 @@ export interface ComponentDefinition {
 
     /** Precision for rounding the component value */
     precision?: number;
-}
+};
 
 /**
  * Represents a component export type for a given color model.
@@ -107,7 +100,7 @@ export type Component<M extends keyof typeof colorFunctionConverters> =
     | "alpha";
 
 /** Defines operations on a color within a specific `Model`, enabling method chaining. */
-export interface Interface<M extends ColorFunction> {
+export type Interface<M extends ColorFunction> = {
     /** Gets all component values as an object. */
     get: (
         /**
@@ -163,15 +156,15 @@ export interface Interface<M extends ColorFunction> {
         values:
             | Partial<{ [K in Component<M>]: number | ((prev: number) => number) }>
             | ((components: { [K in Component<M>]: number }) => Partial<{ [K in Component<M>]?: number }>)
-    ) => Color & Interface<M>;
+    ) => Color<M>;
 
     /** Sets component values using an array. */
-    setCoords: (coords: (number | undefined)[]) => Color & Interface<M>;
+    setCoords: (coords: (number | undefined)[]) => Color<M>;
 
     /** Mixes this color with another by a specified amount. */
     mix: (
         /** The color to mix with. Can be a string, or Color instance. */
-        other: Color | string,
+        other: Color<M> | string,
         /**
          * Options for mixing the colors.
          * - `amount`: Amount of the second color to mix in, between 0 and 1.
@@ -180,12 +173,7 @@ export interface Interface<M extends ColorFunction> {
          * - `gamma`: Gamma correction value to use during mixing.
          */
         options?: MixOptions
-    ) => Color & Interface<M>;
-}
-
-/** Extracts only the `set` methods from a type, used for specific constraints. */
-export type InterfaceWithSetOnly<T> = {
-    [K in keyof T as K extends `set${string}` ? K : never]: T[K];
+    ) => Color<M>;
 };
 
 /** Specifies the method used for interpolating hue values during color mixing. */
@@ -205,7 +193,7 @@ export type Easing = keyof typeof EASINGS;
 export type FitMethod = "clip" | "chroma-reduction" | "css-gamut-map" | "none" | "round-unclipped";
 
 /** Options for formatting color output. */
-export interface FormattingOptions {
+export type FormattingOptions = {
     /** Use legacy syntax (e.g., `rgb(255, 0, 0, 0.5)`). */
     legacy?: boolean;
 
@@ -224,10 +212,10 @@ export interface FormattingOptions {
 
     /** Output components with units (e.g., `hsl(250deg 74% 54%)`) */
     units?: boolean;
-}
+};
 
 /** Options for mixing two colors. */
-export interface MixOptions {
+export type MixOptions = {
     /** Amount of the second color to mix in, between 0 and 1. */
     amount?: number;
 
@@ -239,10 +227,10 @@ export interface MixOptions {
 
     /** Gamma correction value to use during mixing. */
     gamma?: number;
-}
+};
 
 /** Options for evaluating the accessibility of an element, such as text or UI components. */
-export interface EvaluateAccessibilityOptions {
+export type EvaluateAccessibilityOptions = {
     /** The element type: "text" (default) or "non-text" (e.g., UI components per WCAG 1.4.11). */
     type?: "text" | "non-text";
 
@@ -265,4 +253,4 @@ export interface EvaluateAccessibilityOptions {
      * "wcag21" follows WCAG 2.1 guidelines but has limitations. Consider "apca" or "oklab" for better perceptual accuracy.
      */
     algorithm?: "wcag21" | "apca" | "oklab";
-}
+};

@@ -1,6 +1,5 @@
 export { Color } from "./Color.js";
 export type {
-    XYZ,
     ColorType,
     ColorBase,
     ColorFunction,
@@ -13,7 +12,6 @@ export type {
     ComponentDefinition,
     Component,
     Interface,
-    InterfaceWithSetOnly,
     HueInterpolationMethod,
     Easing,
     FitMethod,

@@ -144,8 +144,8 @@ describe("Color", () => {
     });
 
     it("should define a color from components", () => {
-        const fromObject = Color.in("hsl").set({ h: 260, s: 100, l: 50 }).to("hsl");
-        const fromArray = Color.in("hsl").setCoords([260, 100, 50]).to("hsl");
+        const fromObject = new Color("hsl", { h: 260, s: 100, l: 50 }).to("hsl");
+        const fromArray = new Color("hsl", [260, 100, 50]).to("hsl");
         expect(fromObject).toBe("hsl(260 100 50)");
         expect(fromArray).toEqual(fromObject);
     });
@@ -175,7 +175,7 @@ describe("Color", () => {
     });
 
     it("should update components with setArray()", () => {
-        const hslInterface = Color.in("hsl").setCoords([180, 50, 50]);
+        const hslInterface = new Color("hsl", [180, 50, 50]);
         expect(hslInterface.to("hsl")).toBe("hsl(180 50 50)");
     });
 
