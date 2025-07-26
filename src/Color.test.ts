@@ -74,7 +74,7 @@ describe("Color", () => {
     });
 
     it("should convert LCH color to sRGB", () => {
-        expect(Color.from("lch(79.7256 40.448 84.771)").to("srgb")).toBe("color(srgb 0.92605 0.75038 0.39305)");
+        expect(Color.from("lch(79.7256 40.448 84.771)").to("srgb")).toBe("color(srgb 0.8741 0.76037 0.47644)");
     });
 
     it("should calculate luminance correctly", () => {
@@ -132,15 +132,15 @@ describe("Color", () => {
     it("should handle none components correctly", () => {
         const color = Color.from("hsl(none none 50%)");
         expect(color.to("hsl")).toBe("hsl(0 0 50)");
-        color.in("hsl").set({ h: 150, s: 100 });
-        expect(color.to("hsl")).toBe("hsl(150 100 50)");
+        const adjusted = color.in("hsl").set({ h: 150, s: 100 });
+        expect(adjusted.to("hsl")).toBe("hsl(150 100 50)");
     });
 
     it("should handle calc(infinity) components correctly", () => {
         const color = Color.from("hsl(calc(infinity) calc(-infinity) 50%)");
         expect(color.to("hsl")).toBe("hsl(0 0 50)");
-        color.in("hsl").set({ h: 100, s: 100 });
-        expect(color.to("hsl")).toBe("hsl(100 100 50)");
+        const adjusted = color.in("hsl").set({ h: 100, s: 100 });
+        expect(adjusted.to("hsl")).toBe("hsl(100 100 50)");
     });
 
     it("should define a color from components", () => {

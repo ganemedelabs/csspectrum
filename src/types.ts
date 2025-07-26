@@ -4,6 +4,16 @@ import { EASINGS } from "./utils.js";
 
 /* eslint-disable no-unused-vars */
 
+export type Config = {
+    /** The theme of the application, either "light" or "dark". */
+    theme: "light" | "dark";
+
+    /** System colors for light and dark themes. */
+    systemColors: {
+        [key: string]: [number[], number[]];
+    };
+};
+
 /** Represents the available `<color>s`. */
 export type ColorType = keyof typeof colorTypes;
 
@@ -46,6 +56,7 @@ export type ColorConverter = {
 export type ColorFunctionConverter = {
     targetGamut?: string | null;
     supportsLegacy?: boolean;
+    alphaVariant?: string;
     components: Record<string, ComponentDefinition>;
     bridge: string;
     toBridge: (coords: number[]) => number[];
@@ -73,9 +84,6 @@ export type ColorSpaceConverter = {
 
     /** Matrix to convert from XYZ. */
     fromBridgeMatrix: number[][];
-
-    /** The reference white point for this color space, either "D65" or "D50". */
-    whitePoint?: "D65" | "D50";
 };
 
 /** Defines the properties of a color component within a converter. */

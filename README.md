@@ -89,11 +89,14 @@ console.log(rgb.to("named-color")); // duskmint
 
 ```typescript
 const converter = {
-    targetGamut: "srgb",
-    supportsLegacy: false,
-    components: { h: {...}, s: {...}, v: {...} },
-    toXYZA: (hsv: number[]) => {...},
-    fromXYZA: (xyz: XYZ) => {...},
+    components: {
+        h: { index: 0, value: "hue" },
+        s: { index: 1, value: "percentage" },
+        v: { index: 2, value: "percentage" },
+    },
+    bridge: "hsl",
+    toBridge: (hsv: number[]) => [h, s, l],
+    fromBridge: (hsl: number[]) => [h, s, v],
 };
 
 Color.registerFormat("hsv", converter);
@@ -105,38 +108,42 @@ console.log(rgb.to("hsv")); // hsv(340 86.3 91.8)
 
 ```typescript
 const converter = {
-    toLinear: (c: number) => c,
-    fromLinear: (c: number) => c,
-    components: ["x", "y", "z"],
-    toXYZMatrix: [
+    components: ["r", "g", "b"],
+    bridge: "rec2020",
+    toBridgeMatrix: [
         [1, 0, 0],
         [0, 1, 0],
         [0, 0, 1],
     ],
-    fromXYZMatrix: [
+    fromBridgeMatrix: [
         [1, 0, 0],
         [0, 1, 0],
         [0, 0, 1],
     ],
 };
 
-Color.registerSpace("aura", converter);
-const xyz = Color.from("color(xyz 1 0 0)");
-console.log(xyz.to("aura")); // color(aura 1 0 0)
+Color.registerSpace("rec2100-pq", converter);
+const rec2020 = Color.from("color(rec2020 1 0 0)");
+console.log(rec2020.to("rec2100-pq")); // color(rec2100-pq 1 0 0)
 ```
 
 ### New Color Type Registration
 
 ```typescript
 const converter = {
-    isValid: (str: string) => str.startsWith("hex("),
-    toXYZ: (str: string) => [0, 0, 0, 1],
-    fromXYZ: (xyz: XYZ) => "hex(000)",
+    isValid: (str: string) => str.startsWith("color-at("),
+    bridge: "rgb",
+    toBridge: (str: string) => [r, g, b, alpha],
 };
 
-Color.registerSpace("hex-function", converter);
-const rgb = Color.from("rgb(0 0 0)");
-console.log(rgb.to("hex-function")); // hex(000)
+Color.registerSpace("color-at", converter);
+const timed = Color.from(`color-at(
+    '06:00' skyblue,
+    '12:00' gold,
+    '18:00' orangered,
+    '22:00' midnightblue
+)`);
+console.log(timed.to("rgb")); // rgb(0 191 255)
 ```
 
 ## 📜 License

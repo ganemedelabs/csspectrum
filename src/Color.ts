@@ -22,86 +22,14 @@ import type {
     ColorFunctionConverter,
 } from "./types.js";
 
-const config = {
-    theme: "light",
-    systemColors: {
-        Canvas: [
-            [255, 255, 255],
-            [30, 30, 30],
-        ],
-        CanvasText: [
-            [0, 0, 0],
-            [255, 255, 255],
-        ],
-        LinkText: [
-            [0, 0, 255],
-            [0, 128, 255],
-        ],
-        VisitedText: [
-            [128, 0, 128],
-            [128, 0, 128],
-        ],
-        ButtonFace: [
-            [240, 240, 240],
-            [60, 60, 60],
-        ],
-        ButtonText: [
-            [0, 0, 0],
-            [255, 255, 255],
-        ],
-        Field: [
-            [255, 255, 255],
-            [45, 45, 45],
-        ],
-        FieldText: [
-            [0, 0, 0],
-            [255, 255, 255],
-        ],
-        Highlight: [
-            [0, 120, 215],
-            [80, 80, 80],
-        ],
-        HighlightText: [
-            [255, 255, 255],
-            [0, 0, 0],
-        ],
-        GrayText: [
-            [128, 128, 128],
-            [169, 169, 169],
-        ],
-        ActiveText: [
-            [0, 0, 255],
-            [0, 128, 255],
-        ],
-        ActiveCaption: [
-            [0, 120, 215],
-            [30, 30, 30],
-        ],
-        CaptionText: [
-            [255, 255, 255],
-            [255, 255, 255],
-        ],
-        InfoBackground: [
-            [255, 255, 225],
-            [50, 50, 50],
-        ],
-        InfoText: [
-            [0, 0, 0],
-            [255, 255, 255],
-        ],
-    },
-};
-
 /**
  * The `Color` class represents a dynamic CSS color object, allowing for the manipulation
  * and retrieval of colors in various formats (e.g., RGB, HEX, HSL).
  */
 export class Color<M extends ColorFunction> {
-    current: { model: ColorFunction; coords: number[] } = { model: "rgb", coords: [0, 0, 0, 1] };
+    model: ColorFunction = "rgb";
+    coords: number[] = [0, 0, 0, 1];
 
-    static config = config;
-
-    // ERROR: Type parameters cannot appear on a constructor declaration.
     constructor(model: M, coords: number[] | Partial<Record<Component<M>, number>>) {
         if (!(model in colorFunctions)) {
             throw new Error(`Unsupported color model: ${model}`);
@@ -111,7 +39,8 @@ export class Color<M extends ColorFunction> {
             Array.isArray(coords) &&
             coords.every((c) => typeof c !== "number" && !Number.isNaN(c) && c !== Infinity && c !== -Infinity)
         ) {
-            this.current = { model, coords };
+            this.model = model;
+            this.coords = coords.slice(0, 4);
         } else if (Array.isArray(coords)) {
             const newCoords = coords.slice(0, 3).map((c, i) => {
                 const { components } = colorFunctionConverters[model];
@@ -139,7 +68,8 @@ export class Color<M extends ColorFunction> {
                 return c;
             });
 
-            this.current = { model, coords: [...newCoords, coords[3] ?? 1] };
+            this.model = model;
+            this.coords = [...newCoords, coords[3] ?? 1];
         } else if (typeof coords === "object") {
             const { components } = colorFunctionConverters[model];
 
@@ -163,7 +93,8 @@ export class Color<M extends ColorFunction> {
                 .sort((a, b) => a.index - b.index)
                 .map((item) => item.value);
 
-            this.current = { model, coords: coordsArray };
+            this.model = model;
+            this.coords = coordsArray;
         } else {
             throw new Error(`Invalid coordinates: ${coords}. Expected an array or object.`);
         }
@@ -184,14 +115,17 @@ export class Color<M extends ColorFunction> {
             const colorType = colorTypes[type as keyof typeof colorTypes];
             if (colorType.isValid(color)) {
                 if (type in colorFunctions) {
-                    return new Color(type as ColorFunction, colorType.parse(color));
+                    const result = new Color(type as ColorFunction, colorType.parse(color));
+                    return result;
                 }
 
                 const { bridge, toBridge, parse } = colorType;
                 const coords = toBridge(parse(color));
-                return new Color(bridge as ColorFunction, coords);
+                const result = new Color(bridge as ColorFunction, coords);
+                return result;
             }
         }
+
         throw new Error(`Unsupported or invalid color format: ${color}`);
     }
 
@@ -199,8 +133,7 @@ export class Color<M extends ColorFunction> {
      * Determines the type of a given color string.
      *
      * @param color - The color string to analyze.
-     * @returns The detected color format if resolve is true, otherwise the detected color pattern type.
-     * @throws If the color format is unsupported.
+     * @returns The color type if recognized, or `undefined` if not.
      */
     static type(color: string): ColorType | undefined {
         for (const type in colorTypes) {
@@ -277,6 +210,10 @@ export class Color<M extends ColorFunction> {
             throw new Error(`Invalid output type: ${String(type)}.`);
         }
 
+        if (type === this.model) {
+            return format(this.coords, { legacy, fit, precision, units });
+        }
+
         const coords = this.in(bridge).getCoords();
         return format(fromBridge(coords), { legacy, fit, precision, units });
     }
@@ -322,14 +259,14 @@ export class Color<M extends ColorFunction> {
                 }
             }
 
-            result.alpha = this.current.coords[3];
+            result.alpha = this.coords[3];
 
             return result;
         };
 
         const getCoords = (fitMethod: FitMethod = "none") => {
-            const current = this.current.model;
-            const currentCoords = this.current.coords;
+            const current = this.model;
+            const currentCoords = this.coords;
 
             const converters = { ...colorFunctionConverters, ...colorSpaceConverters };
 
@@ -408,10 +345,10 @@ export class Color<M extends ColorFunction> {
 
             if (fitMethod) {
                 const clipped = fit(value.slice(0, 3), { model: model as N, method: fitMethod });
-                return [...clipped, this.current.coords[3]];
+                return [...clipped, this.coords[3]];
             }
 
-            return [...value.slice(0, 3), this.current.coords[3]];
+            return [...value.slice(0, 3), this.coords[3]];
         };
 
         const set = (
@@ -426,7 +363,7 @@ export class Color<M extends ColorFunction> {
             const coords = getCoords();
             const compNames = Object.keys(components) as (Component<N> | "alpha")[];
 
-            let newAlpha = this.current.coords[3];
+            let newAlpha = this.coords[3];
 
             if (typeof values === "function") {
                 const currentComponents = {} as { [K in Component<N> | "alpha"]: number }; // eslint-disable-line no-unused-vars
@@ -463,6 +400,8 @@ export class Color<M extends ColorFunction> {
                 }
             });
 
+            console.log({ coords });
+
             return new Color(model as N, [...coords.slice(0, 3), newAlpha]);
         };
 
@@ -492,7 +431,7 @@ export class Color<M extends ColorFunction> {
                 return incoming;
             });
 
-            return new Color(model as N, [...adjustedCoords.slice(0, 3), this.current.coords[3]]);
+            return new Color(model as N, [...adjustedCoords.slice(0, 3), this.coords[3]]);
         };
 
         const mix = (other: Color<N> | string, options: MixOptions = {}) => {
@@ -539,8 +478,8 @@ export class Color<M extends ColorFunction> {
             const otherColor = typeof other === "string" ? Color.from(other) : other;
             const otherCoords = otherColor.in(model).getCoords().slice(0, 3);
 
-            const thisAlpha = this.current.coords[3];
-            const otherAlpha = otherColor.current.coords[3];
+            const thisAlpha = this.coords[3];
+            const otherAlpha = otherColor.coords[3];
 
             const hueIndex = Object.entries(components).find(([k]) => k === "h")?.[1].index;
 
@@ -593,11 +532,11 @@ export class Color<M extends ColorFunction> {
 
     // eslint-disable-next-line no-unused-vars
     get(fitMethod: FitMethod = "none"): { [key in Component<M>]: number } {
-        return this.in(this.current.model).get(fitMethod) as { [key in Component<M>]: number }; // eslint-disable-line no-unused-vars
+        return this.in(this.model).get(fitMethod) as { [key in Component<M>]: number }; // eslint-disable-line no-unused-vars
     }
 
     getCoords(fitMethod: FitMethod = "none") {
-        return this.in(this.current.model).getCoords(fitMethod);
+        return this.in(this.model).getCoords(fitMethod);
     }
 
     set(
@@ -609,20 +548,20 @@ export class Color<M extends ColorFunction> {
                   [K in Component<M> | "alpha"]?: number;
               }>)
     ): Color<M> {
-        return this.in(this.current.model).set(
+        return this.in(this.model).set(
             // eslint-disable-next-line no-unused-vars
             values as Partial<{ [K in Component<M> | "alpha"]: number | ((prev: number) => number) }>
         ) as Color<M>;
     }
 
     setCoords(newCoords: (number | undefined)[]): Color<M> {
-        return this.in(this.current.model).setCoords(newCoords) as Color<M>;
+        return this.in(this.model).setCoords(newCoords) as Color<M>;
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mix(other: Color<any> | string, options: MixOptions = {}): Color<M> {
         const otherColor = typeof other === "string" ? Color.from(other) : other;
-        return this.in(this.current.model).mix(otherColor as Color<any>, options) as Color<M>; // eslint-disable-line @typescript-eslint/no-explicit-any
+        return this.in(this.model).mix(otherColor as Color<any>, options) as Color<M>; // eslint-disable-line @typescript-eslint/no-explicit-any
     }
 
     /**
@@ -995,8 +934,8 @@ export class Color<M extends ColorFunction> {
     equals(other: Color<any> | string, epsilon = 1e-5): boolean {
         const otherColor = typeof other === "string" ? Color.from(other) : other;
 
-        if (otherColor.current.model !== this.current.model) {
-            return this.current.coords.every((value, i) => Math.abs(value - otherColor.current.coords[i]) <= epsilon);
+        if (otherColor.model !== this.model) {
+            return this.coords.every((value, i) => Math.abs(value - otherColor.coords[i]) <= epsilon);
         }
 
         const thisXyz = this.in("xyz").getCoords();

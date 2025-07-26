@@ -13,6 +13,10 @@
             "import": "./dist/index.js",
             "types": "./dist/index.d.ts"
         },
+        "./config": {
+            "import": "./dist/config.js",
+            "types": "./dist/config.d.ts"
+        },
         "./Color": {
             "import": "./dist/Color.js",
             "types": "./dist/Color.d.ts"

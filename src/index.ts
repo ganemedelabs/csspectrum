@@ -1,4 +1,5 @@
 export { Color } from "./Color.js";
+export { config } from "./config.js";
 export type {
     ColorType,
     ColorBase,
@@ -20,10 +21,6 @@ export type {
     EvaluateAccessibilityOptions,
 } from "./types.js";
 export {
-    D50_to_D65,
-    D65_to_D50,
-    D50,
-    D65,
     EASINGS,
     multiplyMatrices,
     registerColorType,

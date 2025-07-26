@@ -12,21 +12,6 @@ import type {
     NamedColor,
 } from "./types.js";
 
-export const D50_to_D65 = [
-    [0.955473421488075, -0.02309845494876471, 0.06325924320057072],
-    [-0.0283697093338637, 1.0099953980813041, 0.021041441191917323],
-    [0.012314014864481998, -0.020507649298898964, 1.330365926242124],
-];
-
-export const D65_to_D50 = [
-    [1.0479297925449969, 0.022946870601609652, -0.05019226628920524],
-    [0.02962780877005599, 0.9904344267538799, -0.017073799063418826],
-    [-0.009243040646204504, 0.015055191490298152, 0.7518742814281371],
-];
-
-export const D50 = [0.3457 / 0.3585, 1.0, (1.0 - 0.3457 - 0.3585) / 0.3585];
-export const D65 = [0.3127 / 0.329, 1.0, (1.0 - 0.3127 - 0.329) / 0.329];
-
 export const EASINGS = {
     linear: (t: number) => t,
     "ease-in": (t: number) => t * t,
@@ -372,7 +357,11 @@ export function fit(coords: number[], options: { model?: ColorFunction; method?:
  * @returns An object of type `ColorConverter`.
  */
 export function converterFromFunctionConverter(name: string, converter: ColorFunctionConverter) {
-    const evaluateComponent = (token: string, value: number[] | "hue" | "percentage", base: Record<string, number>) => {
+    const evaluateComponent = (
+        token: string,
+        value: number[] | "hue" | "percentage",
+        base: Record<string, number> = {}
+    ) => {
         const parsePercent = (str: string) => {
             const percent = parseFloat(str);
             if (!isNaN(percent)) {
@@ -469,7 +458,7 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
                 const [, meta] = sorted[i];
                 const token = tokens[i + 1];
                 if (token) {
-                    const value = evaluateComponent(token, meta.value, {});
+                    const value = evaluateComponent(token, meta.value);
                     result[meta.index] = value;
                 }
             }
@@ -638,7 +627,7 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
         bridge: converter.bridge,
         toBridge: (coords: number[]) => [...converter.toBridge(coords.slice(0, 3)), coords[3] ?? 1],
         parse: (str: string) => {
-            const cleaned = str.replace(/\s+/g, " ").trim().toLowerCase();
+            const cleaned = str.replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")").trim().toLowerCase();
             const tokens = tokenize(cleaned);
             const components = parseTokens(tokens);
             return [...components.slice(0, 3), components[3] ?? 1];
@@ -674,7 +663,7 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
 
             if (legacy === true && converter.supportsLegacy === true) {
                 if (alpha === 1) return `${cleanedName}(${formattedComponents.join(", ")})`;
-                return `${cleanedName}a(${formattedComponents.join(", ")}, ${alphaFormatted})`;
+                return `${converter.alphaVariant || cleanedName}(${formattedComponents.join(", ")}, ${alphaFormatted})`;
             }
 
             return `${cleanedName}(${formattedComponents.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
@@ -694,12 +683,7 @@ export function functionConverterFromSpaceConverter<const C extends readonly str
     name: string,
     converter: Omit<ColorSpaceConverter, "components"> & { components: C }
 ) {
-    const { fromLinear = (c) => c, toLinear = (c) => c, whitePoint = "D65" } = converter;
-    const isD50 = whitePoint === "D50";
-    const toBridgeMatrix = isD50 ? multiplyMatrices(D50_to_D65, converter.toBridgeMatrix) : converter.toBridgeMatrix;
-    const fromBridgeMatrix = isD50
-        ? multiplyMatrices(converter.fromBridgeMatrix, D65_to_D50)
-        : converter.fromBridgeMatrix;
+    const { fromLinear = (c) => c, toLinear = (c) => c, toBridgeMatrix, fromBridgeMatrix } = converter;
 
     return {
         supportsLegacy: false,

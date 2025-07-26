@@ -1,4 +1,5 @@
 import { Color } from "./Color.js";
+import { config } from "./config.js";
 import type {
     ColorConverter,
     ColorFunction,
@@ -7,13 +8,7 @@ import type {
     HueInterpolationMethod,
     NamedColor,
 } from "./types.js";
-import {
-    D50,
-    converterFromFunctionConverter,
-    functionConverterFromSpaceConverter,
-    multiplyMatrices,
-    fit,
-} from "./utils.js";
+import { converterFromFunctionConverter, functionConverterFromSpaceConverter, multiplyMatrices, fit } from "./utils.js";
 
 function hslToRgb([h, s, l]: number[]) {
     s /= 100;
@@ -184,7 +179,7 @@ export const namedColors = {
 export const colorSpaceConverters = {
     srgb: functionConverterFromSpaceConverter("srgb", {
         components: ["r", "g", "b"],
-        bridge: "xyz",
+        bridge: "xyz-d65",
         toLinear: (c: number) => {
             const sign = c < 0 ? -1 : 1;
             const abs = Math.abs(c);
@@ -214,7 +209,7 @@ export const colorSpaceConverters = {
     }),
     "srgb-linear": functionConverterFromSpaceConverter("srgb-linear", {
         components: ["r", "g", "b"],
-        bridge: "xyz",
+        bridge: "xyz-d65",
         toBridgeMatrix: [
             [506752 / 1228815, 87881 / 245763, 12673 / 70218],
             [87098 / 409605, 175762 / 245763, 12673 / 175545],
@@ -228,7 +223,7 @@ export const colorSpaceConverters = {
     }),
     "display-p3": functionConverterFromSpaceConverter("display-p3", {
         components: ["r", "g", "b"],
-        bridge: "xyz",
+        bridge: "xyz-d65",
         toLinear: (c: number) => {
             const sign = c < 0 ? -1 : 1;
             const abs = Math.abs(c);
@@ -258,7 +253,7 @@ export const colorSpaceConverters = {
     }),
     rec2020: functionConverterFromSpaceConverter("rec2020", {
         components: ["r", "g", "b"],
-        bridge: "xyz",
+        bridge: "xyz-d65",
         toLinear: (c: number) => {
             const α = 1.09929682680944;
             const β = 0.018053968510807;
@@ -292,7 +287,7 @@ export const colorSpaceConverters = {
     }),
     "a98-rgb": functionConverterFromSpaceConverter("a98-rgb", {
         components: ["r", "g", "b"],
-        bridge: "xyz",
+        bridge: "xyz-d65",
         toLinear: (c: number) => {
             const sign = c < 0 ? -1 : 1;
             const abs = Math.abs(c);
@@ -316,7 +311,7 @@ export const colorSpaceConverters = {
     }),
     "prophoto-rgb": functionConverterFromSpaceConverter("prophoto-rgb", {
         components: ["r", "g", "b"],
-        bridge: "xyz",
+        bridge: "xyz-d50",
         toLinear: (c: number) => {
             const Et2 = 16 / 512;
             const sign = c < 0 ? -1 : 1;
@@ -345,12 +340,11 @@ export const colorSpaceConverters = {
             [-0.5446307051249019, 1.5082477428451468, 0.02052744743642139],
             [0.0, 0.0, 1.2119675456389452],
         ],
-        whitePoint: "D50",
     }),
     "xyz-d65": functionConverterFromSpaceConverter("xyz-d65", {
         targetGamut: null,
         components: ["x", "y", "z"],
-        bridge: "xyz",
+        bridge: "xyz-d65",
         toBridgeMatrix: [
             [1, 0, 0],
             [0, 1, 0],
@@ -365,23 +359,22 @@ export const colorSpaceConverters = {
     "xyz-d50": functionConverterFromSpaceConverter("xyz-d50", {
         targetGamut: null,
         components: ["x", "y", "z"],
-        bridge: "xyz",
+        bridge: "xyz-d65",
         toBridgeMatrix: [
-            [1, 0, 0],
-            [0, 1, 0],
-            [0, 0, 1],
+            [0.955473421488075, -0.02309845494876471, 0.06325924320057072],
+            [-0.0283697093338637, 1.0099953980813041, 0.021041441191917323],
+            [0.012314014864481998, -0.020507649298898964, 1.330365926242124],
         ],
         fromBridgeMatrix: [
-            [1, 0, 0],
-            [0, 1, 0],
-            [0, 0, 1],
+            [1.0479297925449969, 0.022946870601609652, -0.05019226628920524],
+            [0.02962780877005599, 0.9904344267538799, -0.017073799063418826],
+            [-0.009243040646204504, 0.015055191490298152, 0.7518742814281371],
         ],
-        whitePoint: "D50",
     }),
     xyz: functionConverterFromSpaceConverter("xyz", {
         targetGamut: null,
         components: ["x", "y", "z"],
-        bridge: "xyz",
+        bridge: "xyz-d65",
         toBridgeMatrix: [
             [1, 0, 0],
             [0, 1, 0],
@@ -399,12 +392,13 @@ export const colorSpaceConverters = {
 export const colorFunctionConverters = {
     rgb: {
         supportsLegacy: true,
+        alphaVariant: "rgba",
         components: {
             r: { index: 0, value: [0, 255], precision: 0 },
             g: { index: 1, value: [0, 255], precision: 0 },
             b: { index: 2, value: [0, 255], precision: 0 },
         },
-        bridge: "xyz",
+        bridge: "xyz-d65",
         toBridge: (rgb: number[]) => {
             const rgbNorm = rgb.map((v) => v / 255);
 
@@ -454,6 +448,7 @@ export const colorFunctionConverters = {
     },
     hsl: {
         supportsLegacy: true,
+        alphaVariant: "hsla",
         components: {
             h: { index: 0, value: "hue", precision: 1 },
             s: { index: 1, value: "percentage", precision: 1 },
@@ -563,8 +558,9 @@ export const colorFunctionConverters = {
             a: { index: 1, value: [-125, 125], precision: 5 },
             b: { index: 2, value: [-125, 125], precision: 5 },
         },
-        bridge: "xyz",
+        bridge: "xyz-d50",
         toBridge: ([L, a, b]: number[]) => {
+            const D50 = [0.3457 / 0.3585, 1.0, (1.0 - 0.3457 - 0.3585) / 0.3585];
             const κ = 24389 / 27;
             const ε = 216 / 24389;
             const fy = (L + 16) / 116;
@@ -578,6 +574,7 @@ export const colorFunctionConverters = {
             return xyz.map((value, i) => value * D50[i]);
         },
         fromBridge: (xyz: number[]) => {
+            const D50 = [0.3457 / 0.3585, 1.0, (1.0 - 0.3457 - 0.3585) / 0.3585];
             const ε = 216 / 24389;
             const κ = 24389 / 27;
             const xyz_d50 = xyz.map((value, i) => value / D50[i]);
@@ -610,7 +607,7 @@ export const colorFunctionConverters = {
             a: { index: 1, value: [-0.4, 0.4], precision: 5 },
             b: { index: 2, value: [-0.4, 0.4], precision: 5 },
         },
-        bridge: "xyz",
+        bridge: "xyz-d65",
         toBridge: (lab: number[]) => {
             const LMStoBridge = [
                 [1.2268798758459243, -0.5578149944602171, 0.2813910456659647],
@@ -709,7 +706,7 @@ export const colorBases = {
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (name: string) => {
-            const key = name.replace(/[\s-]/g, "").toLowerCase() as NamedColor;
+            const key = name.replace(/[\s-]/g, "").trim().toLowerCase() as NamedColor;
             const rgb = namedColors[key];
             if (!rgb) throw new Error(`Invalid named-color: ${name}`);
             return [...rgb, 1];
@@ -730,7 +727,6 @@ export const colorBases = {
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
-            // FIXME: this should use the same method as the one in converterFromFunctionConverter to extract the color string
             const extractColorAndWeight = (colorStr: string) => {
                 const regex = /^(.*?)(?:\s+(\d+%))?$/;
                 const match = colorStr.match(regex);
@@ -761,7 +757,7 @@ export const colorBases = {
                 return weight2 / (weight1 + weight2);
             };
 
-            const cleaned = str.replace(/\s+/g, " ").trim().toLowerCase();
+            const cleaned = str.replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")").trim().toLowerCase();
             const inner = cleaned.slice(10, -1).trim();
 
             const parts: string[] = [];
@@ -796,7 +792,7 @@ export const colorBases = {
 
             const amount = getWeight2Prime(weight1, weight2);
 
-            return color1.in(model).mix(color2, { amount, hue }).current.coords;
+            return color1.in(model).mix(color2, { amount, hue }).getCoords();
         },
     },
     transparent: {
@@ -828,8 +824,9 @@ export const colorTypes = {
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
-            const cleaned = str.replace(/\s+/g, " ").trim().toLowerCase().slice(15, -1);
-            const luminance = Color.from(cleaned).luminance();
+            const cleaned = str.replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")").trim().toLowerCase();
+            const inner = cleaned.slice(15, -1);
+            const luminance = Color.from(inner).luminance();
             return luminance > 0.5 ? [0, 0, 0, 1] : [255, 255, 255, 1];
         },
     },
@@ -841,34 +838,137 @@ export const colorTypes = {
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
-            const cleaned = str.replace(/\s+/g, " ").trim().toLowerCase();
-            const match = cleaned.match(/device-cmyk\([^)]*?,\s*(.+?)\s*\)$/i);
-            if (match && match[1]) return Color.from(match[1]).current.coords;
+            const findMatchingParen = (str: string, startIndex: number) => {
+                let depth = 0;
+                for (let i = startIndex; i < str.length; i++) {
+                    if (str[i] === "(") depth++;
+                    else if (str[i] === ")") depth--;
+                    if (depth === 0) return i;
+                }
+                throw new Error("Mismatched parentheses");
+            };
 
-            const cmykBody = cleaned.replace(/device-cmyk\(|\)/gi, "").trim();
-            const [componentsPart, alphaPart] = cmykBody.split("/");
-            const components = componentsPart
-                .trim()
-                .split(/[\s,]+/)
-                .filter(Boolean)
-                .map((v) => (v.endsWith("%") ? parseFloat(v) / 100 : parseFloat(v)));
-            const alpha =
-                alphaPart !== undefined
-                    ? alphaPart.trim().endsWith("%")
-                        ? parseFloat(alphaPart.trim()) / 100
-                        : parseFloat(alphaPart.trim())
-                    : 1;
-            const [cyan, magenta, yellow, black] = [
-                components[0] ?? 0,
-                components[1] ?? 0,
-                components[2] ?? 0,
-                components[3] ?? 0,
-                alpha,
-            ];
-            const red = 1 - Math.min(1, cyan * (1 - black) + black);
-            const green = 1 - Math.min(1, magenta * (1 - black) + black);
-            const blue = 1 - Math.min(1, yellow * (1 - black) + black);
-            return [red * 255, green * 255, blue * 255, alpha];
+            const tokenize = (str: string) => {
+                const tokens = [];
+                let i = 0;
+                while (i < str.length) {
+                    while (i < str.length && str[i] === " ") i++;
+                    if (i >= str.length) break;
+
+                    const char = str[i];
+                    if (/[a-zA-Z-]/.test(char)) {
+                        let ident = "";
+                        while (i < str.length && /[a-zA-Z0-9-%]/.test(str[i])) {
+                            ident += str[i];
+                            i++;
+                        }
+                        if (i < str.length && str[i] === "(") {
+                            let depth = 1;
+                            let funcStr = ident + "(";
+                            i++;
+                            while (i < str.length && depth > 0) {
+                                if (str[i] === "(") depth++;
+                                else if (str[i] === ")") depth--;
+                                if (depth > 0) funcStr += str[i];
+                                i++;
+                            }
+                            funcStr += ")";
+                            tokens.push(funcStr);
+                        } else {
+                            tokens.push(ident);
+                        }
+                    } else if (/[\d.-]/.test(char)) {
+                        let num = "";
+                        while (i < str.length && /[\d.eE+-]/.test(str[i])) {
+                            num += str[i];
+                            i++;
+                        }
+                        if (i < str.length && str[i] === "%") {
+                            num += "%";
+                            i++;
+                            tokens.push(num);
+                        } else if (i < str.length && /[a-zA-Z]/.test(str[i])) {
+                            let unit = "";
+                            while (i < str.length && /[a-zA-Z]/.test(str[i])) {
+                                unit += str[i];
+                                i++;
+                            }
+                            tokens.push(num + unit);
+                        } else {
+                            tokens.push(num);
+                        }
+                    } else if (char === "," || char === "/") {
+                        tokens.push(char);
+                        i++;
+                    } else {
+                        throw new Error(`Unexpected character: ${char}`);
+                    }
+                }
+                return tokens;
+            };
+
+            const cleaned = str.replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")").trim().toLowerCase();
+            const openingIndex = cleaned.indexOf("(");
+            if (openingIndex === -1) throw new Error("Invalid device-cmyk syntax");
+            const closingIndex = findMatchingParen(cleaned, openingIndex);
+            const content = cleaned.slice(openingIndex + 1, closingIndex).trim();
+            const tokens = tokenize(content);
+
+            const parseValue = (token: string) => {
+                if (token.endsWith("%")) {
+                    return parseFloat(token) / 100;
+                } else {
+                    return parseFloat(token);
+                }
+            };
+
+            if (tokens.length >= 2 && tokens[1] === ",") {
+                const values = tokens.filter((token) => token !== ",");
+                if (values.length === 4) {
+                    const [c, m, y, k] = values.map(parseValue);
+                    const alpha = 1;
+                    const red = 1 - Math.min(1, c * (1 - k) + k);
+                    const green = 1 - Math.min(1, m * (1 - k) + k);
+                    const blue = 1 - Math.min(1, y * (1 - k) + k);
+                    return [red * 255, green * 255, blue * 255, alpha];
+                } else if (values.length === 5) {
+                    const [c, m, y, k, alpha] = values.map(parseValue);
+                    const red = 1 - Math.min(1, c * (1 - k) + k);
+                    const green = 1 - Math.min(1, m * (1 - k) + k);
+                    const blue = 1 - Math.min(1, y * (1 - k) + k);
+                    return [red * 255, green * 255, blue * 255, alpha];
+                } else {
+                    throw new Error("Invalid number of components for comma-separated device-cmyk");
+                }
+            } else {
+                let i = 0;
+                const components = [];
+                while (i < tokens.length && components.length < 4 && tokens[i] !== "/" && tokens[i] !== ",") {
+                    components.push(tokens[i]);
+                    i++;
+                }
+                if (components.length !== 4)
+                    throw new Error("Invalid number of components for space-separated device-cmyk");
+                const [c, m, y, k] = components.map(parseValue);
+                let alpha = 1;
+                if (i < tokens.length && tokens[i] === "/") {
+                    i++;
+                    if (i >= tokens.length) throw new Error("Missing alpha value");
+                    alpha = parseValue(tokens[i]);
+                    i++;
+                }
+                if (i < tokens.length && tokens[i] === ",") {
+                    i++;
+                    const fallbackTokens = tokens.slice(i);
+                    const fallbackStr = fallbackTokens.join(" ");
+                    return Color.from(fallbackStr).in("rgb").getCoords();
+                } else {
+                    const red = 1 - Math.min(1, c * (1 - k) + k);
+                    const green = 1 - Math.min(1, m * (1 - k) + k);
+                    const blue = 1 - Math.min(1, y * (1 - k) + k);
+                    return [red * 255, green * 255, blue * 255, alpha];
+                }
+            }
         },
         fromBridge: (coords: number[]) => coords,
         format: ([red, green, blue, alpha = 1]: number[], options: FormattingOptions = {}) => {
@@ -888,14 +988,12 @@ export const colorTypes = {
             const kFormatted = formatComponent(k);
             const alphaFormatted = Number(alpha.toFixed(3)).toString();
 
-            const alphaPart = alpha < 1 ? (legacy ? `, ${alphaFormatted}` : ` / ${alphaFormatted}`) : "";
-
             if (legacy) {
-                return `device-cmyk(${c}, ${m}, ${y}, ${kFormatted}${alphaPart})`;
+                return `device-cmyk(${c}, ${m}, ${y}, ${kFormatted}${alpha < 1 ? `, ${alphaFormatted}` : ""})`;
             }
 
-            const rgbPart = `rgb(${fr} ${fg} ${fb}${alpha < 1 ? ` / ${alphaFormatted}` : ""})`;
-            return `device-cmyk(${c} ${m} ${y} ${kFormatted}${alphaPart}, ${rgbPart})`;
+            const rgbPart = colorFunctions.rgb.format?.([fr, fg, fb, alpha], options);
+            return `device-cmyk(${c} ${m} ${y} ${kFormatted}${alpha < 1 ? ` / ${alphaFormatted}` : ""}, ${rgbPart})`;
         },
     },
     "light-dark": {
@@ -906,13 +1004,14 @@ export const colorTypes = {
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
-            const cleaned = str.replace(/\s+/g, " ").trim().toLowerCase().slice(11, -1);
+            const cleaned = str.replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")").trim().toLowerCase();
+            const inner = cleaned.slice(11, -1);
 
             let depth = 0;
             let splitIndex = -1;
 
-            for (let i = 0; i < cleaned.length; i++) {
-                const char = cleaned[i];
+            for (let i = 0; i < inner.length; i++) {
+                const char = inner[i];
                 if (char === "(") depth++;
                 else if (char === ")") depth--;
                 else if (char === "," && depth === 0) {
@@ -923,25 +1022,25 @@ export const colorTypes = {
 
             if (splitIndex === -1) throw new Error("Invalid light-dark format");
 
-            const color1 = cleaned.slice(0, splitIndex).trim();
-            const color2 = cleaned.slice(splitIndex + 1).trim();
+            const color1 = inner.slice(0, splitIndex).trim();
+            const color2 = inner.slice(splitIndex + 1).trim();
 
-            const { theme } = Color.config;
-            return Color.from(theme === "light" ? color1 : color2).current.coords;
+            const { theme } = config;
+            return Color.from(theme === "light" ? color1 : color2).getCoords();
         },
     },
     "system-color": {
         isValid: (str: string) => {
-            const { systemColors } = Color.config;
+            const { systemColors } = config;
             return Object.keys(systemColors).some((key) => key.toLowerCase() === str.trim().toLowerCase());
         },
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
-            const { systemColors } = Color.config;
-            str = str.replace(/\s+/g, " ").trim();
-            const key = Object.keys(systemColors).find((k) => k.toLowerCase() === str.trim().toLowerCase());
-            const rgbArr = systemColors[key as keyof typeof systemColors][Color.config.theme === "light" ? 0 : 1];
+            const { systemColors } = config;
+            const cleaned = str.replace(/\s+/g, " ").trim().toLowerCase();
+            const key = Object.keys(systemColors).find((k) => k.toLowerCase() === cleaned);
+            const rgbArr = systemColors[key as keyof typeof systemColors][config.theme === "light" ? 0 : 1];
             return [...rgbArr, 1];
         },
     },
