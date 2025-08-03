@@ -1,4 +1,5 @@
 import { Color } from "./Color.js";
+import { systemColors } from "./config.js";
 import { namedColors, colorTypes, colorFunctionConverters, colorBases, colorSpaceConverters } from "./converters.js";
 import { EASINGS } from "./utils.js";
 
@@ -10,9 +11,11 @@ export type Config = {
 
     /** System colors for light and dark themes. */
     systemColors: {
-        [key: string]: [number[], number[]];
+        [key: string]: number[][];
     };
 };
+
+export type SystemColor = keyof typeof systemColors;
 
 /** Represents the available `<color>s`. */
 export type ColorType = keyof typeof colorTypes;
@@ -112,7 +115,7 @@ export type Interface<M extends ColorFunction> = {
     /** Gets all component values as an object. */
     get: (
         /**
-         * Method for fitting the color into the target gamut.
+         * Method for fitting the color into the target gamut:
          * - `"none"`: Returns the original coordinates without modification.
          * - `"round-unclipped"`: Rounds the coordinates according to the component precision withput gamut mapping.
          * - `"clip"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
@@ -125,7 +128,7 @@ export type Interface<M extends ColorFunction> = {
     /** Gets all component values as an array. */
     getCoords: (
         /**
-         * Method for fitting the color into the target gamut.
+         * Method for fitting the color into the target gamut:
          * - `"none"`: Returns the original coordinates without modification.
          * - `"round-unclipped"`: Rounds the coordinates according to the component precision withput gamut mapping.
          * - `"clip"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
@@ -138,7 +141,7 @@ export type Interface<M extends ColorFunction> = {
     /** Sets component values using an object, supporting updater functions. */
     set: (
         /**
-         * Defines how color components should be updated.
+         * Defines how color components should be updated:
          *
          * - Can be a partial object where each key is a component (e.g., `r`, `g`, `b`, `h`, `s`, `alpha`), and values
          *   are either numbers (to set directly) or functions that receive the current value and return the new one.
@@ -174,7 +177,7 @@ export type Interface<M extends ColorFunction> = {
         /** The color to mix with. Can be a string, or Color instance. */
         other: Color<M> | string,
         /**
-         * Options for mixing the colors.
+         * Options for mixing the colors:
          * - `amount`: Amount of the second color to mix in, between 0 and 1.
          * - `hue`: Method for interpolating hue values.
          * - `easing`: Easing function to apply to the interpolation parameter.
@@ -206,7 +209,7 @@ export type FormattingOptions = {
     legacy?: boolean;
 
     /**
-     * Method for fitting the color into the target gamut.
+     * Method for fitting the color into the target gamut:
      * - `"none"`: Returns the original coordinates without modification.
      * - `"round-unclipped"`: Rounds the coordinates according to the component precision withput gamut mapping.
      * - `"clip"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).

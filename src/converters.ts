@@ -792,7 +792,7 @@ export const colorBases = {
 
             const amount = getWeight2Prime(weight1, weight2);
 
-            return color1.in(model).mix(color2, { amount, hue }).getCoords();
+            return color1.in(model).mix(color2, { amount, hue }).in("rgb").getCoords();
         },
     },
     transparent: {

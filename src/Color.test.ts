@@ -1,53 +1,72 @@
 import { Color } from "./Color";
+import { ColorFunction } from "./types.js";
 
 describe("Color", () => {
     it("should correctly identify all supported color functions", () => {
-        expect(Color.type("#ff5733")).toBe("hex-color");
-        expect(Color.type("rgb(255, 87, 51)")).toBe("rgb");
-        expect(Color.type("hsl(9, 100%, 60%)")).toBe("hsl");
-        expect(Color.type("red")).toBe("named-color");
-        expect(Color.type("hwb(9 10% 20%)")).toBe("hwb");
-        expect(Color.type("lab(53.23288% 80.10933 67.22006)")).toBe("lab");
-        expect(Color.type("lch(50% 80% 30)")).toBe("lch");
-        expect(Color.type("oklab(59% 0.1 0.1 / 0.5)")).toBe("oklab");
-        expect(Color.type("oklch(60% 0.15 50)")).toBe("oklch");
-        expect(Color.type("color(srgb 0.88 0.75 0.49)")).toBe("srgb");
-        expect(Color.type("color(srgb-linear 0.5 0.3 0.2)")).toBe("srgb-linear");
-        expect(Color.type("color(display-p3 0.5 0.34 0.2)")).toBe("display-p3");
-        expect(Color.type("color(rec2020 0.5 0.34 0.2)")).toBe("rec2020");
-        expect(Color.type("color(a98-rgb 0.5 0.34 0.2)")).toBe("a98-rgb");
-        expect(Color.type("color(prophoto-rgb 0.5 0.34 0.2)")).toBe("prophoto-rgb");
-        expect(Color.type("color(xyz-d65 0.37 0.4 0.42)")).toBe("xyz-d65");
-        expect(Color.type("color(xyz-d50 0.37 0.4 0.32)")).toBe("xyz-d50");
-        expect(Color.type("color(xyz 0.37 0.4 0.42)")).toBe("xyz");
+        const cases = [
+            ["#ff5733", "hex-color"],
+            ["rgb(255, 87, 51)", "rgb"],
+            ["hsl(9, 100%, 60%)", "hsl"],
+            ["hwb(9 10% 20%)", "hwb"],
+            ["lab(53.23288% 80.10933 67.22006)", "lab"],
+            ["lch(50% 80% 30)", "lch"],
+            ["oklab(59% 0.1 0.1 / 0.5)", "oklab"],
+            ["oklch(60% 0.15 50)", "oklch"],
+            ["color(srgb 0.88 0.75 0.49)", "srgb"],
+            ["color(srgb-linear 0.5 0.3 0.2)", "srgb-linear"],
+            ["color(display-p3 0.5 0.34 0.2)", "display-p3"],
+            ["color(rec2020 0.5 0.34 0.2)", "rec2020"],
+            ["color(a98-rgb 0.5 0.34 0.2)", "a98-rgb"],
+            ["color(prophoto-rgb 0.5 0.34 0.2)", "prophoto-rgb"],
+            ["color(xyz-d65 0.37 0.4 0.42)", "xyz-d65"],
+            ["color(xyz-d50 0.37 0.4 0.32)", "xyz-d50"],
+            ["color(xyz 0.37 0.4 0.42)", "xyz"],
+            ["red", "named-color"],
+            ["color-mix(in hsl, red, blue)", "color-mix"],
+            ["transparent", "transparent"],
+            ["currentColor", "currentColor"],
+            ["ButtonText", "system-color"],
+            ["contrast-color(lime)", "contrast-color"],
+            ["device-cmyk(0.1 0.2 0.3 0.4)", "device-cmyk"],
+            ["light-dark(green, yellow)", "light-dark"],
+        ];
+
+        cases.forEach(([input, expected]) => {
+            expect(Color.type(input)).toBe(expected);
+        });
     });
 
     it("should correctly identify relative colors", () => {
-        expect(Color.type("color(from red a98-rgb r g b)")).toBe("a98-rgb");
-        expect(Color.type("color(from red xyz-d50 x y z / alpha)")).toBe("xyz-d50");
-        expect(Color.type("hsl(from red calc(h + s) s l)")).toBe("hsl");
-        expect(Color.type("hwb(from red h 50 b / w)")).toBe("hwb");
-        expect(Color.type("lab(from lch(51.51% 52.21 325.8) l a b)")).toBe("lab");
-        expect(Color.type("oklab(from oklch(100% 0 0) a calc(l * (a + b)) b / 0.5)")).toBe("oklab");
+        const cases = [
+            ["color(from red a98-rgb r g b)", "a98-rgb"],
+            ["color(from red xyz-d50 x y z / alpha)", "xyz-d50"],
+            ["hsl(from red calc(h + s) s l)", "hsl"],
+            ["hwb(from red h 50 b / w)", "hwb"],
+            ["lab(from lch(51.51% 52.21 325.8) l a b)", "lab"],
+            ["oklab(from oklch(100% 0 0) a calc(l * (a + b)) b / 0.5)", "oklab"],
+        ];
+
+        cases.forEach(([input, expected]) => {
+            expect(Color.type(input)).toBe(expected);
+        });
     });
 
     it("should return correct arrays of components", () => {
-        const fit = "clip";
-        expect(Color.from("blanchedalmond").in("rgb").getCoords(fit)).toEqual([255, 235, 205, 1]);
-        expect(Color.from("#7a7239").in("rgb").getCoords(fit)).toEqual([122, 114, 57, 1]);
-        expect(Color.from("rgb(68% 16% 50% / 0.3)").in("rgb").getCoords(fit)).toEqual([173, 41, 128, 0.3]);
-        expect(Color.from("hsla(182, 43%, 33%, 0.8)").in("hsl").getCoords(fit)).toEqual([182, 43, 33, 0.8]);
-        expect(Color.from("hwb(228 6% 9% / 0.6)").in("hwb").getCoords(fit)).toEqual([228, 6, 9, 0.6]);
-        expect(Color.from("lab(52.23% 40.16% 59.99% / 0.5)").in("lab").getCoords(fit)).toEqual([
-            52.23, -24.6, 24.975, 0.5,
-        ]);
-        expect(Color.from("lch(62.23% 59.2% 126.2 / 0.5)").in("lch").getCoords(fit)).toEqual([62.23, 88.8, 126.2, 0.5]);
-        expect(Color.from("oklab(42.1% 41% -25% / 0.5)").in("oklab").getCoords(fit)).toEqual([
-            0.421, -0.072, -0.4, 0.5,
-        ]);
-        expect(Color.from("oklch(72.32% 0.12% 247.99 / 0.5)").in("oklch").getCoords(fit)).toEqual([
-            0.7232, 0.00048, 247.99, 0.5,
-        ]);
+        const cases: [string, ColorFunction, number[]][] = [
+            ["blanchedalmond", "rgb", [255, 235, 205, 1]],
+            ["#7a7239", "rgb", [122, 114, 57, 1]],
+            ["rgb(68% 16% 50% / 0.3)", "rgb", [173, 41, 128, 0.3]],
+            ["hsla(182, 43%, 33%, 0.8)", "hsl", [182, 43, 33, 0.8]],
+            ["hwb(228 6% 9% / 0.6)", "hwb", [228, 6, 9, 0.6]],
+            ["lab(52.23% 40.16% 59.99% / 0.5)", "lab", [52.23, -24.6, 24.975, 0.5]],
+            ["lch(62.23% 59.2% 126.2 / 0.5)", "lch", [62.23, 88.8, 126.2, 0.5]],
+            ["oklab(42.1% 41% -25% / 0.5)", "oklab", [0.421, -0.072, -0.4, 0.5]],
+            ["oklch(72.32% 0.12% 247.99 / 0.5)", "oklch", [0.7232, 0.00048, 247.99, 0.5]],
+        ];
+
+        cases.forEach(([input, space, expected]) => {
+            expect(Color.from(input).in(space).getCoords("clip")).toEqual(expected);
+        });
     });
 
     it("should parse deeply nested colors", () => {
@@ -65,7 +84,7 @@ describe("Color", () => {
         expect(color.to("hwb")).toBeDefined();
     });
 
-    it("should convert HEX to RGB", () => {
+    it("should convert HEX color to RGB", () => {
         expect(Color.from("#ff5733").to("rgb")).toBe("rgb(255 87 51)");
     });
 

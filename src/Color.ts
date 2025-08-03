@@ -5,7 +5,7 @@ import {
     colorSpaceConverters,
     colorFunctions,
 } from "./converters.js";
-import { EASINGS, fit } from "./utils.js";
+import { cache, EASINGS, fit } from "./utils.js";
 import type {
     ComponentDefinition,
     Component,
@@ -122,6 +122,7 @@ export class Color<M extends ColorFunction> {
                 const { bridge, toBridge, parse } = colorType;
                 const coords = toBridge(parse(color));
                 const result = new Color(bridge as ColorFunction, coords);
+
                 return result;
             }
         }
@@ -174,7 +175,7 @@ export class Color<M extends ColorFunction> {
      *
      * @returns An array of supported output type names.
      */
-    static getSupportedOutputTypes() {
+    static getOutputTypes() {
         return Object.keys(colorTypes).filter(
             (key) => typeof (colorTypes as any)[key]?.fromBridge === "function" // eslint-disable-line @typescript-eslint/no-explicit-any
         ) as OutputType[];
@@ -185,7 +186,7 @@ export class Color<M extends ColorFunction> {
      *
      * @returns An array of supported color types.
      */
-    static getSupportedColorTypes() {
+    static getColorTypes() {
         return Array.from(Object.keys(colorTypes)) as ColorType[];
     }
 
@@ -212,6 +213,11 @@ export class Color<M extends ColorFunction> {
 
         if (type === this.model) {
             return format(this.coords, { legacy, fit, precision, units });
+        }
+
+        if (type in colorFunctions) {
+            const coords = this.in(type).getCoords();
+            return format(coords, { legacy, fit, precision, units });
         }
 
         const coords = this.in(bridge).getCoords();
@@ -264,62 +270,72 @@ export class Color<M extends ColorFunction> {
             return result;
         };
 
-        const getCoords = (fitMethod: FitMethod = "none") => {
-            const current = this.model;
-            const currentCoords = this.coords;
+        const getCoords = (fitMethod = "none") => {
+            const buildGraph = () => {
+                const graph: { [key: string]: string[] } = {};
+                for (const [modelName, conv] of Object.entries(converters)) {
+                    if (!graph[modelName]) graph[modelName] = [];
+                    if ((conv as ColorFunctionConverter).toBridge && conv.bridge) {
+                        graph[modelName].push(conv.bridge);
+                        graph[conv.bridge] = graph[conv.bridge] || [];
+                    }
+                    if ((conv as ColorFunctionConverter).fromBridge && conv.bridge) {
+                        graph[conv.bridge] = graph[conv.bridge] || [];
+                        graph[conv.bridge].push(modelName);
+                    }
+                }
+                return graph;
+            };
+
+            const findPath = (start: string, end: string) => {
+                const cacheKey = `${start}-${end}`;
+                if (pathsMap.has(cacheKey)) {
+                    return pathsMap.get(cacheKey);
+                }
+
+                const visited = new Set();
+                const queue = [[start]];
+
+                while (queue.length > 0) {
+                    const path = queue.shift() as string[];
+                    const node = path[path.length - 1];
+
+                    if (node === end) {
+                        pathsMap.set(cacheKey, path);
+                        return path;
+                    }
+
+                    if (!visited.has(node)) {
+                        visited.add(node);
+                        (graph[node] || []).forEach((neighbor: string) => {
+                            queue.push([...path, neighbor]);
+                        });
+                    }
+                }
+
+                return null;
+            };
 
             const converters = { ...colorFunctionConverters, ...colorSpaceConverters };
+            let graph = cache.get("graph");
+            let pathsMap = cache.get("paths");
 
+            if (!graph) {
+                graph = buildGraph();
+                cache.set("graph", graph);
+            }
+            if (!pathsMap) {
+                pathsMap = new Map();
+                cache.set("paths", pathsMap);
+            }
+
+            const current = this.model;
+            const currentCoords = this.coords;
             let value = currentCoords;
 
             if (model === current) {
                 value = currentCoords.slice(0, 3);
             } else {
-                const buildGraph = () => {
-                    const graph: { [key: string]: string[] } = {};
-
-                    for (const [modelName, conv] of Object.entries(converters)) {
-                        if (!graph[modelName]) graph[modelName] = [];
-
-                        if ((conv as ColorFunctionConverter).toBridge && conv.bridge) {
-                            graph[modelName].push(conv.bridge);
-                            graph[conv.bridge] = graph[conv.bridge] || [];
-                        }
-
-                        if ((conv as ColorFunctionConverter).fromBridge && conv.bridge) {
-                            graph[conv.bridge] = graph[conv.bridge] || [];
-                            graph[conv.bridge].push(modelName);
-                        }
-                    }
-
-                    return graph;
-                };
-
-                const graph = buildGraph();
-
-                const findPath = (start: string, end: string) => {
-                    const visited = new Set();
-                    const queue = [[start]];
-
-                    while (queue.length > 0) {
-                        const path = queue.shift() as string[];
-                        const node = path[path.length - 1];
-
-                        if (node === end) {
-                            return path;
-                        }
-
-                        if (!visited.has(node)) {
-                            visited.add(node);
-                            (graph[node] || []).forEach((neighbor) => {
-                                queue.push([...path, neighbor]);
-                            });
-                        }
-                    }
-
-                    return null;
-                };
-
                 const path = findPath(current, model);
 
                 if (!path) {
@@ -344,7 +360,7 @@ export class Color<M extends ColorFunction> {
             }
 
             if (fitMethod) {
-                const clipped = fit(value.slice(0, 3), { model: model as N, method: fitMethod });
+                const clipped = fit(value.slice(0, 3), { model: model as N, method: fitMethod as FitMethod });
                 return [...clipped, this.coords[3]];
             }
 
@@ -399,8 +415,6 @@ export class Color<M extends ColorFunction> {
                     }
                 }
             });
-
-            console.log({ coords });
 
             return new Color(model as N, [...coords.slice(0, 3), newAlpha]);
         };
@@ -484,9 +498,9 @@ export class Color<M extends ColorFunction> {
             const hueIndex = Object.entries(components).find(([k]) => k === "h")?.[1].index;
 
             if (amount === 0) {
-                return setCoords([...thisCoords, thisAlpha]);
+                return new Color(model as N, [...thisCoords, thisAlpha]);
             } else if (amount === 1) {
-                return setCoords([...otherCoords, otherAlpha]);
+                return new Color(model as N, [...otherCoords, otherAlpha]);
             } else if (thisAlpha < 1 || otherAlpha < 1) {
                 const premixed = thisCoords.map((start, index) => {
                     const end = otherCoords[index];
@@ -507,7 +521,7 @@ export class Color<M extends ColorFunction> {
                         ? premixed.map((c, i) => (i === hueIndex ? c : c / mixedAlpha))
                         : thisCoords.map((_, i) => (i === hueIndex ? premixed[i] : 0));
 
-                return setCoords([...mixed, mixedAlpha]);
+                return new Color(model as N, [...mixed, mixedAlpha]);
             } else {
                 const mixedCoords = thisCoords.map((start, index) => {
                     const compEntry = Object.entries(components).find(([, def]) => def.index === index);
@@ -523,22 +537,68 @@ export class Color<M extends ColorFunction> {
                     return start + (end - start) * gammaCorrectedT;
                 });
 
-                return setCoords([...mixedCoords, 1]);
+                return new Color(model as N, [...mixedCoords, 1]);
             }
         };
 
         return { get, getCoords, set, setCoords, mix };
     }
 
+    /**
+     * Gets all component values as an object.
+     *
+     * @param fitMethod -  Method for fitting the color into the target gamut:
+     * - `"none"`: Returns the original coordinates without modification.
+     * - `"round-unclipped"`: Rounds the coordinates according to the component precision withput gamut mapping.
+     * - `"clip"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
+     * - `"chroma-reduction"`: Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
+     * - `"css-gamut-map"`: CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
+     */
     // eslint-disable-next-line no-unused-vars
     get(fitMethod: FitMethod = "none"): { [key in Component<M>]: number } {
         return this.in(this.model).get(fitMethod) as { [key in Component<M>]: number }; // eslint-disable-line no-unused-vars
     }
 
+    /**
+     * Gets all component values as an array.
+     *
+     * @param fitMethod - Method for fitting the color into the target gamut:
+     * - `"none"`: Returns the original coordinates without modification.
+     * - `"round-unclipped"`: Rounds the coordinates according to the component precision withput gamut mapping.
+     * - `"clip"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
+     * - `"chroma-reduction"`: Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
+     * - `"css-gamut-map"`: CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
+     */
     getCoords(fitMethod: FitMethod = "none") {
         return this.in(this.model).getCoords(fitMethod);
     }
 
+    /**
+     * Sets component values using an object, supporting updater functions.
+     *
+     * @param values - Defines how color components should be updated:
+     *
+     * - Can be a partial object where each key is a component (e.g., `r`, `g`, `b`, `h`, `s`, `alpha`), and values
+     *   are either numbers (to set directly) or functions that receive the current value and return the new one.
+     *
+     * - Alternatively, can be a function that receives all current component values as an object,
+     *   and returns a partial object of updated values.
+     *
+     * ```typescript
+     * // Direct value update
+     * set({ l: 50 }) // sets lightness to 50%
+     *
+     * // Using updater functions
+     * set({ r: r => r * 2 }) // doubles the red component
+     *
+     * // Using a function that returns multiple updates
+     * set(({ r, g, b }) => ({
+     *   r: r * 0.393 + g * 0.769 + b * 0.189,
+     *   g: r * 0.349 + g * 0.686 + b * 0.168,
+     *   b: r * 0.272 + g * 0.534 + b * 0.131,
+     * })) // applies a sepia filter
+     * ```
+     */
     set(
         values: // eslint-disable-next-line no-unused-vars
         | Partial<{ [K in Component<M> | "alpha"]: number | ((prev: number) => number) }>
@@ -554,10 +614,23 @@ export class Color<M extends ColorFunction> {
         ) as Color<M>;
     }
 
+    /**
+     * Sets component values using an array.
+     */
     setCoords(newCoords: (number | undefined)[]): Color<M> {
         return this.in(this.model).setCoords(newCoords) as Color<M>;
     }
 
+    /**
+     * Mixes this color with another by a specified amount.
+     *
+     * @param other - The color to mix with. Can be a string, or Color instance.
+     * @param options - Options for mixing the colors:
+     * - `amount`: Amount of the second color to mix in, between 0 and 1.
+     * - `hue`: Method for interpolating hue values.
+     * - `easing`: Easing function to apply to the interpolation parameter.
+     * - `gamma`: Gamma correction value to use during mixing.
+     */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mix(other: Color<any> | string, options: MixOptions = {}): Color<M> {
         const otherColor = typeof other === "string" ? Color.from(other) : other;

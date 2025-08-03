@@ -1,4 +1,5 @@
 import { Color } from "./Color.js";
+import { config } from "./config.js";
 import { colorBases, colorFunctionConverters, colorSpaceConverters, colorTypes, namedColors } from "./converters.js";
 import type {
     ColorConverter,
@@ -10,7 +11,10 @@ import type {
     FitMethod,
     FormattingOptions,
     NamedColor,
+    SystemColor,
 } from "./types.js";
+
+export const cache = new Map();
 
 export const EASINGS = {
     linear: (t: number) => t,
@@ -56,6 +60,43 @@ export function multiplyMatrices<A extends number[] | number[][], B extends numb
         : B extends number[]
           ? number[]
           : number[][];
+}
+
+/**
+ * Configures the application's theme and system colors.
+ *
+ * @param options - Configuration options.
+ */
+export function configure(options: {
+    theme?: typeof config.theme;
+    systemColor?: {
+        key: SystemColor;
+        light?: [number, number, number];
+        dark?: [number, number, number];
+    };
+}) {
+    if (options.theme) {
+        config.theme = options.theme;
+    }
+
+    if (options.systemColor) {
+        const { key, light, dark } = options.systemColor;
+
+        const current = config.systemColors[key];
+        config.systemColors[key] = [light ?? current[0], dark ?? current[1]];
+    }
+}
+
+/**
+ * Registers one or more plugins to extend the Color class with additional functionality.
+ *
+ * @param plugins An array of plugin functions that extend the Color class.
+ */
+// eslint-disable-next-line no-unused-vars
+export function use(...plugins: ((colorClass: typeof Color) => void)[]) {
+    for (const plugin of plugins) {
+        plugin(Color);
+    }
 }
 
 /**
@@ -155,6 +196,17 @@ export function registerNamedColor(name: string, rgb: [number, number, number]) 
     }
 
     colorMap[cleaned as NamedColor] = rgb;
+}
+
+/**
+ * Unregisters one or more color types from the library.
+ *
+ * @param types - The names of the color types to unregister.
+ */
+export function unregister(...types: string[]) {
+    for (const type of types) {
+        delete colorTypes[type as keyof typeof colorTypes];
+    }
 }
 
 /**
