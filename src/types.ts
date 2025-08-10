@@ -1,7 +1,7 @@
 import { Color } from "./Color.js";
 import { systemColors } from "./config.js";
 import { namedColors, colorTypes, colorFunctionConverters, colorBases, colorSpaceConverters } from "./converters.js";
-import { EASINGS } from "./utils.js";
+import { EASINGS } from "./math.js";
 
 /* eslint-disable no-unused-vars */
 

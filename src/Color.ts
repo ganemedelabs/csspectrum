@@ -5,7 +5,7 @@ import {
     colorSpaceConverters,
     colorFunctions,
 } from "./converters.js";
-import { cache, EASINGS, fit } from "./utils.js";
+import { cache, fit } from "./utils.js";
 import type {
     ComponentDefinition,
     Component,
@@ -21,6 +21,7 @@ import type {
     FitMethod,
     ColorFunctionConverter,
 } from "./types.js";
+import { EASINGS } from "./math.js";
 
 /**
  * The `Color` class represents a dynamic CSS color object, allowing for the manipulation
@@ -112,7 +113,7 @@ export class Color<M extends ColorFunction> {
     static from(color: string): Color<any>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
     static from(color: NamedColor | string) {
         for (const type in colorTypes) {
-            const colorType = colorTypes[type as keyof typeof colorTypes];
+            const colorType = colorTypes[type as ColorType];
             if (colorType.isValid(color)) {
                 if (type in colorFunctions) {
                     const result = new Color(type as ColorFunction, colorType.parse(color));
@@ -142,6 +143,29 @@ export class Color<M extends ColorFunction> {
             if (colorType.isValid(color)) return type as ColorType;
         }
         return undefined;
+    }
+
+    /**
+     * Checks if the provided color string is valid, optionally for a specific color type.
+     *
+     * @param color - The color string to validate.
+     * @param type - (Optional) The color type to validate against.
+     * @returns `true` if the color string is valid for the specified type (or any type if not specified), otherwise `false`.
+     */
+    static isValid(color: string, type?: ColorType): boolean; // eslint-disable-line no-unused-vars
+    static isValid(color: string, type?: string): boolean; // eslint-disable-line no-unused-vars
+    static isValid(color: string, type?: ColorType | string) {
+        try {
+            if (type) {
+                const { isValid, bridge, parse, toBridge } = colorTypes[type as ColorType];
+                if (isValid(color)) {
+                    const coords = toBridge(parse(color));
+                    return typeof new Color(bridge as ColorFunction, coords) === "object";
+                } else return false;
+            } else return typeof Color.from(color) === "object";
+        } catch {
+            return false;
+        }
     }
 
     /**
@@ -272,18 +296,26 @@ export class Color<M extends ColorFunction> {
 
         const getCoords = (fitMethod = "none") => {
             const buildGraph = () => {
-                const graph: { [key: string]: string[] } = {};
-                for (const [modelName, conv] of Object.entries(converters)) {
+                const graph: Record<string, string[]> = {};
+
+                for (const [modelName, convRaw] of Object.entries(converters)) {
+                    const conv = convRaw as ColorFunctionConverter;
+                    const { toBridge, fromBridge, bridge } = conv;
+
                     if (!graph[modelName]) graph[modelName] = [];
-                    if ((conv as ColorFunctionConverter).toBridge && conv.bridge) {
-                        graph[modelName].push(conv.bridge);
-                        graph[conv.bridge] = graph[conv.bridge] || [];
-                    }
-                    if ((conv as ColorFunctionConverter).fromBridge && conv.bridge) {
-                        graph[conv.bridge] = graph[conv.bridge] || [];
-                        graph[conv.bridge].push(modelName);
+
+                    if (bridge) {
+                        if (typeof toBridge === "function") {
+                            graph[modelName].push(bridge);
+                            if (!graph[bridge]) graph[bridge] = [];
+                        }
+                        if (typeof fromBridge === "function") {
+                            if (!graph[bridge]) graph[bridge] = [];
+                            graph[bridge].push(modelName);
+                        }
                     }
                 }
+
                 return graph;
             };
 
@@ -1023,11 +1055,13 @@ export class Color<M extends ColorFunction> {
      * @param epsilon - Tolerance for floating point comparison. Defaults to 1e-5.
      * @returns `true` if the color is within the gamut, `false` otherwise.
      */
-    inGamut(gamut: ColorSpace, epsilon = 1e-5) {
+    inGamut(gamut: ColorSpace, epsilon?: number): boolean; // eslint-disable-line no-unused-vars
+    inGamut(gamut: string, epsilon?: number): boolean; // eslint-disable-line no-unused-vars
+    inGamut(gamut: ColorSpace | string, epsilon = 1e-5) {
         if (!(gamut in colorSpaceConverters)) {
             throw new Error(`Unsupported color gamut: ${gamut}.`);
         }
-        const { components, targetGamut } = colorFunctionConverters[gamut];
+        const { components, targetGamut } = colorFunctionConverters[gamut as ColorSpace];
 
         if (targetGamut === null) return true;
 

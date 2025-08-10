@@ -21,7 +21,6 @@ export type {
     EvaluateAccessibilityOptions,
 } from "./types.js";
 export {
-    EASINGS,
     multiplyMatrices,
     registerColorType,
     registerColorBase,
@@ -43,3 +42,21 @@ export {
     colorBases,
     colorTypes,
 } from "./converters.js";
+export {
+    HSL_to_RGB,
+    HWB_to_RGB,
+    LAB_to_LCH,
+    LAB_to_XYZD50,
+    LCH_to_LAB,
+    MATRICES,
+    EASINGS,
+    OKLAB_to_OKLCH,
+    OKLAB_to_XYZD65,
+    OKLCH_to_OKLAB,
+    RGB_to_HSL,
+    RGB_to_HWB,
+    RGB_to_XYZD65,
+    XYZD50_to_LAB,
+    XYZD65_to_OKLAB,
+    XYZD65_to_RGB,
+} from "./math.js";

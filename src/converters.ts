@@ -1,5 +1,22 @@
 import { Color } from "./Color.js";
 import { config } from "./config.js";
+import {
+    HSL_to_RGB,
+    HWB_to_RGB,
+    LAB_to_LCH,
+    LAB_to_XYZD50,
+    LCH_to_LAB,
+    MATRICES,
+    OKLAB_to_OKLCH,
+    OKLAB_to_XYZD65,
+    OKLCH_to_OKLAB,
+    RGB_to_HSL,
+    RGB_to_HWB,
+    RGB_to_XYZD65,
+    XYZD50_to_LAB,
+    XYZD65_to_OKLAB,
+    XYZD65_to_RGB,
+} from "./math.js";
 import type {
     ColorConverter,
     ColorFunction,
@@ -8,20 +25,12 @@ import type {
     HueInterpolationMethod,
     NamedColor,
 } from "./types.js";
-import { converterFromFunctionConverter, functionConverterFromSpaceConverter, multiplyMatrices, fit } from "./utils.js";
-
-function hslToRgb([h, s, l]: number[]) {
-    s /= 100;
-    l /= 100;
-
-    const f = (n: number) => {
-        const k = (n + h / 30) % 12;
-        const a = s * Math.min(l, 1 - l);
-        return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
-    };
-
-    return [f(0), f(8), f(4)];
-}
+import {
+    converterFromFunctionConverter,
+    functionConverterFromSpaceConverter,
+    fit,
+    extractBalancedExpression,
+} from "./utils.js";
 
 /** A collection of `<named-color>`s and their RGB values. */
 export const namedColors = {
@@ -196,30 +205,14 @@ export const colorSpaceConverters = {
             }
             return sign * (12.92 * abs);
         },
-        toBridgeMatrix: [
-            [506752 / 1228815, 87881 / 245763, 12673 / 70218],
-            [87098 / 409605, 175762 / 245763, 12673 / 175545],
-            [7918 / 409605, 87881 / 737289, 1001167 / 1053270],
-        ],
-        fromBridgeMatrix: [
-            [12831 / 3959, -329 / 214, -1974 / 3959],
-            [-851781 / 878810, 1648619 / 878810, 36519 / 878810],
-            [705 / 12673, -2585 / 12673, 705 / 667],
-        ],
+        toBridgeMatrix: MATRICES.SRGB_to_XYZD65,
+        fromBridgeMatrix: MATRICES.XYZD65_to_SRGB,
     }),
     "srgb-linear": functionConverterFromSpaceConverter("srgb-linear", {
         components: ["r", "g", "b"],
         bridge: "xyz-d65",
-        toBridgeMatrix: [
-            [506752 / 1228815, 87881 / 245763, 12673 / 70218],
-            [87098 / 409605, 175762 / 245763, 12673 / 175545],
-            [7918 / 409605, 87881 / 737289, 1001167 / 1053270],
-        ],
-        fromBridgeMatrix: [
-            [12831 / 3959, -329 / 214, -1974 / 3959],
-            [-851781 / 878810, 1648619 / 878810, 36519 / 878810],
-            [705 / 12673, -2585 / 12673, 705 / 667],
-        ],
+        toBridgeMatrix: MATRICES.SRGB_to_XYZD65,
+        fromBridgeMatrix: MATRICES.XYZD65_to_SRGB,
     }),
     "display-p3": functionConverterFromSpaceConverter("display-p3", {
         components: ["r", "g", "b"],
@@ -240,16 +233,8 @@ export const colorSpaceConverters = {
             }
             return sign * (12.92 * abs);
         },
-        toBridgeMatrix: [
-            [608311 / 1250200, 189793 / 714400, 198249 / 1000160],
-            [35783 / 156275, 247089 / 357200, 198249 / 2500400],
-            [0 / 1, 32229 / 714400, 5220557 / 5000800],
-        ],
-        fromBridgeMatrix: [
-            [446124 / 178915, -333277 / 357830, -72051 / 178915],
-            [-14852 / 17905, 63121 / 35810, 423 / 17905],
-            [11844 / 330415, -50337 / 660830, 316169 / 330415],
-        ],
+        toBridgeMatrix: MATRICES.P3_to_XYZD65,
+        fromBridgeMatrix: MATRICES.XYZD65_to_P3,
     }),
     rec2020: functionConverterFromSpaceConverter("rec2020", {
         components: ["r", "g", "b"],
@@ -274,16 +259,8 @@ export const colorSpaceConverters = {
             }
             return sign * (4.5 * abs);
         },
-        toBridgeMatrix: [
-            [63426534 / 99577255, 20160776 / 139408157, 47086771 / 278816314],
-            [26158966 / 99577255, 472592308 / 697040785, 8267143 / 139408157],
-            [0 / 1, 19567812 / 697040785, 295819943 / 278816314],
-        ],
-        fromBridgeMatrix: [
-            [30757411 / 17917100, -6372589 / 17917100, -4539589 / 17917100],
-            [-19765991 / 29648200, 47925759 / 29648200, 467509 / 29648200],
-            [792561 / 44930125, -1921689 / 44930125, 42328811 / 44930125],
-        ],
+        toBridgeMatrix: MATRICES.REC2020_to_XYZD65,
+        fromBridgeMatrix: MATRICES.XYZD65_to_REC2020,
     }),
     "a98-rgb": functionConverterFromSpaceConverter("a98-rgb", {
         components: ["r", "g", "b"],
@@ -298,16 +275,8 @@ export const colorSpaceConverters = {
             const abs = Math.abs(c);
             return sign * Math.pow(abs, 256 / 563);
         },
-        toBridgeMatrix: [
-            [573536 / 994567, 263643 / 1420810, 187206 / 994567],
-            [591459 / 1989134, 6239551 / 9945670, 374412 / 4972835],
-            [53769 / 1989134, 351524 / 4972835, 4929758 / 4972835],
-        ],
-        fromBridgeMatrix: [
-            [1829569 / 896150, -506331 / 896150, -308931 / 896150],
-            [-851781 / 878810, 1648619 / 878810, 36519 / 878810],
-            [16779 / 1248040, -147721 / 1248040, 1266979 / 1248040],
-        ],
+        toBridgeMatrix: MATRICES.A98_to_XYZD65,
+        fromBridgeMatrix: MATRICES.XYZD65_to_A98,
     }),
     "prophoto-rgb": functionConverterFromSpaceConverter("prophoto-rgb", {
         components: ["r", "g", "b"],
@@ -330,16 +299,8 @@ export const colorSpaceConverters = {
             }
             return sign * (16 * abs);
         },
-        toBridgeMatrix: [
-            [0.7977666449006423, 0.13518129740053308, 0.0313477341283922],
-            [0.2880748288194013, 0.711835234241873, 0.00008993693872564],
-            [0.0, 0.0, 0.8251046025104602],
-        ],
-        fromBridgeMatrix: [
-            [1.3457868816471583, -0.25557208737979464, -0.05110186497554526],
-            [-0.5446307051249019, 1.5082477428451468, 0.02052744743642139],
-            [0.0, 0.0, 1.2119675456389452],
-        ],
+        toBridgeMatrix: MATRICES.ProPhoto_to_XYZD50,
+        fromBridgeMatrix: MATRICES.XYZD50_to_ProPhoto,
     }),
     "xyz-d65": functionConverterFromSpaceConverter("xyz-d65", {
         targetGamut: null,
@@ -360,16 +321,8 @@ export const colorSpaceConverters = {
         targetGamut: null,
         components: ["x", "y", "z"],
         bridge: "xyz-d65",
-        toBridgeMatrix: [
-            [0.955473421488075, -0.02309845494876471, 0.06325924320057072],
-            [-0.0283697093338637, 1.0099953980813041, 0.021041441191917323],
-            [0.012314014864481998, -0.020507649298898964, 1.330365926242124],
-        ],
-        fromBridgeMatrix: [
-            [1.0479297925449969, 0.022946870601609652, -0.05019226628920524],
-            [0.02962780877005599, 0.9904344267538799, -0.017073799063418826],
-            [-0.009243040646204504, 0.015055191490298152, 0.7518742814281371],
-        ],
+        toBridgeMatrix: MATRICES.D50_to_D65,
+        fromBridgeMatrix: MATRICES.D65_to_d50,
     }),
     xyz: functionConverterFromSpaceConverter("xyz", {
         targetGamut: null,
@@ -399,52 +352,8 @@ export const colorFunctionConverters = {
             b: { index: 2, value: [0, 255], precision: 0 },
         },
         bridge: "xyz-d65",
-        toBridge: (rgb: number[]) => {
-            const rgbNorm = rgb.map((v) => v / 255);
-
-            const lin_sRGB = (RGB: number[]) =>
-                RGB.map((val) => {
-                    const sign = val < 0 ? -1 : 1;
-                    const abs = Math.abs(val);
-                    if (abs <= 0.04045) {
-                        return val / 12.92;
-                    }
-                    return sign * Math.pow((abs + 0.055) / 1.055, 2.4);
-                });
-
-            const linearRGB = lin_sRGB(rgbNorm);
-
-            const M = [
-                [506752 / 1228815, 87881 / 245763, 12673 / 70218],
-                [87098 / 409605, 175762 / 245763, 12673 / 175545],
-                [7918 / 409605, 87881 / 737289, 1001167 / 1053270],
-            ];
-
-            return multiplyMatrices(M, linearRGB);
-        },
-        fromBridge: (xyz: number[]) => {
-            const M = [
-                [12831 / 3959, -329 / 214, -1974 / 3959],
-                [-851781 / 878810, 1648619 / 878810, 36519 / 878810],
-                [705 / 12673, -2585 / 12673, 705 / 667],
-            ];
-
-            const linRGB = multiplyMatrices(M, xyz);
-
-            const gam_sRGB = (RGB: number[]) =>
-                RGB.map((val) => {
-                    const sign = val < 0 ? -1 : 1;
-                    const abs = Math.abs(val);
-                    if (abs > 0.0031308) {
-                        return sign * (1.055 * Math.pow(abs, 1 / 2.4) - 0.055);
-                    }
-                    return 12.92 * val;
-                });
-
-            const gammaRGB = gam_sRGB(linRGB);
-
-            return gammaRGB.map((v) => v * 255);
-        },
+        toBridge: RGB_to_XYZD65,
+        fromBridge: XYZD65_to_RGB,
     },
     hsl: {
         supportsLegacy: true,
@@ -455,47 +364,8 @@ export const colorFunctionConverters = {
             l: { index: 2, value: "percentage", precision: 1 },
         },
         bridge: "rgb",
-        toBridge: (hsl: number[]) => {
-            return hslToRgb(hsl).map((c) => c * 255);
-        },
-        fromBridge: (rgb: number[]) => {
-            const [R, G, B] = rgb.map((c) => c / 255);
-            const max = Math.max(R, G, B);
-            const min = Math.min(R, G, B);
-            let [H, S] = [0, 0];
-            const L = (min + max) / 2;
-            const d = max - min;
-
-            if (d !== 0) {
-                S = L === 0 || L === 1 ? 0 : (max - L) / Math.min(L, 1 - L);
-
-                switch (max) {
-                    case R:
-                        H = (G - B) / d + (G < B ? 6 : 0);
-                        break;
-                    case G:
-                        H = (B - R) / d + 2;
-                        break;
-                    case B:
-                        H = (R - G) / d + 4;
-                }
-
-                H = H * 60;
-            }
-
-            let h = H;
-            let s = S * 100;
-            const l = L * 100;
-
-            if (s < 0) {
-                h += 180;
-                s = Math.abs(s);
-            }
-            if (h >= 360) h -= 360;
-            if (l === 0) s = 0;
-            if (S === 0 || l === 0) h = 0;
-            return [h, s, l];
-        },
+        toBridge: HSL_to_RGB,
+        fromBridge: RGB_to_HSL,
     },
     hwb: {
         components: {
@@ -504,52 +374,8 @@ export const colorFunctionConverters = {
             b: { index: 2, value: "percentage", precision: 1 },
         },
         bridge: "rgb",
-        toBridge: ([H, W, B]: number[]) => {
-            W /= 100;
-            B /= 100;
-            if (W + B >= 1) {
-                const gray = W / (W + B);
-                return [gray, gray, gray];
-            }
-            const rgb = hslToRgb([H, 100, 50]);
-            for (let i = 0; i < 3; i++) {
-                rgb[i] *= 1 - W - B;
-                rgb[i] += W;
-            }
-            return rgb.map((c) => c * 255);
-        },
-        fromBridge: (rgb: number[]) => {
-            const rgbToHue = (red: number, green: number, blue: number) => {
-                const max = Math.max(red, green, blue);
-                const min = Math.min(red, green, blue);
-                let hue = NaN;
-                const d = max - min;
-
-                if (d !== 0) {
-                    switch (max) {
-                        case red:
-                            hue = (green - blue) / d + (green < blue ? 6 : 0);
-                            break;
-                        case green:
-                            hue = (blue - red) / d + 2;
-                            break;
-                        case blue:
-                            hue = (red - green) / d + 4;
-                    }
-                    hue *= 60;
-                    if (hue >= 360) hue -= 360;
-                }
-
-                return hue;
-            };
-
-            const [sR, sG, sB] = rgb.map((c) => c / 255);
-            const hue = rgbToHue(sR, sG, sB);
-            const white = Math.min(sR, sG, sB);
-            const black = 1 - Math.max(sR, sG, sB);
-
-            return [hue, white * 100, black * 100];
-        },
+        toBridge: HWB_to_RGB,
+        fromBridge: RGB_to_HWB,
     },
     lab: {
         targetGamut: null,
@@ -559,28 +385,8 @@ export const colorFunctionConverters = {
             b: { index: 2, value: [-125, 125], precision: 5 },
         },
         bridge: "xyz-d50",
-        toBridge: ([L, a, b]: number[]) => {
-            const D50 = [0.3457 / 0.3585, 1.0, (1.0 - 0.3457 - 0.3585) / 0.3585];
-            const κ = 24389 / 27;
-            const ε = 216 / 24389;
-            const fy = (L + 16) / 116;
-            const fx = a / 500 + fy;
-            const fz = fy - b / 200;
-            const xyz = [
-                Math.pow(fx, 3) > ε ? Math.pow(fx, 3) : (116 * fx - 16) / κ,
-                L > κ * ε ? Math.pow(fy, 3) : L / κ,
-                Math.pow(fz, 3) > ε ? Math.pow(fz, 3) : (116 * fz - 16) / κ,
-            ];
-            return xyz.map((value, i) => value * D50[i]);
-        },
-        fromBridge: (xyz: number[]) => {
-            const D50 = [0.3457 / 0.3585, 1.0, (1.0 - 0.3457 - 0.3585) / 0.3585];
-            const ε = 216 / 24389;
-            const κ = 24389 / 27;
-            const xyz_d50 = xyz.map((value, i) => value / D50[i]);
-            const [fx, fy, fz] = xyz_d50.map((value) => (value > ε ? Math.cbrt(value) : (κ * value + 16) / 116));
-            return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
-        },
+        toBridge: LAB_to_XYZD50,
+        fromBridge: XYZD50_to_LAB,
     },
     lch: {
         targetGamut: null,
@@ -590,15 +396,8 @@ export const colorFunctionConverters = {
             h: { index: 2, value: "hue", precision: 5 },
         },
         bridge: "lab",
-        toBridge: ([L, C, H]: number[]) => {
-            const [, a, b] = [L, C * Math.cos((H * Math.PI) / 180), C * Math.sin((H * Math.PI) / 180)];
-            return [L, a, b];
-        },
-        fromBridge: ([L, a, b]: number[]) => {
-            const C = Math.sqrt(Math.pow(a, 2) + Math.pow(b, 2));
-            const H = (Math.atan2(b, a) * 180) / Math.PI;
-            return [L, C, H < 0 ? H + 360 : H];
-        },
+        toBridge: LCH_to_LAB,
+        fromBridge: LAB_to_LCH,
     },
     oklab: {
         targetGamut: null,
@@ -608,40 +407,8 @@ export const colorFunctionConverters = {
             b: { index: 2, value: [-0.4, 0.4], precision: 5 },
         },
         bridge: "xyz-d65",
-        toBridge: (lab: number[]) => {
-            const LMStoBridge = [
-                [1.2268798758459243, -0.5578149944602171, 0.2813910456659647],
-                [-0.0405757452148008, 1.112286803280317, -0.0717110580655164],
-                [-0.0763729366746601, -0.4214933324022432, 1.5869240198367816],
-            ];
-            const OKLabtoLMS = [
-                [1.0, 0.3963377773761749, 0.2158037573099136],
-                [1.0, -0.1055613458156586, -0.0638541728258133],
-                [1.0, -0.0894841775298119, -1.2914855480194092],
-            ];
-            const LMSnl = multiplyMatrices(OKLabtoLMS, lab);
-            return multiplyMatrices(
-                LMStoBridge,
-                LMSnl.map((c) => c ** 3)
-            );
-        },
-        fromBridge: (xyz: number[]) => {
-            const XYZtoLMS = [
-                [0.819022437996703, 0.3619062600528904, -0.1288737815209879],
-                [0.0329836539323885, 0.9292868615863434, 0.0361446663506424],
-                [0.0481771893596242, 0.2642395317527308, 0.6335478284694309],
-            ];
-            const LMStoOKLab = [
-                [0.210454268309314, 0.7936177747023054, -0.0040720430116193],
-                [1.9779985324311684, -2.4285922420485799, 0.450593709617411],
-                [0.0259040424655478, 0.7827717124575296, -0.8086757549230774],
-            ];
-            const LMS = multiplyMatrices(XYZtoLMS, xyz);
-            return multiplyMatrices(
-                LMStoOKLab,
-                LMS.map((c) => Math.cbrt(c))
-            );
-        },
+        toBridge: OKLAB_to_XYZD65,
+        fromBridge: XYZD65_to_OKLAB,
     },
     oklch: {
         targetGamut: null,
@@ -651,15 +418,8 @@ export const colorFunctionConverters = {
             h: { index: 2, value: "hue", precision: 5 },
         },
         bridge: "oklab",
-        toBridge: ([L, C, H]: number[]) => {
-            const [, a, b] = [L, C * Math.cos((H * Math.PI) / 180), C * Math.sin((H * Math.PI) / 180)];
-            return [L, a, b];
-        },
-        fromBridge: ([L, a, b]: number[]) => {
-            const H = (Math.atan2(b, a) * 180) / Math.PI;
-            const C = Math.sqrt(a ** 2 + b ** 2);
-            return [L, C, H < 0 ? H + 360 : H];
-        },
+        toBridge: OKLCH_to_OKLAB,
+        fromBridge: OKLAB_to_OKLCH,
     },
     ...colorSpaceConverters,
 } as const;
@@ -727,16 +487,89 @@ export const colorBases = {
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
-            const extractColorAndWeight = (colorStr: string) => {
-                const regex = /^(.*?)(?:\s+(\d+%))?$/;
-                const match = colorStr.match(regex);
-                if (!match) {
-                    throw new Error("Invalid color format");
+            const fnName = "color-mix";
+            const cleaned = str.replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")").trim().toLowerCase();
+
+            const fnIndex = cleaned.indexOf(fnName);
+            if (fnIndex === -1) throw new Error("not a color-mix expression");
+
+            const { expression } = extractBalancedExpression(cleaned, fnIndex + fnName.length);
+            if (!expression) throw new Error("malformed color-mix expression");
+
+            const inner = expression.slice(1, -1).trim();
+
+            const parts: string[] = [];
+            let i = 0;
+            let current = "";
+
+            while (i < inner.length) {
+                const char = inner[i];
+
+                if (char === ",") {
+                    parts.push(current.trim());
+                    current = "";
+                    i++;
+                    continue;
                 }
-                const color = Color.from(match[1].trim());
-                const weight = parseInt(match[2]) || undefined;
+
+                if (char === "(" || /[a-zA-Z]/.test(char)) {
+                    const { expression: expr, end } = extractBalancedExpression(inner, i);
+                    if (expr) {
+                        current += expr;
+                        i = end;
+                        continue;
+                    }
+                }
+
+                current += char;
+                i++;
+            }
+
+            parts.push(current.trim());
+
+            if (parts.length !== 3) {
+                throw new Error("color-mix must have three comma-separated parts");
+            }
+
+            const inPart = parts[0];
+            const inMatch = inPart.match(/^in\s+([a-z0-9-]+)(?:\s+(shorter|longer|increasing|decreasing)\s+hue)?$/);
+            if (!inMatch) {
+                throw new Error("Invalid model and hue format");
+            }
+            const model = inMatch[1];
+            const hue = (inMatch[2] || "shorter") as HueInterpolationMethod;
+
+            const extractColorAndWeight = (colorStr: string) => {
+                const s = colorStr.trim();
+
+                let colorExpression = "";
+                let rest = "";
+
+                if (/^[a-z]/.test(s)) {
+                    const { expression: expr, end: e } = extractBalancedExpression(s, 0);
+                    if (expr) {
+                        colorExpression = expr;
+                        rest = s.slice(e).trim();
+                    } else {
+                        const m = s.match(/^([^\s]+)(.*)$/);
+                        colorExpression = m ? m[1] : s;
+                        rest = m ? m[2].trim() : "";
+                    }
+                } else {
+                    const m = s.match(/^([^\s]+)(.*)$/);
+                    colorExpression = m ? m[1] : s;
+                    rest = m ? m[2].trim() : "";
+                }
+
+                const weightMatch = rest.match(/^(\d+)%/);
+                const weight = weightMatch ? parseInt(weightMatch[1], 10) : undefined;
+
+                const color = Color.from(colorExpression.trim());
                 return { color, weight };
             };
+
+            const { color: color1, weight: weight1 } = extractColorAndWeight(parts[1]);
+            const { color: color2, weight: weight2 } = extractColorAndWeight(parts[2]);
 
             const getWeight2Prime = (weight1?: number, weight2?: number) => {
                 if (weight1 === undefined && weight2 !== undefined) {
@@ -756,39 +589,6 @@ export const colorBases = {
 
                 return weight2 / (weight1 + weight2);
             };
-
-            const cleaned = str.replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")").trim().toLowerCase();
-            const inner = cleaned.slice(10, -1).trim();
-
-            const parts: string[] = [];
-            let depth = 0;
-            let current = "";
-            for (const char of inner) {
-                if (char === "(") depth++;
-                if (char === ")") depth--;
-                if (char === "," && depth === 0) {
-                    parts.push(current.trim());
-                    current = "";
-                } else {
-                    current += char;
-                }
-            }
-            parts.push(current.trim());
-
-            if (parts.length !== 3) {
-                throw new Error("color-mix must have three comma-separated parts");
-            }
-
-            const inPart = parts[0];
-            const inMatch = inPart.match(/^in\s+([a-z0-9-]+)(?:\s+(shorter|longer|increasing|decreasing)\s+hue)?$/);
-            if (!inMatch) {
-                throw new Error("Invalid model and hue format");
-            }
-            const model = inMatch[1];
-            const hue = (inMatch[2] || "shorter") as HueInterpolationMethod;
-
-            const { color: color1, weight: weight1 } = extractColorAndWeight(parts[1]);
-            const { color: color2, weight: weight2 } = extractColorAndWeight(parts[2]);
 
             const amount = getWeight2Prime(weight1, weight2);
 
@@ -838,137 +638,108 @@ export const colorTypes = {
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
-            const findMatchingParen = (str: string, startIndex: number) => {
-                let depth = 0;
-                for (let i = startIndex; i < str.length; i++) {
-                    if (str[i] === "(") depth++;
-                    else if (str[i] === ")") depth--;
-                    if (depth === 0) return i;
+            const cleaned = str.replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")").trim().toLowerCase();
+
+            const fnName = "device-cmyk";
+            const fnIndex = cleaned.indexOf(fnName);
+            if (fnIndex === -1) throw new Error("Invalid device-cmyk syntax");
+
+            const { expression } = extractBalancedExpression(cleaned, fnIndex + fnName.length);
+            if (!expression) throw new Error("Malformed device-cmyk expression");
+
+            const content = expression.slice(1, -1).trim();
+
+            const tokens: string[] = [];
+            let i = 0;
+
+            while (i < content.length) {
+                const char = content[i];
+
+                if (char === " ") {
+                    i++;
+                    continue;
                 }
-                throw new Error("Mismatched parentheses");
-            };
 
-            const tokenize = (str: string) => {
-                const tokens = [];
-                let i = 0;
-                while (i < str.length) {
-                    while (i < str.length && str[i] === " ") i++;
-                    if (i >= str.length) break;
-
-                    const char = str[i];
-                    if (/[a-zA-Z-]/.test(char)) {
-                        let ident = "";
-                        while (i < str.length && /[a-zA-Z0-9-%]/.test(str[i])) {
-                            ident += str[i];
-                            i++;
-                        }
-                        if (i < str.length && str[i] === "(") {
-                            let depth = 1;
-                            let funcStr = ident + "(";
-                            i++;
-                            while (i < str.length && depth > 0) {
-                                if (str[i] === "(") depth++;
-                                else if (str[i] === ")") depth--;
-                                if (depth > 0) funcStr += str[i];
-                                i++;
-                            }
-                            funcStr += ")";
-                            tokens.push(funcStr);
-                        } else {
-                            tokens.push(ident);
-                        }
-                    } else if (/[\d.-]/.test(char)) {
-                        let num = "";
-                        while (i < str.length && /[\d.eE+-]/.test(str[i])) {
-                            num += str[i];
-                            i++;
-                        }
-                        if (i < str.length && str[i] === "%") {
-                            num += "%";
-                            i++;
-                            tokens.push(num);
-                        } else if (i < str.length && /[a-zA-Z]/.test(str[i])) {
-                            let unit = "";
-                            while (i < str.length && /[a-zA-Z]/.test(str[i])) {
-                                unit += str[i];
-                                i++;
-                            }
-                            tokens.push(num + unit);
-                        } else {
-                            tokens.push(num);
-                        }
-                    } else if (char === "," || char === "/") {
-                        tokens.push(char);
-                        i++;
-                    } else {
-                        throw new Error(`Unexpected character: ${char}`);
+                if (char === "(" || /[a-zA-Z-]/.test(char)) {
+                    const { expression: expr, end } = extractBalancedExpression(content, i);
+                    if (expr) {
+                        tokens.push(expr);
+                        i = end;
+                        continue;
                     }
                 }
-                return tokens;
-            };
 
-            const cleaned = str.replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")").trim().toLowerCase();
-            const openingIndex = cleaned.indexOf("(");
-            if (openingIndex === -1) throw new Error("Invalid device-cmyk syntax");
-            const closingIndex = findMatchingParen(cleaned, openingIndex);
-            const content = cleaned.slice(openingIndex + 1, closingIndex).trim();
-            const tokens = tokenize(content);
-
-            const parseValue = (token: string) => {
-                if (token.endsWith("%")) {
-                    return parseFloat(token) / 100;
-                } else {
-                    return parseFloat(token);
+                if (/[\d.+-]/.test(char)) {
+                    let num = "";
+                    while (i < content.length && /[\d.eE+-]/.test(content[i])) {
+                        num += content[i];
+                        i++;
+                    }
+                    if (i < content.length && content[i] === "%") {
+                        num += "%";
+                        i++;
+                    } else if (i < content.length && /[a-zA-Z]/.test(content[i])) {
+                        while (i < content.length && /[a-zA-Z]/.test(content[i])) {
+                            num += content[i];
+                            i++;
+                        }
+                    }
+                    tokens.push(num);
+                    continue;
                 }
-            };
+
+                if (char === "," || char === "/") {
+                    tokens.push(char);
+                    i++;
+                    continue;
+                }
+
+                throw new Error(`Unexpected character: ${char}`);
+            }
+
+            const parseValue = (token: string) => (token.endsWith("%") ? parseFloat(token) / 100 : parseFloat(token));
 
             if (tokens.length >= 2 && tokens[1] === ",") {
-                const values = tokens.filter((token) => token !== ",");
-                if (values.length === 4) {
-                    const [c, m, y, k] = values.map(parseValue);
-                    const alpha = 1;
-                    const red = 1 - Math.min(1, c * (1 - k) + k);
-                    const green = 1 - Math.min(1, m * (1 - k) + k);
-                    const blue = 1 - Math.min(1, y * (1 - k) + k);
-                    return [red * 255, green * 255, blue * 255, alpha];
-                } else if (values.length === 5) {
-                    const [c, m, y, k, alpha] = values.map(parseValue);
-                    const red = 1 - Math.min(1, c * (1 - k) + k);
-                    const green = 1 - Math.min(1, m * (1 - k) + k);
-                    const blue = 1 - Math.min(1, y * (1 - k) + k);
-                    return [red * 255, green * 255, blue * 255, alpha];
-                } else {
-                    throw new Error("Invalid number of components for comma-separated device-cmyk");
-                }
-            } else {
-                let i = 0;
-                const components = [];
-                while (i < tokens.length && components.length < 4 && tokens[i] !== "/" && tokens[i] !== ",") {
-                    components.push(tokens[i]);
-                    i++;
-                }
-                if (components.length !== 4)
-                    throw new Error("Invalid number of components for space-separated device-cmyk");
-                const [c, m, y, k] = components.map(parseValue);
-                let alpha = 1;
-                if (i < tokens.length && tokens[i] === "/") {
-                    i++;
-                    if (i >= tokens.length) throw new Error("Missing alpha value");
-                    alpha = parseValue(tokens[i]);
-                    i++;
-                }
-                if (i < tokens.length && tokens[i] === ",") {
-                    i++;
-                    const fallbackTokens = tokens.slice(i);
-                    const fallbackStr = fallbackTokens.join(" ");
-                    return Color.from(fallbackStr).in("rgb").getCoords();
-                } else {
+                const values = tokens.filter((t) => t !== ",");
+                if (values.length === 4 || values.length === 5) {
+                    const [c, m, y, k, alpha = 1] = values.map(parseValue);
                     const red = 1 - Math.min(1, c * (1 - k) + k);
                     const green = 1 - Math.min(1, m * (1 - k) + k);
                     const blue = 1 - Math.min(1, y * (1 - k) + k);
                     return [red * 255, green * 255, blue * 255, alpha];
                 }
+                throw new Error("Invalid number of components for comma-separated device-cmyk");
             }
+
+            let idx = 0;
+            const components: string[] = [];
+            while (idx < tokens.length && components.length < 4 && tokens[idx] !== "/" && tokens[idx] !== ",") {
+                components.push(tokens[idx]);
+                idx++;
+            }
+            if (components.length !== 4) {
+                throw new Error("Invalid number of components for space-separated device-cmyk");
+            }
+            const [c, m, y, k] = components.map(parseValue);
+
+            let alpha = 1;
+            if (idx < tokens.length && tokens[idx] === "/") {
+                idx++;
+                if (idx >= tokens.length) throw new Error("Missing alpha value");
+                alpha = parseValue(tokens[idx]);
+                idx++;
+            }
+
+            if (idx < tokens.length && tokens[idx] === ",") {
+                idx++;
+                const fallbackStr = tokens.slice(idx).join(" ");
+                return Color.from(fallbackStr).in("rgb").getCoords();
+            }
+
+            const red = 1 - Math.min(1, c * (1 - k) + k);
+            const green = 1 - Math.min(1, m * (1 - k) + k);
+            const blue = 1 - Math.min(1, y * (1 - k) + k);
+            return [red * 255, green * 255, blue * 255, alpha];
         },
         fromBridge: (coords: number[]) => coords,
         format: ([red, green, blue, alpha = 1]: number[], options: FormattingOptions = {}) => {
@@ -1005,25 +776,49 @@ export const colorTypes = {
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
             const cleaned = str.replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")").trim().toLowerCase();
-            const inner = cleaned.slice(11, -1);
 
-            let depth = 0;
-            let splitIndex = -1;
+            const fnName = "light-dark";
+            const fnIndex = cleaned.indexOf(fnName);
+            if (fnIndex === -1) throw new Error("Not a light-dark expression");
 
-            for (let i = 0; i < inner.length; i++) {
+            const { expression } = extractBalancedExpression(cleaned, fnIndex + fnName.length);
+            if (!expression) throw new Error("Malformed light-dark expression");
+
+            const inner = expression.slice(1, -1).trim();
+
+            const parts: string[] = [];
+            let current = "";
+            let i = 0;
+
+            while (i < inner.length) {
                 const char = inner[i];
-                if (char === "(") depth++;
-                else if (char === ")") depth--;
-                else if (char === "," && depth === 0) {
-                    splitIndex = i;
-                    break;
+
+                if (char === ",") {
+                    parts.push(current.trim());
+                    current = "";
+                    i++;
+                    continue;
                 }
+
+                if (char === "(" || /[a-zA-Z]/.test(char)) {
+                    const { expression: expr, end } = extractBalancedExpression(inner, i);
+                    if (expr) {
+                        current += expr;
+                        i = end;
+                        continue;
+                    }
+                }
+
+                current += char;
+                i++;
+            }
+            parts.push(current.trim());
+
+            if (parts.length !== 2) {
+                throw new Error("Invalid light-dark format");
             }
 
-            if (splitIndex === -1) throw new Error("Invalid light-dark format");
-
-            const color1 = inner.slice(0, splitIndex).trim();
-            const color2 = inner.slice(splitIndex + 1).trim();
+            const [color1, color2] = parts;
 
             const { theme } = config;
             return Color.from(theme === "light" ? color1 : color2).getCoords();

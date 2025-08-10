@@ -16,16 +16,6 @@ import type {
 
 export const cache = new Map();
 
-export const EASINGS = {
-    linear: (t: number) => t,
-    "ease-in": (t: number) => t * t,
-    "ease-out": (t: number) => t * (2 - t),
-    "ease-in-out": (t: number) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t),
-    "ease-in-cubic": (t: number) => t * t * t,
-    "ease-out-cubic": (t: number) => --t * t * t + 1,
-    "ease-in-out-cubic": (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
-};
-
 /**
  * Multiplies two matrices or vectors and returns the resulting product.
  *
@@ -207,6 +197,36 @@ export function unregister(...types: string[]) {
     for (const type of types) {
         delete colorTypes[type as keyof typeof colorTypes];
     }
+}
+
+export function extractBalancedExpression(input: string, start: number) {
+    let i = start;
+    let expression = "";
+    let depth = 0;
+
+    if (input[i] !== "(") {
+        while (i < input.length && /[a-zA-Z0-9-%]/.test(input[i])) {
+            expression += input[i];
+            i++;
+        }
+    }
+
+    if (input[i] === "(") {
+        expression += "(";
+        i++;
+        depth = 1;
+
+        while (i < input.length && depth > 0) {
+            const char = input[i];
+            if (char === "(") depth++;
+            else if (char === ")") depth--;
+            if (depth > 0) expression += char;
+            i++;
+        }
+        expression += ")";
+    }
+
+    return { expression, end: i };
 }
 
 /**
@@ -546,16 +566,9 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
             const colorStr = innerStr.slice(colorStart, i);
 
             if (colorStr.includes("(")) {
-                let depth = 1;
-                let funcStr = colorStr;
-                while (i < innerStr.length && depth > 0) {
-                    if (innerStr[i] === "(") depth++;
-                    else if (innerStr[i] === ")") depth--;
-                    if (depth > 0) funcStr += innerStr[i];
-                    i++;
-                }
-                funcStr += ")";
-                tokens.push(funcStr);
+                const { expression, end } = extractBalancedExpression(innerStr, colorStart);
+                tokens.push(expression);
+                i = end;
             } else {
                 tokens.push(colorStr);
             }
@@ -575,23 +588,17 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
 
             const char = innerStr[i];
             if (/[a-zA-Z-]/.test(char)) {
+                const identStart = i;
                 let ident = "";
                 while (i < innerStr.length && /[a-zA-Z0-9-%]/.test(innerStr[i])) {
                     ident += innerStr[i];
                     i++;
                 }
+
                 if (i < innerStr.length && innerStr[i] === "(") {
-                    let depth = 1;
-                    let funcStr = ident + "(";
-                    i++;
-                    while (i < innerStr.length && depth > 0) {
-                        if (innerStr[i] === "(") depth++;
-                        else if (innerStr[i] === ")") depth--;
-                        if (depth > 0) funcStr += innerStr[i];
-                        i++;
-                    }
-                    funcStr += ")";
-                    tokens.push(funcStr);
+                    const { expression, end } = extractBalancedExpression(innerStr, identStart);
+                    tokens.push(expression);
+                    i = end;
                 } else {
                     tokens.push(ident);
                 }
