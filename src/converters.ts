@@ -435,10 +435,7 @@ export const colorFunctions = Object.fromEntries(
 /** A collection of `<color-base>`s as <color> converters. */
 export const colorBases = {
     "hex-color": {
-        isValid: (str: string) => {
-            const cleaned = str.trim().toLowerCase();
-            return cleaned.startsWith("#");
-        },
+        isValid: (str: string) => str.startsWith("#"),
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
@@ -460,13 +457,11 @@ export const colorBases = {
         },
     },
     "named-color": {
-        isValid: (str: string) => {
-            return Object.keys(namedColors).some((key) => key === str.trim().toLowerCase());
-        },
+        isValid: (str: string) => Object.keys(namedColors).some((key) => key === str),
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (name: string) => {
-            const key = name.replace(/[\s-]/g, "").trim().toLowerCase() as NamedColor;
+            const key = name.replace(/[\s-]/g, "") as NamedColor;
             const rgb = namedColors[key];
             if (!rgb) throw new Error(`Invalid named-color: ${name}`);
             return [...rgb, 1];
@@ -480,20 +475,16 @@ export const colorBases = {
         },
     },
     "color-mix": {
-        isValid: (str: string) => {
-            const cleaned = str.trim().toLowerCase();
-            return cleaned.startsWith("color-mix(") && cleaned.endsWith(")");
-        },
+        isValid: (str: string) => str.startsWith("color-mix(") && str.endsWith(")"),
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
             const fnName = "color-mix";
-            const cleaned = str.replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")").trim().toLowerCase();
 
-            const fnIndex = cleaned.indexOf(fnName);
+            const fnIndex = str.indexOf(fnName);
             if (fnIndex === -1) throw new Error("not a color-mix expression");
 
-            const { expression } = extractBalancedExpression(cleaned, fnIndex + fnName.length);
+            const { expression } = extractBalancedExpression(str, fnIndex + fnName.length);
             if (!expression) throw new Error("malformed color-mix expression");
 
             const inner = expression.slice(1, -1).trim();
@@ -596,7 +587,7 @@ export const colorBases = {
         },
     },
     transparent: {
-        isValid: (str: string) => str.trim().toLowerCase() === "transparent",
+        isValid: (str: string) => str === "transparent",
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => [0, 0, 0, 0], // eslint-disable-line no-unused-vars
@@ -611,40 +602,31 @@ export const colorBases = {
  */
 export const colorTypes = {
     currentColor: {
-        isValid: (str: string) => str.trim().toLowerCase() === "currentcolor",
+        isValid: (str: string) => str === "currentcolor",
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => [0, 0, 0, 1], // eslint-disable-line no-unused-vars
     },
     "contrast-color": {
-        isValid: (str: string) => {
-            const cleaned = str.trim().toLowerCase();
-            return cleaned.startsWith("contrast-color(") && cleaned.endsWith(")");
-        },
+        isValid: (str: string) => str.startsWith("contrast-color(") && str.endsWith(")"),
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
-            const cleaned = str.replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")").trim().toLowerCase();
-            const inner = cleaned.slice(15, -1);
+            const inner = str.slice(15, -1);
             const luminance = Color.from(inner).luminance();
             return luminance > 0.5 ? [0, 0, 0, 1] : [255, 255, 255, 1];
         },
     },
     "device-cmyk": {
-        isValid: (str: string) => {
-            const cleaned = str.trim().toLowerCase();
-            return cleaned.startsWith("device-cmyk(") && cleaned.endsWith(")");
-        },
+        isValid: (str: string) => str.startsWith("device-cmyk(") && str.endsWith(")"),
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
-            const cleaned = str.replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")").trim().toLowerCase();
-
             const fnName = "device-cmyk";
-            const fnIndex = cleaned.indexOf(fnName);
+            const fnIndex = str.indexOf(fnName);
             if (fnIndex === -1) throw new Error("Invalid device-cmyk syntax");
 
-            const { expression } = extractBalancedExpression(cleaned, fnIndex + fnName.length);
+            const { expression } = extractBalancedExpression(str, fnIndex + fnName.length);
             if (!expression) throw new Error("Malformed device-cmyk expression");
 
             const content = expression.slice(1, -1).trim();
@@ -768,20 +750,15 @@ export const colorTypes = {
         },
     },
     "light-dark": {
-        isValid: (str: string) => {
-            const cleaned = str.trim().toLowerCase();
-            return cleaned.startsWith("light-dark(") && cleaned.endsWith(")");
-        },
+        isValid: (str: string) => str.startsWith("light-dark(") && str.endsWith(")"),
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
-            const cleaned = str.replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")").trim().toLowerCase();
-
             const fnName = "light-dark";
-            const fnIndex = cleaned.indexOf(fnName);
+            const fnIndex = str.indexOf(fnName);
             if (fnIndex === -1) throw new Error("Not a light-dark expression");
 
-            const { expression } = extractBalancedExpression(cleaned, fnIndex + fnName.length);
+            const { expression } = extractBalancedExpression(str, fnIndex + fnName.length);
             if (!expression) throw new Error("Malformed light-dark expression");
 
             const inner = expression.slice(1, -1).trim();
@@ -825,16 +802,12 @@ export const colorTypes = {
         },
     },
     "system-color": {
-        isValid: (str: string) => {
-            const { systemColors } = config;
-            return Object.keys(systemColors).some((key) => key.toLowerCase() === str.trim().toLowerCase());
-        },
+        isValid: (str: string) => Object.keys(config.systemColors).some((key) => key.toLowerCase() === str),
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
             const { systemColors } = config;
-            const cleaned = str.replace(/\s+/g, " ").trim().toLowerCase();
-            const key = Object.keys(systemColors).find((k) => k.toLowerCase() === cleaned);
+            const key = Object.keys(systemColors).find((k) => k.toLowerCase() === str);
             const rgbArr = systemColors[key as keyof typeof systemColors][config.theme === "light" ? 0 : 1];
             return [...rgbArr, 1];
         },

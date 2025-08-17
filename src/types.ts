@@ -5,6 +5,7 @@ import { EASINGS } from "./math.js";
 
 /* eslint-disable no-unused-vars */
 
+/** Represents the config object. */
 export type Config = {
     /** The theme of the application, either "light" or "dark". */
     theme: "light" | "dark";
@@ -15,7 +16,8 @@ export type Config = {
     };
 };
 
-export type SystemColor = keyof typeof systemColors;
+/** Represents a plugin type for the `Color` class. */
+export type Plugin = (colorClass: typeof Color) => void;
 
 /** Represents the available `<color>s`. */
 export type ColorType = keyof typeof colorTypes;
@@ -31,6 +33,9 @@ export type ColorSpace = keyof typeof colorSpaceConverters;
 
 /** Represents a <named-color> identifier. */
 export type NamedColor = keyof typeof namedColors;
+
+/** Represents a <system-color> identifier. */
+export type SystemColor = keyof typeof systemColors;
 
 /** Represents the color types that support conversion from XYZ. */
 export type OutputType = {

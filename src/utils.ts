@@ -1,20 +1,31 @@
 import { Color } from "./Color.js";
 import { config } from "./config.js";
-import { colorBases, colorFunctionConverters, colorSpaceConverters, colorTypes, namedColors } from "./converters.js";
+import {
+    colorBases,
+    colorFunctionConverters,
+    colorFunctions,
+    colorSpaceConverters,
+    colorTypes,
+    namedColors,
+} from "./converters.js";
 import type {
+    ColorBase,
     ColorConverter,
     ColorFunction,
     ColorFunctionConverter,
     ColorSpace,
     ColorSpaceConverter,
+    ColorType,
     ComponentDefinition,
     FitMethod,
     FormattingOptions,
     NamedColor,
+    Plugin,
     SystemColor,
 } from "./types.js";
 
 export const cache = new Map();
+export const plugins = new Set<(colorClass: typeof Color) => void>(); // eslint-disable-line no-unused-vars
 
 /**
  * Multiplies two matrices or vectors and returns the resulting product.
@@ -82,65 +93,200 @@ export function configure(options: {
  *
  * @param plugins An array of plugin functions that extend the Color class.
  */
-// eslint-disable-next-line no-unused-vars
-export function use(...plugins: ((colorClass: typeof Color) => void)[]) {
-    for (const plugin of plugins) {
-        plugin(Color);
+export function use(...pluginFns: Plugin[]) {
+    if (pluginFns.length === 0) {
+        throw new Error("use() requires at least one plugin function.");
+    }
+
+    for (const [index, plugin] of Array.from(pluginFns.entries())) {
+        if (typeof plugin !== "function") {
+            throw new TypeError(`Plugin at index ${index} is not a function. Received: ${typeof plugin}`);
+        }
+
+        if (plugins.has(plugin)) {
+            console.warn(`Plugin at index ${index} has already been registered. Skipping.`);
+            continue;
+        }
+
+        try {
+            plugin(Color);
+            plugins.add(plugin);
+        } catch (err) {
+            console.error(`Error while running plugin at index ${index}:`, err);
+        }
     }
 }
 
 /**
- * Registers a new `<color>` converter under the specified name.
+ * Registers a new <color> converter under the specified name.
  *
  * @param name - The unique name to associate with the color converter.
  * @param converter - The converter object implementing the color conversion logic.
- * @throws If a color name is already used.
+ * @throws If the name is already used by another color type.
+ * @throws If the converter object is missing required properties or has invalid types.
  */
 export function registerColorType(name: string, converter: ColorConverter) {
-    const cleaned = name.replace(/(?:\s+)/g, "-").toLowerCase();
-    const obj = colorTypes as unknown as Record<string, ColorConverter>;
+    const cleaned = name.replace(/(?:\s+)/g, "-").toLowerCase() as ColorType;
+    const obj = colorTypes as Record<string, ColorConverter>;
 
     if (cleaned in colorTypes) {
         throw new Error(`The name "${cleaned}" is already used.`);
     }
 
+    if (typeof converter !== "object" || converter === null) {
+        throw new TypeError("Converter must be a non-null object.");
+    }
+
+    if (typeof converter.isValid !== "function") {
+        throw new TypeError("Converter.isValid must be a function.");
+    }
+
+    if (typeof converter.bridge !== "string") {
+        throw new TypeError("Converter.bridge must be a string.");
+    }
+
+    if (typeof converter.toBridge !== "function") {
+        throw new TypeError("Converter.toBridge must be a function.");
+    }
+
+    if (typeof converter.parse !== "function") {
+        throw new TypeError("Converter.parse must be a function.");
+    }
+
+    const hasFromBridge = "fromBridge" in converter;
+    const hasFormat = "format" in converter;
+
+    if (hasFromBridge && typeof converter.fromBridge !== "function") {
+        throw new TypeError("Converter.fromBridge must be a function if provided.");
+    }
+
+    if (hasFormat && typeof converter.format !== "function") {
+        throw new TypeError("Converter.format must be a function if provided.");
+    }
+
+    if (hasFromBridge !== hasFormat) {
+        throw new Error("Converter.fromBridge and Converter.format must either both be provided or both be omitted.");
+    }
+
     obj[cleaned] = converter;
+    cache.delete("graph");
 }
 
 /**
- * Registers a new `<color-base>` converter under the specified name.
+ * Registers a new <color-base> converter under the specified name.
  *
  * @param name - The unique name to associate with the color base converter.
  * @param converter - The converter object implementing the color base conversion logic.
- * @throws If a color base name is already used.
+ * @throws If the name is already used by another color base type.
+ * @throws If the converter object is missing required properties or has invalid types.
  */
 export function registerColorBase(name: string, converter: ColorConverter) {
-    const cleaned = name.replace(/(?:\s+)/g, "-").toLowerCase();
-    const obj = colorBases as unknown as Record<string, ColorConverter>;
+    const cleaned = name.replace(/(?:\s+)/g, "-").toLowerCase() as ColorType;
+    const bases = colorBases as Record<string, ColorConverter>;
+    const types = colorTypes as Record<string, ColorConverter>;
 
     if (cleaned in colorTypes) {
         throw new Error(`The name "${cleaned}" is already used.`);
     }
 
-    obj[cleaned] = converter;
+    if (typeof converter !== "object" || converter === null) {
+        throw new TypeError("Converter must be a non-null object.");
+    }
+
+    if (typeof converter.isValid !== "function") {
+        throw new TypeError("Converter.isValid must be a function.");
+    }
+
+    if (typeof converter.bridge !== "string") {
+        throw new TypeError("Converter.bridge must be a string.");
+    }
+
+    if (typeof converter.toBridge !== "function") {
+        throw new TypeError("Converter.toBridge must be a function.");
+    }
+
+    if (typeof converter.parse !== "function") {
+        throw new TypeError("Converter.parse must be a function.");
+    }
+
+    const hasFromBridge = "fromBridge" in converter;
+    const hasFormat = "format" in converter;
+
+    if (hasFromBridge && typeof converter.fromBridge !== "function") {
+        throw new TypeError("Converter.fromBridge must be a function if provided.");
+    }
+
+    if (hasFormat && typeof converter.format !== "function") {
+        throw new TypeError("Converter.format must be a function if provided.");
+    }
+
+    if (hasFromBridge !== hasFormat) {
+        throw new Error("Converter.fromBridge and Converter.format must either both be provided or both be omitted.");
+    }
+
+    bases[cleaned] = converter;
+    types[cleaned] = converter;
+    cache.delete("graph");
 }
 
 /**
- * Registers a new `<color-function>` converter under the specified name.
+ * Registers a new <color-function> converter under the specified name.
  *
  * @param name - The unique name to associate with the color function converter.
  * @param converter - The converter object implementing the color function conversion logic.
- * @throws If a color function name is already used.
+ * @throws If the name is already used by another color type.
+ * @throws If the converter object is missing required properties or has invalid types.
  */
 export function registerColorFunction(name: string, converter: ColorFunctionConverter) {
-    const cleaned = name.replace(/(?:\s+)/g, "").toLowerCase();
-    const obj = colorFunctionConverters as unknown as Record<string, ColorFunctionConverter>;
+    const cleaned = name.replace(/(?:\s+)/g, "").toLowerCase() as ColorType;
+    const functions = colorFunctionConverters as unknown as Record<string, ColorFunctionConverter>;
+    const cf = colorFunctions as Record<string, ColorConverter>;
+    const types = colorTypes as Record<string, ColorConverter>;
 
     if (cleaned in colorTypes) {
         throw new Error(`The name "${cleaned}" is already used.`);
     }
 
-    obj[cleaned] = converter;
+    if (typeof converter !== "object" || converter === null) {
+        throw new TypeError("Converter must be a non-null object.");
+    }
+
+    if (typeof converter.bridge !== "string") {
+        throw new TypeError(`Converter.bridge must be a string.`);
+    }
+
+    if (typeof converter.toBridge !== "function") {
+        throw new TypeError(`Converter.toBridge must be a function.`);
+    }
+
+    if (typeof converter.fromBridge !== "function") {
+        throw new TypeError(`Converter.fromBridge must be a function.`);
+    }
+
+    if (
+        typeof converter.components !== "object" ||
+        converter.components === null ||
+        Array.isArray(converter.components)
+    ) {
+        throw new TypeError(`Converter.components must be a non-null object.`);
+    }
+
+    if ("targetGamut" in converter && converter.targetGamut !== null && typeof converter.targetGamut !== "string") {
+        throw new TypeError(`Converter.targetGamut must be a string or null.`);
+    }
+
+    if ("supportsLegacy" in converter && typeof converter.supportsLegacy !== "boolean") {
+        throw new TypeError(`Converter.supportsLegacy must be a boolean.`);
+    }
+
+    if ("alphaVariant" in converter && typeof converter.alphaVariant !== "string") {
+        throw new TypeError(`Converter.alphaVariant must be a string.`);
+    }
+
+    functions[cleaned] = converter;
+    cf[cleaned] = converterFromFunctionConverter(cleaned, converter);
+    types[cleaned] = converterFromFunctionConverter(cleaned, converter);
+    cache.delete("graph");
 }
 
 /**
@@ -148,44 +294,93 @@ export function registerColorFunction(name: string, converter: ColorFunctionConv
  *
  * @param name - The unique name to associate with the color space converter.
  * @param converter - The converter object implementing the color space conversion logic.
- * @throws If a color space name is already used.
+ * @throws If the name is already used by another color space.
+ * @throws If the converter object is missing required properties or has invalid types.
  */
 export function registerColorSpace(name: string, converter: ColorSpaceConverter) {
-    const cleaned = name.replace(/(?:\s+)/g, "-").toLowerCase();
-    const obj = colorSpaceConverters as unknown as Record<string, ColorFunctionConverter>;
+    const cleaned = name.replace(/(?:\s+)/g, "-").toLowerCase() as ColorType;
+    const spaces = colorSpaceConverters as unknown as Record<string, ColorFunctionConverter>;
+    const functions = colorFunctionConverters as unknown as Record<string, ColorFunctionConverter>;
+    const cf = colorFunctions as Record<string, ColorConverter>;
+    const types = colorTypes as Record<string, ColorConverter>;
 
     if (cleaned in colorTypes) {
         throw new Error(`The name "${cleaned}" is already used.`);
     }
 
-    obj[cleaned] = functionConverterFromSpaceConverter(cleaned, converter);
+    if (typeof converter !== "object" || converter === null) {
+        throw new TypeError("Converter must be a non-null object.");
+    }
+
+    if (!Array.isArray(converter.components) || converter.components.some((c) => typeof c !== "string")) {
+        throw new TypeError("Converter.components must be an array of strings.");
+    }
+
+    if (typeof converter.bridge !== "string") {
+        throw new TypeError("Converter.bridge must be a string.");
+    }
+
+    if (
+        !Array.isArray(converter.toBridgeMatrix) ||
+        converter.toBridgeMatrix.some((row) => !Array.isArray(row) || row.some((val) => typeof val !== "number"))
+    ) {
+        throw new TypeError("Converter.toBridgeMatrix must be a 2D array of numbers.");
+    }
+
+    if (
+        !Array.isArray(converter.fromBridgeMatrix) ||
+        converter.fromBridgeMatrix.some((row) => !Array.isArray(row) || row.some((val) => typeof val !== "number"))
+    ) {
+        throw new TypeError("Converter.fromBridgeMatrix must be a 2D array of numbers.");
+    }
+
+    if ("targetGamut" in converter && converter.targetGamut !== null) {
+        throw new TypeError("Converter.targetGamut must be null if provided.");
+    }
+
+    if ("toLinear" in converter && typeof converter.toLinear !== "function") {
+        throw new TypeError("Converter.toLinear must be a function if provided.");
+    }
+
+    if ("fromLinear" in converter && typeof converter.fromLinear !== "function") {
+        throw new TypeError("Converter.fromLinear must be a function if provided.");
+    }
+
+    spaces[cleaned] = functionConverterFromSpaceConverter(cleaned, converter);
+    functions[cleaned] = functionConverterFromSpaceConverter(cleaned, converter);
+    cf[cleaned] = converterFromFunctionConverter(cleaned, functionConverterFromSpaceConverter(cleaned, converter));
+    types[cleaned] = converterFromFunctionConverter(cleaned, functionConverterFromSpaceConverter(cleaned, converter));
+    cache.delete("graph");
 }
 
 /**
  * Registers a new `<named-color>` with the specified RGB value.
  *
- * @param name - The name to register for the color.
+ * @param name - The color name to register. Non-letter characters are removed, and case is ignored.
  * @param rgb - The RGB tuple representing the color, as an array of three numbers [red, green, blue].
+ * @throws If the RGB array does not contain exactly three elements.
  * @throws If the color name is already registered.
  * @throws If the RGB value is already registered under a different name.
  */
 export function registerNamedColor(name: string, rgb: [number, number, number]) {
-    const cleaned = name.replace(/[^a-zA-Z]/g, "").toLowerCase();
+    if (!Array.isArray(rgb) || rgb.length !== 3) {
+        throw new Error(`RGB value must be an array of exactly three numbers, received length ${rgb.length}.`);
+    }
+
+    const cleaned = name.replace(/[^a-zA-Z]/g, "").toLowerCase() as NamedColor;
     const colorMap = namedColors as Record<NamedColor, [number, number, number]>;
 
-    if (colorMap[cleaned as NamedColor]) {
+    if (colorMap[cleaned]) {
         throw new Error(`<named-color> "${name}" is already registered.`);
     }
 
-    const existingName = Object.entries(colorMap).find(([, value]) =>
-        value.every((channel, i) => channel === rgb[i])
-    )?.[0];
+    const duplicate = Object.entries(colorMap).find(([, value]) => value.every((channel, i) => channel === rgb[i]));
 
-    if (existingName) {
-        throw new Error(`RGB value [${rgb.join(", ")}] is already registered as "${existingName}".`);
+    if (duplicate) {
+        throw new Error(`RGB value [${rgb.join(", ")}] is already registered as "${duplicate[0]}".`);
     }
 
-    colorMap[cleaned as NamedColor] = rgb;
+    colorMap[cleaned] = rgb;
 }
 
 /**
@@ -195,10 +390,45 @@ export function registerNamedColor(name: string, rgb: [number, number, number]) 
  */
 export function unregister(...types: string[]) {
     for (const type of types) {
-        delete colorTypes[type as keyof typeof colorTypes];
+        delete colorTypes[type as ColorType];
+        delete colorBases[type as ColorBase];
+        delete colorFunctions[type as ColorFunction];
+        delete colorFunctionConverters[type as ColorFunction];
+        delete colorSpaceConverters[type as ColorSpace];
     }
+    cache.delete("graph");
+    cache.delete("paths");
 }
 
+/**
+ * Cleans and normalizes a CSS color string.
+ *
+ * @param color - The CSS color string to clean.
+ * @returns The cleaned and normalized color string.
+ */
+export function clean(color: string) {
+    return color
+        .trim()
+        .replace(/\s+/g, " ")
+        .replace(/\( /g, "(")
+        .replace(/ \)/g, ")")
+        .replace(/\s*,\s*/g, ", ")
+        .replace(/calc\(NaN\)/g, "0")
+        .toLowerCase();
+}
+
+/**
+ * Extracts a balanced expression from the input string starting at the given index.
+ *
+ * If the character at the start index is an opening parenthesis '(', the function
+ * extracts the entire balanced parenthetical expression, including nested parentheses.
+ * Otherwise, it extracts a contiguous sequence of alphanumeric characters, hyphens, or percent signs.
+ *
+ * @param input - The string to extract the expression from.
+ * @param start - The index in the string to start extraction.
+ * @returns An object containing the extracted expression as a string the index after the end of it.
+ */
+// TODO: use /\S/ instead of /[a-zA-Z0-9-%]/
 export function extractBalancedExpression(input: string, start: number) {
     let i = start;
     let expression = "";
@@ -465,21 +695,22 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
         }
 
         if (token.startsWith("calc(")) {
-            const inner = token.slice(5, -1);
+            const inner = token.slice(5, -1).trim();
             if (inner === "infinity") return max;
             if (inner === "-infinity") return min;
+            if (inner === "NaN") return 0;
 
             if (/\d+(\.\d+)?%/i.test(inner)) {
                 return parsePercent(inner);
             }
 
-            let expr = inner;
-            for (const [key, value] of Object.entries(base)) {
-                expr = expr.replace(new RegExp(`\\b${key}\\b`, "g"), value.toString());
-            }
             try {
-                return eval(expr);
-            } catch {
+                const keys = Object.keys(base);
+                const values = Object.values(base);
+                const func = new Function(...keys, `return ${inner};`);
+                return func(...values);
+            } catch (error) {
+                console.error("Evaluation error:", error);
                 return 0;
             }
         }
@@ -528,7 +759,7 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
 
             for (let i = 0; i < sorted.length; i++) {
                 const [, meta] = sorted[i];
-                const token = tokens[i + 1];
+                const token = tokens[i + (funcName === "color" ? 2 : 1)];
                 if (token) {
                     const value = evaluateComponent(token, meta.value);
                     result[meta.index] = value;
@@ -670,6 +901,7 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
     return {
         isValid: (str: string) => {
             const cleanedStr = str.trim().toLowerCase();
+            const { alphaVariant = cleanedName } = converter;
             if (cleanedName in colorSpaceConverters) {
                 return (
                     (cleanedStr.startsWith(`color(${cleanedName} `) ||
@@ -678,8 +910,7 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
                 );
             }
             return (
-                (cleanedStr.startsWith(`${cleanedName}(`) ||
-                    cleanedStr.startsWith(`${cleanedName}${converter.supportsLegacy ? "a" : ""}(`)) &&
+                (cleanedStr.startsWith(`${cleanedName}(`) || cleanedStr.startsWith(`${alphaVariant}(`)) &&
                 cleanedStr.endsWith(")")
             );
         },

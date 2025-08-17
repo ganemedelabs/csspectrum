@@ -5,7 +5,7 @@ import {
     colorSpaceConverters,
     colorFunctions,
 } from "./converters.js";
-import { cache, fit } from "./utils.js";
+import { cache, clean, fit } from "./utils.js";
 import type {
     ComponentDefinition,
     Component,
@@ -112,16 +112,18 @@ export class Color<M extends ColorFunction> {
     static from(color: NamedColor): Color<any>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
     static from(color: string): Color<any>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
     static from(color: NamedColor | string) {
+        const cleaned = clean(color);
+
         for (const type in colorTypes) {
             const colorType = colorTypes[type as ColorType];
-            if (colorType.isValid(color)) {
+            if (colorType.isValid(cleaned)) {
                 if (type in colorFunctions) {
-                    const result = new Color(type as ColorFunction, colorType.parse(color));
+                    const result = new Color(type as ColorFunction, colorType.parse(cleaned));
                     return result;
                 }
 
                 const { bridge, toBridge, parse } = colorType;
-                const coords = toBridge(parse(color));
+                const coords = toBridge(parse(cleaned));
                 const result = new Color(bridge as ColorFunction, coords);
 
                 return result;
@@ -138,9 +140,10 @@ export class Color<M extends ColorFunction> {
      * @returns The color type if recognized, or `undefined` if not.
      */
     static type(color: string): ColorType | undefined {
+        const cleaned = clean(color);
         for (const type in colorTypes) {
             const colorType = colorTypes[type as ColorType];
-            if (colorType.isValid(color)) return type as ColorType;
+            if (colorType.isValid(cleaned)) return type as ColorType;
         }
         return undefined;
     }
@@ -155,14 +158,17 @@ export class Color<M extends ColorFunction> {
     static isValid(color: string, type?: ColorType): boolean; // eslint-disable-line no-unused-vars
     static isValid(color: string, type?: string): boolean; // eslint-disable-line no-unused-vars
     static isValid(color: string, type?: ColorType | string) {
+        type = type?.toLowerCase();
+        const cleaned = clean(color);
+
         try {
             if (type) {
                 const { isValid, bridge, parse, toBridge } = colorTypes[type as ColorType];
-                if (isValid(color)) {
-                    const coords = toBridge(parse(color));
+                if (isValid(cleaned)) {
+                    const coords = toBridge(parse(cleaned));
                     return typeof new Color(bridge as ColorFunction, coords) === "object";
                 } else return false;
-            } else return typeof Color.from(color) === "object";
+            } else return typeof Color.from(cleaned) === "object";
         } catch {
             return false;
         }
@@ -178,6 +184,8 @@ export class Color<M extends ColorFunction> {
     static random(type?: string): string; // eslint-disable-line no-unused-vars
     static random(type?: OutputType): string; // eslint-disable-line no-unused-vars
     static random(type?: OutputType | string) {
+        type = type?.toLowerCase();
+
         if (!type) {
             const types = Object.entries(colorTypes)
                 .filter(([, t]) => "fromBridge" in t)
@@ -224,6 +232,8 @@ export class Color<M extends ColorFunction> {
     to(type: string, options?: FormattingOptions): string; // eslint-disable-line no-unused-vars
     to(type: OutputType, options?: FormattingOptions): string; // eslint-disable-line no-unused-vars
     to(type: OutputType | string, options: FormattingOptions = {}) {
+        type = type.toLowerCase();
+
         const { legacy = false, fit = "clip", precision = undefined, units = false } = options;
         const converter = colorTypes[type as OutputType];
 
@@ -257,6 +267,8 @@ export class Color<M extends ColorFunction> {
     in<N extends ColorFunction>(model: N): Interface<N>; // eslint-disable-line no-unused-vars
     in(model: string): Interface<any>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
     in<N extends ColorFunction>(model: string | N): Interface<N> {
+        model = model.toLowerCase();
+
         const converter = colorFunctionConverters[model as N];
         const { components } = converter as unknown as Record<
             string,
@@ -1058,6 +1070,8 @@ export class Color<M extends ColorFunction> {
     inGamut(gamut: ColorSpace, epsilon?: number): boolean; // eslint-disable-line no-unused-vars
     inGamut(gamut: string, epsilon?: number): boolean; // eslint-disable-line no-unused-vars
     inGamut(gamut: ColorSpace | string, epsilon = 1e-5) {
+        gamut = gamut.toLowerCase();
+
         if (!(gamut in colorSpaceConverters)) {
             throw new Error(`Unsupported color gamut: ${gamut}.`);
         }
