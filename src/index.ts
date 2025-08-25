@@ -1,5 +1,5 @@
 export { Color } from "./Color.js";
-export { config } from "./config.js";
+export { config, systemColors } from "./config.js";
 export type {
     ColorType,
     ColorBase,
@@ -19,6 +19,10 @@ export type {
     FormattingOptions,
     MixOptions,
     EvaluateAccessibilityOptions,
+    Config,
+    Plugin,
+    SystemColor,
+    FitFunction,
 } from "./types.js";
 export {
     multiplyMatrices,
@@ -33,6 +37,11 @@ export {
     fit,
     converterFromFunctionConverter,
     functionConverterFromSpaceConverter,
+    cache,
+    clean,
+    extractBalancedExpression,
+    plugins,
+    registerFitMethod,
 } from "./utils.js";
 export {
     namedColors,
@@ -50,6 +59,7 @@ export {
     LCH_to_LAB,
     MATRICES,
     EASINGS,
+    fitMethods,
     OKLAB_to_OKLCH,
     OKLAB_to_XYZD65,
     OKLCH_to_OKLAB,

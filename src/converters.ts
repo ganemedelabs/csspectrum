@@ -32,7 +32,11 @@ import {
     extractBalancedExpression,
 } from "./utils.js";
 
-/** A collection of `<named-color>`s and their RGB values. */
+/**
+ * A collection of `<named-color>`s and their RGB values.
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export const namedColors = {
     aliceblue: [240, 248, 255],
     antiquewhite: [250, 235, 215],
@@ -184,7 +188,11 @@ export const namedColors = {
     yellowgreen: [154, 205, 50],
 } satisfies { [named: string]: [number, number, number] };
 
-/** A collection of color spaces for `<color()>` function and their conversion logic. */
+/**
+ * A collection of color spaces for `<color()>` function and their conversion logic.
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export const colorSpaceConverters = {
     srgb: functionConverterFromSpaceConverter("srgb", {
         components: ["r", "g", "b"],
@@ -341,7 +349,11 @@ export const colorSpaceConverters = {
     }),
 } as const satisfies Record<string, ColorFunctionConverter>;
 
-/** A collection of `<color-function>`s and their conversion logic. */
+/**
+ * A collection of `<color-function>`s and their conversion logic.
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export const colorFunctionConverters = {
     rgb: {
         supportsLegacy: true,
@@ -424,7 +436,11 @@ export const colorFunctionConverters = {
     ...colorSpaceConverters,
 } as const;
 
-/** A collection of `<color-function>`s as <color> converters. */
+/**
+ * A collection of `<color-function>`s as <color> converters.
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export const colorFunctions = Object.fromEntries(
     Object.entries(colorFunctionConverters).map(([name, converter]) => [
         name as ColorFunction,
@@ -432,7 +448,11 @@ export const colorFunctions = Object.fromEntries(
     ])
 ) as Record<ColorFunction, ColorConverter>;
 
-/** A collection of `<color-base>`s as <color> converters. */
+/**
+ * A collection of `<color-base>`s as <color> converters.
+ *
+ * @see {@link https://www.w3.org/TR/css-color-5/|CSS Color Module Level 5}
+ */
 export const colorBases = {
     "hex-color": {
         isValid: (str: string) => str.startsWith("#"),
@@ -598,7 +618,7 @@ export const colorBases = {
 /**
  * A collection of `<color>` converters.
  *
- * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ * @see {@link https://www.w3.org/TR/css-color-5/|CSS Color Module Level 5}
  */
 export const colorTypes = {
     currentColor: {

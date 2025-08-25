@@ -1,5 +1,12 @@
-import { multiplyMatrices } from "./utils.js";
+import { Color } from "./Color.js";
+import { ColorFunction, ColorSpace, ComponentDefinition, FitFunction } from "./types.js";
+import { multiplyMatrices, fit } from "./utils.js";
 
+/**
+ * A collection of commonly used color space conversion matrices.
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export const MATRICES = {
     D50_to_D65: [
         [0.955473421488075, -0.02309845494876471, 0.06325924320057072],
@@ -83,6 +90,7 @@ export const MATRICES = {
     ],
 };
 
+/** A collection of common easing functions for interpolation. */
 export const EASINGS = {
     linear: (t: number) => t,
     "ease-in": (t: number) => t * t,
@@ -93,6 +101,172 @@ export const EASINGS = {
     "ease-in-out-cubic": (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
 };
 
+/**
+ * A collection of color coordinate fitting methods used to ensure color values conform to specific constraints or gamuts.
+ *
+ * @remarks
+ * Each method in `fitMethods` provides a different strategy for adjusting color coordinates:
+ * - `"round-unclipped"`: Rounds the coordinates according to the component precision withput gamut mapping.
+ * - `"clip"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
+ * - `"chroma-reduction"`: Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
+ * - `"css-gamut-map"`: CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
+export const fitMethods = {
+    "round-unclipped": (coords) => coords,
+    clip: (coords, context) => {
+        const { componentProps } = context as { componentProps: ComponentDefinition[] };
+        const clipped = coords.slice(0, 3).map((value, i) => {
+            const props = componentProps[i];
+            if (!props) {
+                throw new Error(`Missing component properties for index ${i}.`);
+            }
+            if (props.value === "hue") {
+                return ((value % 360) + 360) % 360;
+            } else {
+                const [min, max] = Array.isArray(props.value) ? props.value : [0, 100];
+                return Math.min(max, Math.max(min, value));
+            }
+        });
+        return clipped;
+    },
+    "chroma-reduction": (coords, context) => {
+        const lightnessRange = () => {
+            const C = 0.05;
+            const epsilon = 1e-5;
+
+            const isInGamut = (L: number) => {
+                const color = new Color("oklch", [L, C, H]);
+                return color.inGamut(targetGamut as ColorSpace, epsilon);
+            };
+
+            const searchMinL = () => {
+                let low = 0,
+                    high = 1;
+                while (high - low > epsilon) {
+                    const mid = (low + high) / 2;
+                    if (isInGamut(mid)) high = mid;
+                    else low = mid;
+                }
+                return high;
+            };
+
+            const searchMaxL = () => {
+                let low = 0,
+                    high = 1;
+                while (high - low > epsilon) {
+                    const mid = (low + high) / 2;
+                    if (isInGamut(mid)) low = mid;
+                    else high = mid;
+                }
+                return low;
+            };
+
+            return [searchMinL(), searchMaxL()];
+        };
+
+        const { model, targetGamut } = context as { model: ColorFunction; targetGamut: ColorSpace | null };
+
+        const color = new Color(model, coords);
+        if (targetGamut === null || color.inGamut(targetGamut as ColorSpace, 1e-5)) return coords;
+
+        const [L, , H] = color.in("oklch").getCoords();
+        const [L_min, L_max] = lightnessRange();
+        const L_adjusted = Math.min(L_max, Math.max(L_min, L));
+
+        let C_low = 0;
+        let C_high = 1.0;
+        const epsilon = 1e-6;
+        let clipped: number[] = [];
+
+        while (C_high - C_low > epsilon) {
+            const C_mid = (C_low + C_high) / 2;
+            const candidate_color = new Color("oklch", [L_adjusted, C_mid, H]);
+
+            if (candidate_color.inGamut(targetGamut as ColorSpace, 1e-5)) C_low = C_mid;
+            else {
+                const clipped_coords = fit(candidate_color.getCoords().slice(0, 3), { model, method: "clip" });
+                const clipped_color = new Color(model, clipped_coords);
+                const deltaE = candidate_color.deltaEOK(clipped_color);
+                if (deltaE < 2) {
+                    clipped = clipped_coords;
+                    return clipped;
+                } else C_high = C_mid;
+            }
+        }
+
+        const finalColor = new Color("oklch", [L_adjusted, C_low, H]);
+        clipped = finalColor.in(model).getCoords();
+        return clipped;
+    },
+    "css-gamut-map": (coords, context): number[] => {
+        const { model, targetGamut } = context as { model: ColorFunction; targetGamut: ColorSpace | null };
+        if (targetGamut === null) return coords;
+
+        const color = new Color(model, coords);
+        const [L, C, H] = color.in("oklch").getCoords();
+
+        if (L >= 1.0) {
+            const white = new Color("oklab", [1, 0, 0]);
+            return white.in(model).getCoords();
+        }
+
+        if (L <= 0.0) {
+            const black = new Color("oklab", [0, 0, 0]);
+            return black.in(model).getCoords();
+        }
+
+        if (color.inGamut(targetGamut as ColorSpace, 1e-5)) return coords;
+
+        const JND = 0.02;
+        const epsilon = 0.0001;
+
+        const current = new Color("oklch", [L, C, H]);
+        let clipped: number[] = fit(current.in(model).getCoords().slice(0, 3), { model, method: "clip" });
+
+        const initialClippedColor = new Color(model, clipped);
+        const E = current.deltaEOK(initialClippedColor);
+
+        if (E < JND) return clipped;
+
+        let min = 0;
+        let max = C;
+        let min_inGamut = true;
+
+        while (max - min > epsilon) {
+            const chroma = (min + max) / 2;
+            const candidate = new Color("oklch", [L, chroma, H]);
+
+            if (min_inGamut && candidate.inGamut(targetGamut as ColorSpace, 1e-5)) min = chroma;
+            else {
+                const clippedCoords = fit(candidate.in(model).getCoords().slice(0, 3), { model, method: "clip" });
+                clipped = clippedCoords;
+                const clippedColor = new Color(model, clippedCoords);
+                const deltaE = candidate.deltaEOK(clippedColor);
+
+                if (deltaE < JND) {
+                    if (JND - deltaE < epsilon) return clipped;
+                    else {
+                        min_inGamut = false;
+                        min = chroma;
+                    }
+                } else max = chroma;
+            }
+        }
+
+        return clipped;
+    },
+} satisfies Record<string, FitFunction>;
+
+/**
+ * Converts an RGB color to the CIE XYZ color space (D65 illuminant).
+ *
+ * @param rgb - Array of three numbers [R, G, B], each in the range 0–255.
+ * @returns Array of three numbers [X, Y, Z], each in the range 0–1.
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export function RGB_to_XYZD65(rgb: number[]) {
     const rgbNorm = rgb.map((v) => v / 255);
 
@@ -113,6 +287,14 @@ export function RGB_to_XYZD65(rgb: number[]) {
     return multiplyMatrices(SRGB_to_XYZD65, linearRGB);
 }
 
+/**
+ * Converts a CIE XYZ (D65 illuminant) color to RGB.
+ *
+ * @param xyz - Array of three numbers [X, Y, Z], each in the range 0–1.
+ * @returns Array of three numbers [R, G, B], each in the range 0–255.
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export function XYZD65_to_RGB(xyz: number[]) {
     const { XYZD65_to_SRGB } = MATRICES;
 
@@ -133,6 +315,14 @@ export function XYZD65_to_RGB(xyz: number[]) {
     return gammaRGB.map((v) => v * 255);
 }
 
+/**
+ * Converts an HSL color to RGB.
+ *
+ * @param hsl - Array of three numbers [H, S, L], where H is in [0, 360], S and L in [0, 100].
+ * @returns Array of three numbers [R, G, B], each in the range 0–255.
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export function HSL_to_RGB(hsl: number[]) {
     const [h] = hsl;
     let [, s, l] = hsl;
@@ -148,6 +338,14 @@ export function HSL_to_RGB(hsl: number[]) {
     return [f(0) * 255, f(8) * 255, f(4) * 255];
 }
 
+/**
+ * Converts an RGB color to HSL.
+ *
+ * @param rgb - Array of three numbers [R, G, B], each in the range 0–255.
+ * @returns Array of three numbers [H, S, L], where H is in [0, 360], S and L in [0, 100].
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export function RGB_to_HSL(rgb: number[]) {
     const [R, G, B] = rgb.map((c) => c / 255);
     const max = Math.max(R, G, B);
@@ -187,6 +385,14 @@ export function RGB_to_HSL(rgb: number[]) {
     return [h, s, l];
 }
 
+/**
+ * Converts an HWB color to RGB.
+ *
+ * @param hwb - Array of three numbers [H, W, B], where H is in [0, 360], W and B in [0, 100].
+ * @returns Array of three numbers [R, G, B], each in the range 0–255.
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export function HWB_to_RGB(hwb: number[]) {
     const [h] = hwb;
     let [, w, b] = hwb;
@@ -204,6 +410,14 @@ export function HWB_to_RGB(hwb: number[]) {
     return rgb.map((c) => c * 255);
 }
 
+/**
+ * Converts an RGB color to HWB.
+ *
+ * @param rgb - Array of three numbers [R, G, B], each in the range 0–255.
+ * @returns Array of three numbers [H, W, B], where H is in [0, 360], W and B in [0, 100].
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export function RGB_to_HWB(rgb: number[]) {
     const rgbToHue = (red: number, green: number, blue: number) => {
         const max = Math.max(red, green, blue);
@@ -237,6 +451,14 @@ export function RGB_to_HWB(rgb: number[]) {
     return [hue, white * 100, black * 100];
 }
 
+/**
+ * Converts a CIE LAB color to CIE XYZ (D50 illuminant).
+ *
+ * @param lab - Array of three numbers [L, a, b], where L is in [0, 100], a and b in [-125, 125].
+ * @returns Array of three numbers [X, Y, Z], each in the range 0–1.
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export function LAB_to_XYZD50(lab: number[]) {
     const [L, a, b] = lab;
     const D50 = [0.3457 / 0.3585, 1.0, (1.0 - 0.3457 - 0.3585) / 0.3585];
@@ -253,6 +475,14 @@ export function LAB_to_XYZD50(lab: number[]) {
     return xyz.map((value, i) => value * D50[i]);
 }
 
+/**
+ * Converts a CIE XYZ (D50 illuminant) color to CIE LAB.
+ *
+ * @param xyz - Array of three numbers [X, Y, Z], each in the range 0–1.
+ * @returns Array of three numbers [L, a, b], where L is in [0, 100], a and b in [-125, 125].
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export function XYZD50_to_LAB(xyz: number[]) {
     const D50 = [0.3457 / 0.3585, 1.0, (1.0 - 0.3457 - 0.3585) / 0.3585];
     const ε = 216 / 24389;
@@ -262,12 +492,28 @@ export function XYZD50_to_LAB(xyz: number[]) {
     return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
 }
 
+/**
+ * Converts an LCH color to CIE LAB.
+ *
+ * @param lch - Array of three numbers [L, C, H], where L is in [0, 100], C in [0, 150], and H in [0, 360].
+ * @returns Array of three numbers [L, a, b], where L is in [0, 100], a and b in [-125, 125].
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export function LCH_to_LAB(lch: number[]) {
     const [L, C, H] = lch;
     const [, a, b] = [L, C * Math.cos((H * Math.PI) / 180), C * Math.sin((H * Math.PI) / 180)];
     return [L, a, b];
 }
 
+/**
+ * Converts a CIE LAB color to LCH.
+ *
+ * @param lab - Array of three numbers [L, a, b], where L is in [0, 100], a and b in [-125, 125].
+ * @returns Array of three numbers [L, C, H], where L is in [0, 100], C in [0, 150], and H in [0, 360].
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export function LAB_to_LCH(lab: number[]) {
     const [L, a, b] = lab;
     const C = Math.sqrt(Math.pow(a, 2) + Math.pow(b, 2));
@@ -275,6 +521,14 @@ export function LAB_to_LCH(lab: number[]) {
     return [L, C, H < 0 ? H + 360 : H];
 }
 
+/**
+ * Converts an OKLab color to CIE XYZ (D65 illuminant).
+ *
+ * @param oklab - Array of three numbers [L, a, b], where L is in [0, 1], a and b in [-0.4, 0.4].
+ * @returns Array of three numbers [X, Y, Z], each in the range 0–1.
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export function OKLAB_to_XYZD65(oklab: number[]) {
     const { LMS_to_XYZD65, OKLAB_to_LMS } = MATRICES;
     const LMSnl = multiplyMatrices(OKLAB_to_LMS, oklab);
@@ -284,6 +538,14 @@ export function OKLAB_to_XYZD65(oklab: number[]) {
     );
 }
 
+/**
+ * Converts a CIE XYZ (D65 illuminant) color to OKLab.
+ *
+ * @param xyz - Array of three numbers [X, Y, Z], each in the range 0–1.
+ * @returns Array of three numbers [L, a, b], where L is in [0, 1], a and b in [-0.4, 0.4].
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export function XYZD65_to_OKLAB(xyz: number[]) {
     const { XYZD65_to_LMS, LMS_to_OKLAB } = MATRICES;
     const LMS = multiplyMatrices(XYZD65_to_LMS, xyz);
@@ -293,12 +555,28 @@ export function XYZD65_to_OKLAB(xyz: number[]) {
     );
 }
 
+/**
+ * Converts an OKLCH color to OKLab.
+ *
+ * @param oklch - Array of three numbers [L, C, H], where L is in [0, 1], C in [0, 0.4], and H in [0, 360].
+ * @returns Array of three numbers [L, a, b], where L is in [0, 1], a and b in [-0.4, 0.4].
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export function OKLCH_to_OKLAB(oklch: number[]) {
     const [L, C, H] = oklch;
     const [, a, b] = [L, C * Math.cos((H * Math.PI) / 180), C * Math.sin((H * Math.PI) / 180)];
     return [L, a, b];
 }
 
+/**
+ * Converts an OKLab color to OKLCH.
+ *
+ * @param oklab - Array of three numbers [L, a, b], where L is in [0, 1], a and b in [-0.4, 0.4].
+ * @returns Array of three numbers [L, C, H], where L is in [0, 1], C in [0, 0.4], and H in [0, 360].
+ *
+ * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ */
 export function OKLAB_to_OKLCH(oklab: number[]) {
     const [L, a, b] = oklab;
     const H = (Math.atan2(b, a) * 180) / Math.PI;

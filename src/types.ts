@@ -1,7 +1,7 @@
 import { Color } from "./Color.js";
 import { systemColors } from "./config.js";
 import { namedColors, colorTypes, colorFunctionConverters, colorBases, colorSpaceConverters } from "./converters.js";
-import { EASINGS } from "./math.js";
+import { EASINGS, fitMethods } from "./math.js";
 
 /* eslint-disable no-unused-vars */
 
@@ -19,13 +19,13 @@ export type Config = {
 /** Represents a plugin type for the `Color` class. */
 export type Plugin = (colorClass: typeof Color) => void;
 
-/** Represents the available `<color>s`. */
+/** Represents the available `<color>`s. */
 export type ColorType = keyof typeof colorTypes;
 
-/** Represents the available `<color-base>s`. */
+/** Represents the available `<color-base>`s. */
 export type ColorBase = keyof typeof colorBases;
 
-/** Represents the available `<color-function>s`. */
+/** Represents the available `<color-function>`s. */
 export type ColorFunction = keyof typeof colorFunctionConverters;
 
 /** Represents the available color spaces for `<color()>` function. */
@@ -48,13 +48,23 @@ export type OutputType = {
 
 /** Represents a converter for `<color>`s. */
 export type ColorConverter = {
+    /** Checks whether a given string is a valid representation of this color type. */
     isValid: (str: string) => boolean;
+
+    /** The intermediate "bridge" color space used for conversion. Must be another `<color-function>` identifier (e.g., `"rgb"`, `"xyz"`). */
     bridge: string;
+
+    /** Converts coordinates from the native color function into the bridge color space. */
     toBridge: (coords: number[]) => number[];
+
+    /** Parses a string representation of the color into its numeric coordinates. */
     parse: (str: string) => number[];
 } & (
     | {
+          /** Converts coordinates from the bridge color space back into the native color function's coordinate system. */
           fromBridge: (coords: number[]) => number[];
+
+          /** Formats numeric component values into a valid CSS color string. */
           format: (coords: number[], options?: FormattingOptions) => string | undefined;
       }
     | { fromBridge?: undefined; format?: undefined }
@@ -62,35 +72,49 @@ export type ColorConverter = {
 
 /** Represents a converter for `<color-function>`s. */
 export type ColorFunctionConverter = {
+    /** The target color gamut identifier that the function should be clamped to (e.g., `"srgb"`, `"display-p3"`), or `null` for color spaces without a fixed gamut (e.g., `lab`, `lch`). */
     targetGamut?: string | null;
+
+    /** Indicates if legacy (comma-separated) syntax is supported. */
     supportsLegacy?: boolean;
+
+    /** The name of the alpha-channel variant of the color function, if it has one (e.g., `"rgba"` for `"rgb"`). */
     alphaVariant?: string;
+
+    /** A mapping of component names to their definitions. */
     components: Record<string, ComponentDefinition>;
+
+    /** The intermediate "bridge" color space used for conversion. Must be another `<color-function>` identifier (e.g., `"rgb"`, `"xyz"`). */
     bridge: string;
+
+    /** Converts coordinates from the native color function into the bridge color space. */
     toBridge: (coords: number[]) => number[];
+
+    /** Converts coordinates from the bridge color space back into the native color function's coordinate system. */
     fromBridge: (coords: number[]) => number[];
 };
 
 /** Represents a converter for the color spaces used in `<color()>` function. */
 export type ColorSpaceConverter = {
-    /** The target color gamut for conversion. If not specified, defaults to null. */
+    /** The target color gamut for conversion. Defaults to null if the color space has no limits (e.g., `"xyz-d65"`). */
     targetGamut?: null;
 
     /** Names of components in this space. */
     components: string[];
 
-    /** Linearization function. */
+    /** Linearization function. Must be undefined if the matrix is linear. */
     toLinear?: (c: number) => number;
 
-    /** Inverse linearization. */
+    /** Inverse linearization. Must be undefined if the matrix is linear. */
     fromLinear?: (c: number) => number;
 
+    /** The intermediate "bridge" color space used for conversion. Must be another `<color-function>` identifier (e.g., `"rgb"`, `"xyz"`). */
     bridge: string;
 
-    /** Matrix to convert to XYZ. */
+    /** Matrix to convert to the bridge color space. */
     toBridgeMatrix: number[][];
 
-    /** Matrix to convert from XYZ. */
+    /** Matrix to convert from the bridge color space. */
     fromBridgeMatrix: number[][];
 };
 
@@ -119,27 +143,13 @@ export type Component<M extends keyof typeof colorFunctionConverters> =
 export type Interface<M extends ColorFunction> = {
     /** Gets all component values as an object. */
     get: (
-        /**
-         * Method for fitting the color into the target gamut:
-         * - `"none"`: Returns the original coordinates without modification.
-         * - `"round-unclipped"`: Rounds the coordinates according to the component precision withput gamut mapping.
-         * - `"clip"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
-         * - `"chroma-reduction"`: Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
-         * - `"css-gamut-map"`: CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
-         */
+        /** Method for fitting the color into the target gamut. */
         fit?: FitMethod
     ) => { [key in Component<M>]: number };
 
     /** Gets all component values as an array. */
     getCoords: (
-        /**
-         * Method for fitting the color into the target gamut:
-         * - `"none"`: Returns the original coordinates without modification.
-         * - `"round-unclipped"`: Rounds the coordinates according to the component precision withput gamut mapping.
-         * - `"clip"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
-         * - `"chroma-reduction"`: Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
-         * - `"css-gamut-map"`: CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
-         */
+        /** Method for fitting the color into the target gamut. */
         fit?: FitMethod
     ) => number[];
 
@@ -198,35 +208,27 @@ export type HueInterpolationMethod = "shorter" | "longer" | "increasing" | "decr
 /** Represents the set of valid easing function names. */
 export type Easing = keyof typeof EASINGS;
 
-/**
- * Describes the available methods for fitting the color into the target gamut.
- * - `"none"`: Returns the original coordinates without modification.
- * - `"round-unclipped"`: Rounds the coordinates according to the component precision withput gamut mapping.
- * - `"clip"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
- * - `"chroma-reduction"`: Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
- * - `"css-gamut-map"`: CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
- */
-export type FitMethod = "clip" | "chroma-reduction" | "css-gamut-map" | "none" | "round-unclipped";
+/** Represents a gamut mapping method. */
+export type FitFunction = (
+    coords: number[],
+    context?: { model?: ColorFunction; componentProps?: ComponentDefinition[]; targetGamut?: ColorSpace | null }
+) => number[];
+
+/** Describes the available methods for fitting the color into the target gamut. */
+export type FitMethod = keyof typeof fitMethods | "none";
 
 /** Options for formatting color output. */
 export type FormattingOptions = {
-    /** Use legacy syntax (e.g., `rgb(255, 0, 0, 0.5)`). */
+    /** Use legacy syntax (e.g., `"rgb(255, 0, 0, 0.5)"`). */
     legacy?: boolean;
 
-    /**
-     * Method for fitting the color into the target gamut:
-     * - `"none"`: Returns the original coordinates without modification.
-     * - `"round-unclipped"`: Rounds the coordinates according to the component precision withput gamut mapping.
-     * - `"clip"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
-     * - `"chroma-reduction"`: Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
-     * - `"css-gamut-map"`: CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
-     */
+    /** Method for fitting the color into the target gamut. */
     fit?: FitMethod;
 
     /** Overrides the precision of the output color. */
     precision?: number;
 
-    /** Output components with units (e.g., `hsl(250deg 74% 54%)`) */
+    /** Output components with units (e.g., `"hsl(250deg 74% 54%)"`) */
     units?: boolean;
 };
 
@@ -261,9 +263,9 @@ export type EvaluateAccessibilityOptions = {
 
     /**
      * The contrast algorithm to use: "wcag21" (default), "apca", or "oklab".
-     * - "wcag21": Follows WCAG 2.1 but has limitations (e.g., sRGB-based, poor hue handling).
-     * - "apca": Uses APCA-W3 (WCAG 3.0 draft), font-size/weight dependent. See https://git.myndex.com.
-     * - "oklab": Uses OKLab lightness difference for perceptual uniformity.
+     * - `"wcag21"`: Follows WCAG 2.1 but has limitations (e.g., sRGB-based, poor hue handling).
+     * - `"apca"`: Uses APCA-W3 (WCAG 3.0 draft), font-size/weight dependent. See https://git.myndex.com.
+     * - `"oklab"`: Uses OKLab lightness difference for perceptual uniformity.
      *
      * @remarks
      * "wcag21" follows WCAG 2.1 guidelines but has limitations. Consider "apca" or "oklab" for better perceptual accuracy.

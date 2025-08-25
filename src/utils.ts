@@ -8,6 +8,7 @@ import {
     colorTypes,
     namedColors,
 } from "./converters.js";
+import { fitMethods } from "./math.js";
 import type {
     ColorBase,
     ColorConverter,
@@ -17,6 +18,7 @@ import type {
     ColorSpaceConverter,
     ColorType,
     ComponentDefinition,
+    FitFunction,
     FitMethod,
     FormattingOptions,
     NamedColor,
@@ -384,6 +386,29 @@ export function registerNamedColor(name: string, rgb: [number, number, number]) 
 }
 
 /**
+ * Registers a new fit method under a specified name.
+ *
+ * @param name - The name to register the fit method under. Whitespace will be replaced with hyphens and the name will be lowercased.
+ * @param method - The fit function to register.
+ * @throws If a fit method with the cleaned name already exists.
+ * @throws If the provided method is not a function.
+ */
+export function registerFitMethod(name: string, method: FitFunction) {
+    const cleaned = name.replace(/(?:\s+)/g, "-").toLowerCase() as FitMethod;
+    const methods = fitMethods as Record<string, FitFunction>;
+
+    if (cleaned in fitMethods) {
+        throw new Error(`The name "${cleaned}" is already used.`);
+    }
+
+    if (typeof method !== "function") {
+        throw new TypeError("Fit method must be a function.");
+    }
+
+    methods[cleaned] = method;
+}
+
+/**
  * Unregisters one or more color types from the library.
  *
  * @param types - The names of the color types to unregister.
@@ -428,14 +453,13 @@ export function clean(color: string) {
  * @param start - The index in the string to start extraction.
  * @returns An object containing the extracted expression as a string the index after the end of it.
  */
-// TODO: use /\S/ instead of /[a-zA-Z0-9-%]/
 export function extractBalancedExpression(input: string, start: number) {
     let i = start;
     let expression = "";
     let depth = 0;
 
     if (input[i] !== "(") {
-        while (i < input.length && /[a-zA-Z0-9-%]/.test(input[i])) {
+        while (i < input.length && /[a-zA-Z0-9-%#]/.test(input[i])) {
             expression += input[i];
             i++;
         }
@@ -464,34 +488,19 @@ export function extractBalancedExpression(input: string, start: number) {
  *
  * @param coords - The color coordinates to fit or clip.
  * @param model - The color model to use (e.g., "rgb", "oklch", "xyz-d50", etc.).
- * @param method - The fitting method to use. Defaults to "minmax".
+ * @param method - The fitting method to use. Defaults to "clip".
  * @param precision - Overrides the default precision of component definitions.
  * @returns The fitted or clipped color coordinates.
  * @throws If component properties are missing or an invalid method is specified.
- *
- * @remarks
- * This function supports several fitting methods:
- * - `"none"`: Returns the original coordinates without modification.
- * - `"round-unclipped"`: Rounds the coordinates according to the component precision withput gamut mapping.
- * - `"clip"`: Simple clipping to gamut boundaries (W3C Color 4, Section 13.1.1).
- * - `"chroma-reduction"`: Chroma reduction with local clipping in OKLCh (W3C Color 4, Section 13.1.5).
- * - `"css-gamut-map"`: CSS Gamut Mapping algorithm for RGB destinations (W3C Color 4, Section 13.2).
  */
 export function fit(coords: number[], options: { model?: ColorFunction; method?: FitMethod; precision?: number } = {}) {
-    const roundCoords = (coords: number[]) => {
-        return coords.map((value, i) => {
-            const p = precision ?? componentProps[i]?.precision ?? 3;
-            return Number(value.toFixed(p));
-        });
-    };
-
     const { model = "srgb", method = "clip", precision } = options;
 
     if (method === "none") return coords;
 
     const converter = colorFunctionConverters[model] as ColorFunctionConverter;
     const components = converter.components;
-    let targetGamut = converter.targetGamut;
+    let targetGamut = converter.targetGamut as ColorSpace;
     if (targetGamut !== null && typeof targetGamut !== "string") targetGamut = "srgb";
 
     const componentProps: ComponentDefinition[] = [];
@@ -499,156 +508,17 @@ export function fit(coords: number[], options: { model?: ColorFunction; method?:
         componentProps[props.index] = props;
     }
 
-    switch (method) {
-        case "round-unclipped":
-            return roundCoords(coords);
-
-        case "clip": {
-            const clipped = coords.slice(0, 3).map((value, i) => {
-                const props = componentProps[i];
-                if (!props) {
-                    throw new Error(`Missing component properties for index ${i}.`);
-                }
-                if (props.value === "hue") {
-                    return ((value % 360) + 360) % 360;
-                } else {
-                    const [min, max] = Array.isArray(props.value) ? props.value : [0, 100];
-                    return Math.min(max, Math.max(min, value));
-                }
-            });
-            return roundCoords(clipped);
-        }
-
-        case "chroma-reduction": {
-            const lightnessRange = () => {
-                const C = 0.05;
-                const epsilon = 1e-5;
-
-                const isInGamut = (L: number) => {
-                    const color = new Color("oklch", [L, C, H]);
-                    return color.inGamut(targetGamut as ColorSpace, epsilon);
-                };
-
-                const searchMinL = () => {
-                    let low = 0,
-                        high = 1;
-                    while (high - low > epsilon) {
-                        const mid = (low + high) / 2;
-                        if (isInGamut(mid)) high = mid;
-                        else low = mid;
-                    }
-                    return high;
-                };
-
-                const searchMaxL = () => {
-                    let low = 0,
-                        high = 1;
-                    while (high - low > epsilon) {
-                        const mid = (low + high) / 2;
-                        if (isInGamut(mid)) low = mid;
-                        else high = mid;
-                    }
-                    return low;
-                };
-
-                return [searchMinL(), searchMaxL()];
-            };
-
-            const color = new Color(model, coords);
-            if (targetGamut === null || color.inGamut(targetGamut as ColorSpace, 1e-5)) return roundCoords(coords);
-
-            const [L, , H] = color.in("oklch").getCoords();
-            const [L_min, L_max] = lightnessRange();
-            const L_adjusted = Math.min(L_max, Math.max(L_min, L));
-
-            let C_low = 0;
-            let C_high = 1.0;
-            const epsilon = 1e-6;
-            let clipped: number[] = [];
-
-            while (C_high - C_low > epsilon) {
-                const C_mid = (C_low + C_high) / 2;
-                const candidate_color = new Color("oklch", [L_adjusted, C_mid, H]);
-
-                if (candidate_color.inGamut(targetGamut as ColorSpace, 1e-5)) C_low = C_mid;
-                else {
-                    const clipped_coords = fit(candidate_color.getCoords().slice(0, 3), { model, method: "clip" });
-                    const clipped_color = new Color(model, clipped_coords);
-                    const deltaE = candidate_color.deltaEOK(clipped_color);
-                    if (deltaE < 2) {
-                        clipped = clipped_coords;
-                        return roundCoords(clipped);
-                    } else C_high = C_mid;
-                }
-            }
-
-            const finalColor = new Color("oklch", [L_adjusted, C_low, H]);
-            clipped = finalColor.in(model).getCoords();
-            return roundCoords(clipped);
-        }
-
-        case "css-gamut-map": {
-            if (targetGamut === null) return roundCoords(coords);
-
-            const color = new Color(model, coords);
-            const [L, C, H] = color.in("oklch").getCoords();
-
-            if (L >= 1.0) {
-                const white = new Color("oklab", [1, 0, 0]);
-                return roundCoords(white.in(model).getCoords());
-            }
-
-            if (L <= 0.0) {
-                const black = new Color("oklab", [0, 0, 0]);
-                return roundCoords(black.in(model).getCoords());
-            }
-
-            if (color.inGamut(targetGamut as ColorSpace, 1e-5)) return roundCoords(coords);
-
-            const JND = 0.02;
-            const epsilon = 0.0001;
-
-            const current = new Color("oklch", [L, C, H]);
-            let clipped: number[] = fit(current.in(model).getCoords().slice(0, 3), { model, method: "clip" });
-
-            const initialClippedColor = new Color(model, clipped);
-            const E = current.deltaEOK(initialClippedColor);
-
-            if (E < JND) return roundCoords(clipped);
-
-            let min = 0;
-            let max = C;
-            let min_inGamut = true;
-
-            while (max - min > epsilon) {
-                const chroma = (min + max) / 2;
-                const candidate = new Color("oklch", [L, chroma, H]);
-
-                if (min_inGamut && candidate.inGamut(targetGamut as ColorSpace, 1e-5)) min = chroma;
-                else {
-                    const clippedCoords = fit(candidate.in(model).getCoords().slice(0, 3), { model, method: "clip" });
-                    clipped = clippedCoords;
-                    const clippedColor = new Color(model, clippedCoords);
-                    const deltaE = candidate.deltaEOK(clippedColor);
-
-                    if (deltaE < JND) {
-                        if (JND - deltaE < epsilon) return roundCoords(clipped);
-                        else {
-                            min_inGamut = false;
-                            min = chroma;
-                        }
-                    } else max = chroma;
-                }
-            }
-
-            return roundCoords(clipped);
-        }
-
-        default:
-            throw new Error(
-                `Invalid gamut clipping method: must be 'minmax', 'chroma-reduction', 'css-gamut-map', 'round-only', or 'no-fit'.`
-            );
+    const fn = fitMethods[method];
+    if (!fn) {
+        throw new Error(`Invalid gamut cliiping method: must be ${Object.keys(fitMethods).join(", ")} or "none".`);
     }
+
+    const clipped = fn(coords, { model, componentProps, targetGamut });
+
+    return clipped.map((value, i) => {
+        const p = precision ?? componentProps[i]?.precision ?? 3;
+        return Number(value.toFixed(p));
+    });
 }
 
 /**
@@ -666,15 +536,25 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
     ) => {
         const parsePercent = (str: string) => {
             const percent = parseFloat(str);
-            if (!isNaN(percent)) {
-                if (value === "percentage") return percent;
-                return (percent / 100) * (max - min) + min;
-            }
+            if (isNaN(percent)) return undefined;
+            if (value === "percentage") return percent;
+            if (_min < 0 && _max > 0) return ((percent / 100) * (_max - _min)) / 2;
+            return (percent / 100) * (_max - _min) + _min;
+        };
+
+        const parseHue = (token: string): number => {
+            const value = parseFloat(token);
+            if (isNaN(value)) return 0;
+            if (token.endsWith("deg")) return value;
+            if (token.endsWith("rad")) return value * (180 / pi);
+            if (token.endsWith("grad")) return value * 0.9;
+            if (token.endsWith("turn")) return value * 360;
+            return 0;
         };
 
         if (token === "none") return 0;
 
-        const [min, max] = Array.isArray(value) ? value : value === "hue" ? [0, 360] : [0, 100];
+        const [_min, _max] = Array.isArray(value) ? value : value === "hue" ? [0, 360] : [0, 100];
 
         if (/^\d+(\.\d+)?$/.test(token)) return parseFloat(token);
 
@@ -682,31 +562,58 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
             return parsePercent(token);
         }
 
-        if (/deg|rad|grad|turn$/.test(token)) {
-            const value = parseFloat(token);
-            if (isNaN(value)) return 0;
-
-            if (token.endsWith("deg")) return value;
-            if (token.endsWith("rad")) return value * (180 / Math.PI);
-            if (token.endsWith("grad")) return value * 0.9;
-            if (token.endsWith("turn")) return value * 360;
-
-            return 0;
+        if (/^-?\d+(\.\d+)?(?:deg|rad|grad|turn)$/.test(token)) {
+            return parseHue(token);
         }
 
         if (token.startsWith("calc(")) {
-            const inner = token.slice(5, -1).trim();
-            if (inner === "infinity") return max;
-            if (inner === "-infinity") return min;
+            let inner = token.slice(5, -1).trim();
+            if (inner === "infinity") return _max;
+            if (inner === "-infinity") return _min;
             if (inner === "NaN") return 0;
 
-            if (/\d+(\.\d+)?%/i.test(inner)) {
-                return parsePercent(inner);
-            }
+            inner = inner.replace(/(\d+(\.\d+)?)%/g, (match) => {
+                const result = parsePercent(match);
+                return result !== undefined ? String(result) : "0";
+            });
+
+            inner = inner.replace(/(\d+(\.\d+)?)(deg|rad|grad|turn)/g, (_, num, __, unit) => {
+                return String(parseHue(`${parseFloat(num)}${unit}`));
+            });
+
+            const caclEnv = {
+                ...base,
+                pi,
+                e,
+                tau: pi * 2,
+                pow,
+                sqrt,
+                sin,
+                cos,
+                tan,
+                asin,
+                acos,
+                atan,
+                atan2,
+                exp,
+                log,
+                log10,
+                log2,
+                abs,
+                min,
+                max,
+                hypot,
+                round,
+                ceil,
+                floor,
+                sign,
+                trunc,
+                random,
+            };
 
             try {
-                const keys = Object.keys(base);
-                const values = Object.values(base);
+                const keys = Object.keys(caclEnv);
+                const values = Object.values(caclEnv);
                 const func = new Function(...keys, `return ${inner};`);
                 return func(...values);
             } catch (error) {
@@ -818,10 +725,10 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
             if (i >= innerStr.length) break;
 
             const char = innerStr[i];
-            if (/[a-zA-Z-]/.test(char)) {
+            if (/[a-zA-Z#]/.test(char)) {
                 const identStart = i;
                 let ident = "";
-                while (i < innerStr.length && /[a-zA-Z0-9-%]/.test(innerStr[i])) {
+                while (i < innerStr.length && /[a-zA-Z0-9-%#]/.test(innerStr[i])) {
                     ident += innerStr[i];
                     i++;
                 }
@@ -898,6 +805,34 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
 
     const cleanedName = name.replace(/\s+/g, " ").trim().toLowerCase();
 
+    const {
+        PI: pi,
+        E: e,
+        pow,
+        sqrt,
+        sin,
+        cos,
+        tan,
+        asin,
+        acos,
+        atan,
+        atan2,
+        exp,
+        log,
+        log10,
+        log2,
+        abs,
+        min,
+        max,
+        hypot,
+        round,
+        ceil,
+        floor,
+        sign,
+        trunc,
+        random,
+    } = Math;
+
     return {
         isValid: (str: string) => {
             const cleanedStr = str.trim().toLowerCase();
@@ -927,7 +862,7 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
             const { legacy = false, fit: fitMethod = "clip", precision = undefined, units = false } = options;
 
             const clipped = fit([c1, c2, c3], { model: cleanedName as ColorFunction, method: fitMethod, precision });
-            const alphaFormatted = Number(Math.min(Math.max(alpha, 0), 1).toFixed(3)).toString();
+            const alphaFormatted = Number(min(max(alpha, 0), 1).toFixed(3)).toString();
 
             let formattedComponents: string[];
 
