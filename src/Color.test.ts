@@ -16,7 +16,6 @@ describe("Color", () => {
         expect(Color.from("red")).toBeInstanceOf(Color);
         expect(new Color("rgb", [233, 45, 92])).toBeInstanceOf(Color);
         expect(new Color("display-p3", [NaN, Infinity, -Infinity])).toBeInstanceOf(Color);
-        expect(new Color("oklab", { l: 59, a: 0.1, b: 0.1 })).toBeInstanceOf(Color);
     });
 
     it("should correctly identify all supported color syntaxes", () => {
@@ -233,13 +232,6 @@ describe("Color", () => {
         expect(color.to("hsl")).toBe("hsl(0 0 50)");
         const adjusted = color.in("hsl").set({ h: 100, s: 100 });
         expect(adjusted.to("hsl")).toBe("hsl(100 100 50)");
-    });
-
-    it("should define a color from components", () => {
-        const fromObject = new Color("hsl", { h: 260, s: 100, l: 50 }).to("hsl");
-        const fromArray = new Color("hsl", [260, 100, 50]).to("hsl");
-        expect(fromObject).toBe("hsl(260 100 50)");
-        expect(fromArray).toEqual(fromObject);
     });
 
     it("should return correct component values using get()", () => {

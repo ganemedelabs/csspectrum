@@ -460,6 +460,9 @@ export const colorBases = {
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
             const HEX = str.slice(1);
+            if (![3, 4, 6, 8].includes(HEX.length)) {
+                throw new Error("Invalid hex color length");
+            }
             const expand = (c: string) => parseInt(c.length === 1 ? c + c : c, 16);
             const [r, g, b, a = 255] =
                 HEX.length <= 4
@@ -481,8 +484,7 @@ export const colorBases = {
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (name: string) => {
-            const key = name.replace(/[\s-]/g, "") as NamedColor;
-            const rgb = namedColors[key];
+            const rgb = namedColors[name as NamedColor];
             if (!rgb) throw new Error(`Invalid named-color: ${name}`);
             return [...rgb, 1];
         },

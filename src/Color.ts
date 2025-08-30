@@ -28,79 +28,21 @@ import { EASINGS } from "./math.js";
  * and retrieval of colors in various formats (e.g., RGB, HEX, HSL).
  */
 export class Color<M extends ColorFunction> {
-    model: ColorFunction = "rgb";
-    coords: number[] = [0, 0, 0, 1];
-
-    constructor(model: M, coords: number[] | Partial<Record<Component<M>, number>>) {
-        if (!(model in colorFunctions)) {
+    constructor(
+        private model: M,
+        private coords: number[] = [0, 0, 0, 0]
+    ) {
+        if (!(model in colorFunctionConverters)) {
             throw new Error(`Unsupported color model: ${model}`);
         }
 
-        if (
-            Array.isArray(coords) &&
-            coords.every((c) => typeof c !== "number" && !Number.isNaN(c) && c !== Infinity && c !== -Infinity)
-        ) {
-            this.model = model;
-            this.coords = coords.slice(0, 4);
-        } else if (Array.isArray(coords)) {
-            const newCoords = coords.slice(0, 3).map((c, i) => {
-                const { components } = colorFunctionConverters[model];
-                const indexToComponent = Object.values(components).reduce(
-                    (map: { [index: number]: ComponentDefinition }, def) => {
-                        map[def.index] = def;
-                        return map;
-                    },
-                    {} as { [index: number]: ComponentDefinition }
-                );
-
-                const { value } = indexToComponent[i];
-                if (!value) return 0;
-
-                if (typeof c !== "number") {
-                    throw new Error(`Invalid coordinate value: ${c}`);
-                }
-
-                const [min, max] = Array.isArray(value) ? value : value === "hue" ? [0, 360] : [0, 100];
-
-                if (Number.isNaN(c)) return 0;
-                if (c === Infinity) return max;
-                if (c === -Infinity) return min;
-
-                return c;
-            });
-
-            this.model = model;
-            this.coords = [...newCoords, coords[3] ?? 1];
-        } else if (typeof coords === "object") {
-            const { components } = colorFunctionConverters[model];
-
-            const coordsArray = Object.entries(components)
-                .map(([comp, def]) => {
-                    let value: number;
-                    if (comp === "alpha") {
-                        value = coords[comp] ?? 1;
-                    } else if (comp in coords) {
-                        const coordValue = coords[comp as keyof typeof coords];
-                        if (typeof coordValue !== "number") {
-                            throw new Error(`Invalid coordinate value for ${comp}: ${coordValue}`);
-                        }
-                        value = coordValue;
-                    } else {
-                        value = def.value[0];
-                    }
-
-                    return { index: def.index, value };
-                })
-                .sort((a, b) => a.index - b.index)
-                .map((item) => item.value);
-
-            this.model = model;
-            this.coords = coordsArray;
-        } else {
-            throw new Error(`Invalid coordinates: ${coords}. Expected an array or object.`);
+        if (coords.length < 3 || coords.length > 4) {
+            throw new Error("Coordinates array must have 3 or 4 elements.");
         }
 
-        return this;
+        if (coords.length === 3) {
+            coords.push(1);
+        }
     }
 
     /**
@@ -267,9 +209,9 @@ export class Color<M extends ColorFunction> {
     in<N extends ColorFunction>(model: N): Interface<N>; // eslint-disable-line no-unused-vars
     in(model: string): Interface<any>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
     in<N extends ColorFunction>(model: string | N): Interface<N> {
-        model = model.toLowerCase();
+        const targetModel = model.toLowerCase() as N;
 
-        const converter = colorFunctionConverters[model as N];
+        const converter = colorFunctionConverters[targetModel];
         const { components } = converter as unknown as Record<
             string,
             Record<Component<N> | "alpha", ComponentDefinition>
@@ -281,7 +223,7 @@ export class Color<M extends ColorFunction> {
         };
 
         if (!components) {
-            throw new Error(`Model ${model} does not have defined components.`);
+            throw new Error(`Model ${targetModel} does not have defined components.`);
         }
 
         const get = (fitMethod: FitMethod = "none") => {
@@ -294,7 +236,7 @@ export class Color<M extends ColorFunction> {
 
             for (const [comp, { index }] of Object.entries(components)) {
                 if (fitMethod) {
-                    const clipped = fit(coords.slice(0, 3), { model: model as N, method: fitMethod });
+                    const clipped = fit(coords.slice(0, 3), { model: targetModel, method: fitMethod });
                     result[comp as Component<N>] = clipped[index];
                 } else {
                     result[comp as Component<N>] = coords[index];
@@ -307,83 +249,94 @@ export class Color<M extends ColorFunction> {
         };
 
         const getCoords = (fitMethod = "none") => {
-            const buildGraph = () => {
-                const graph: Record<string, string[]> = {};
+            const { model: currentModel, coords: currentCoords } = this;
 
-                for (const [modelName, convRaw] of Object.entries(converters)) {
-                    const conv = convRaw as ColorFunctionConverter;
-                    const { toBridge, fromBridge, bridge } = conv;
+            let value = currentCoords.slice(0, 3).map((c, i) => {
+                const componentProps: ComponentDefinition[] = [];
+                for (const [, props] of Object.entries(components)) {
+                    componentProps[props.index] = props;
+                    componentProps[3] = { index: 3, value: [0, 1], precision: 3 };
+                }
 
-                    if (!graph[modelName]) graph[modelName] = [];
+                const value = componentProps[i]?.value;
+                const [min, max] = Array.isArray(value) ? value : value === "hue" ? [0, 360] : [0, 100];
+                if (Number.isNaN(c)) return 0;
+                if (c === Infinity) return max;
+                if (c === -Infinity) return min;
+                return typeof c === "number" ? c : 0;
+            });
 
-                    if (bridge) {
-                        if (typeof toBridge === "function") {
-                            graph[modelName].push(bridge);
-                            if (!graph[bridge]) graph[bridge] = [];
+            if ((targetModel as string) !== currentModel) {
+                const buildGraph = () => {
+                    const graph: Record<string, string[]> = {};
+
+                    for (const [modelName, convRaw] of Object.entries(converters)) {
+                        const conv = convRaw as ColorFunctionConverter;
+                        const { toBridge, fromBridge, bridge } = conv;
+
+                        if (!graph[modelName]) graph[modelName] = [];
+
+                        if (bridge) {
+                            if (typeof toBridge === "function") {
+                                graph[modelName].push(bridge);
+                                if (!graph[bridge]) graph[bridge] = [];
+                            }
+                            if (typeof fromBridge === "function") {
+                                if (!graph[bridge]) graph[bridge] = [];
+                                graph[bridge].push(modelName);
+                            }
                         }
-                        if (typeof fromBridge === "function") {
-                            if (!graph[bridge]) graph[bridge] = [];
-                            graph[bridge].push(modelName);
+                    }
+
+                    return graph;
+                };
+
+                const findPath = (start: string, end: string) => {
+                    const cacheKey = `${start}-${end}`;
+                    if (pathsMap.has(cacheKey)) {
+                        return pathsMap.get(cacheKey);
+                    }
+
+                    const visited = new Set();
+                    const queue = [[start]];
+
+                    while (queue.length > 0) {
+                        const path = queue.shift() as string[];
+                        const node = path[path.length - 1];
+
+                        if (node === end) {
+                            pathsMap.set(cacheKey, path);
+                            return path;
+                        }
+
+                        if (!visited.has(node)) {
+                            visited.add(node);
+                            (graph[node] || []).forEach((neighbor: string) => {
+                                queue.push([...path, neighbor]);
+                            });
                         }
                     }
+
+                    return null;
+                };
+
+                const converters = { ...colorFunctionConverters, ...colorSpaceConverters };
+                let graph = cache.get("graph");
+                let pathsMap = cache.get("paths");
+
+                if (!graph) {
+                    graph = buildGraph();
+                    cache.set("graph", graph);
+                }
+                if (!pathsMap) {
+                    pathsMap = new Map();
+                    cache.set("paths", pathsMap);
                 }
 
-                return graph;
-            };
-
-            const findPath = (start: string, end: string) => {
-                const cacheKey = `${start}-${end}`;
-                if (pathsMap.has(cacheKey)) {
-                    return pathsMap.get(cacheKey);
-                }
-
-                const visited = new Set();
-                const queue = [[start]];
-
-                while (queue.length > 0) {
-                    const path = queue.shift() as string[];
-                    const node = path[path.length - 1];
-
-                    if (node === end) {
-                        pathsMap.set(cacheKey, path);
-                        return path;
-                    }
-
-                    if (!visited.has(node)) {
-                        visited.add(node);
-                        (graph[node] || []).forEach((neighbor: string) => {
-                            queue.push([...path, neighbor]);
-                        });
-                    }
-                }
-
-                return null;
-            };
-
-            const converters = { ...colorFunctionConverters, ...colorSpaceConverters };
-            let graph = cache.get("graph");
-            let pathsMap = cache.get("paths");
-
-            if (!graph) {
-                graph = buildGraph();
-                cache.set("graph", graph);
-            }
-            if (!pathsMap) {
-                pathsMap = new Map();
-                cache.set("paths", pathsMap);
-            }
-
-            const current = this.model;
-            const currentCoords = this.coords;
-            let value = currentCoords;
-
-            if (model === current) {
-                value = currentCoords.slice(0, 3);
-            } else {
-                const path = findPath(current, model);
+                const path = findPath(currentModel, targetModel);
 
                 if (!path) {
-                    throw new Error(`Cannot convert from ${current} to ${model}. No path found.`);
+                    throw new Error(`Cannot convert from ${currentModel} to ${targetModel}. No path found.`);
                 }
 
                 for (let i = 0; i < path.length - 1; i++) {
@@ -404,11 +357,11 @@ export class Color<M extends ColorFunction> {
             }
 
             if (fitMethod) {
-                const clipped = fit(value.slice(0, 3), { model: model as N, method: fitMethod as FitMethod });
-                return [...clipped, this.coords[3]];
+                const clipped = fit(value.slice(0, 3), { model: targetModel, method: fitMethod as FitMethod });
+                return [...clipped, currentCoords[3]];
             }
 
-            return [...value.slice(0, 3), this.coords[3]];
+            return [...value.slice(0, 3), currentCoords[3]];
         };
 
         const set = (
