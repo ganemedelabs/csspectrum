@@ -455,21 +455,30 @@ export const colorFunctions = Object.fromEntries(
  */
 export const colorBases = {
     "hex-color": {
-        isValid: (str: string) => str.startsWith("#"),
+        isValid: (str: string) => str[0] === "#",
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
             const HEX = str.slice(1);
-            if (![3, 4, 6, 8].includes(HEX.length)) {
-                throw new Error("Invalid hex color length");
+            if (![3, 4, 6, 8].includes(HEX.length)) throw new Error("Invalid hex color length");
+
+            for (const ch of HEX) {
+                const code = ch.charCodeAt(0);
+                const isDigit = code >= 48 && code <= 57;
+                const isLower = code >= 97 && code <= 102;
+                const isUpper = code >= 65 && code <= 70;
+                if (!(isDigit || isLower || isUpper)) throw new Error("Invalid hex color character");
             }
+
             const expand = (c: string) => parseInt(c.length === 1 ? c + c : c, 16);
+
             const [r, g, b, a = 255] =
                 HEX.length <= 4
                     ? HEX.split("").map(expand)
                     : [HEX.slice(0, 2), HEX.slice(2, 4), HEX.slice(4, 6), HEX.slice(6, 8)].map((c) =>
                           parseInt(c || "ff", 16)
                       );
+
             return [r, g, b, a / 255];
         },
         fromBridge: (coords: number[]) => coords,
@@ -497,7 +506,7 @@ export const colorBases = {
         },
     },
     "color-mix": {
-        isValid: (str: string) => str.startsWith("color-mix(") && str.endsWith(")"),
+        isValid: (str: string) => str.slice(0, 10) === "color-mix(" && str[str.length - 1] === ")",
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
@@ -630,7 +639,7 @@ export const colorTypes = {
         parse: (str: string) => [0, 0, 0, 1], // eslint-disable-line no-unused-vars
     },
     "contrast-color": {
-        isValid: (str: string) => str.startsWith("contrast-color(") && str.endsWith(")"),
+        isValid: (str: string) => str.slice(0, 15) === "contrast-color(" && str[str.length - 1] === ")",
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
@@ -640,7 +649,7 @@ export const colorTypes = {
         },
     },
     "device-cmyk": {
-        isValid: (str: string) => str.startsWith("device-cmyk(") && str.endsWith(")"),
+        isValid: (str: string) => str.slice(0, 12) === "device-cmyk(" && str[str.length - 1] === ")",
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
@@ -772,7 +781,7 @@ export const colorTypes = {
         },
     },
     "light-dark": {
-        isValid: (str: string) => str.startsWith("light-dark(") && str.endsWith(")"),
+        isValid: (str: string) => str.slice(0, 11) === "light-dark(" && str[str.length - 1] === ")",
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {

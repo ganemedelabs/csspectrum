@@ -930,16 +930,18 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
         isValid: (str: string) => {
             const cleanedStr = str.trim().toLowerCase();
             const { alphaVariant = cleanedName } = converter;
+
             if (cleanedName in colorSpaceConverters) {
-                return (
-                    (cleanedStr.startsWith(`color(${cleanedName} `) ||
-                        (/^color\(\s*from\s+/i.test(cleanedStr) && validateRelativeColorSpace(str, cleanedName))) &&
-                    cleanedStr.endsWith(")")
-                );
+                const startsWithColor = cleanedStr.startsWith(`color(${cleanedName} `);
+                const startsWithFrom =
+                    cleanedStr.startsWith("color(from") && validateRelativeColorSpace(cleanedStr, cleanedName);
+
+                return (startsWithColor || startsWithFrom) && cleanedStr[cleanedStr.length - 1] === ")";
             }
+
             return (
                 (cleanedStr.startsWith(`${cleanedName}(`) || cleanedStr.startsWith(`${alphaVariant}(`)) &&
-                cleanedStr.endsWith(")")
+                cleanedStr[cleanedStr.length - 1] === ")"
             );
         },
         bridge: converter.bridge,

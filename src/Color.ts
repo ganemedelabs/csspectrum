@@ -81,11 +81,22 @@ export class Color<M extends ColorFunction> {
      * @param color - The color string to analyze.
      * @returns The color type if recognized, or `undefined` if not.
      */
-    static type(color: string): ColorType | undefined {
+    static type(color: string, strict = false): ColorType | undefined {
         const cleaned = clean(color);
         for (const type in colorTypes) {
-            const colorType = colorTypes[type as ColorType];
-            if (colorType.isValid(cleaned)) return type as ColorType;
+            const { isValid, bridge, parse, toBridge } = colorTypes[type as ColorType];
+
+            if (isValid(cleaned)) {
+                if (!strict) return type as ColorType;
+
+                try {
+                    const coords = toBridge(parse(cleaned));
+                    const test = new Color(bridge as ColorFunction, coords);
+                    return typeof test === "object" ? (type as ColorType) : undefined;
+                } catch {
+                    return undefined;
+                }
+            }
         }
         return undefined;
     }

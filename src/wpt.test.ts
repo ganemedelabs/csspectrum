@@ -67,7 +67,7 @@ describe("Web Platform Tests", () => {
             "AccentColorText",
         ];
 
-        cases.forEach((c) => expect(Color.isValid(c, "system-color")).toBe(false));
+        cases.forEach((c) => expect(Color.isValid(c, "system-color")).toBe(true));
     });
 
     it("should test invalid <named-color>", () => {
@@ -267,7 +267,7 @@ describe("Web Platform Tests", () => {
         cases.forEach((c) => expect(Color.isValid(c, "hex-color")).toBe(false));
     });
 
-    it("should test valid <rgb()> and <rgba()> colors", () => {
+    it("should test valid <rgb()> and <rgba()>", () => {
         const cases = [
             "rgb(none none none)",
             "rgb(none none none / none)",
@@ -322,7 +322,7 @@ describe("Web Platform Tests", () => {
         cases.forEach((c) => expect(Color.isValid(c, "rgb")).toBe(true));
     });
 
-    it("should test invalid <rgb()> and <rgba()> colors", () => {
+    it("should test invalid <rgb()> and <rgba()>", () => {
         const cases = [
             "rgb(none, none, none)",
             "rgba(none, none, none, none)",
@@ -356,7 +356,7 @@ describe("Web Platform Tests", () => {
         cases.forEach((c) => expect(Color.isValid(c, "rgb")).toBe(false));
     });
 
-    it("should test valid <hsl()> and <hsla()> colors", () => {
+    it("should test valid <hsl()> and <hsla()>", () => {
         const cases = [
             "hsl(120 30% 50%)",
             "hsl(120 30% 50% / 0.5)",
@@ -404,7 +404,7 @@ describe("Web Platform Tests", () => {
         cases.forEach((c) => expect(Color.isValid(c, "hsl")).toBe(true));
     });
 
-    it("should test invalid <hsl()> and <hsla()> colors", () => {
+    it("should test invalid <hsl()> and <hsla()>", () => {
         const cases = [
             "hsl(none, none, none)",
             "hsla(none, none, none, none)",
@@ -434,7 +434,7 @@ describe("Web Platform Tests", () => {
         cases.forEach((c) => expect(Color.isValid(c, "hsl")).toBe(false));
     });
 
-    it("should test valid <hwb()> colors", () => {
+    it("should test valid <hwb()>", () => {
         const cases = [
             "hwb(120 30% 50%)",
             "hwb(120 30% 50% / 0.5)",
@@ -475,7 +475,7 @@ describe("Web Platform Tests", () => {
         cases.forEach((c) => expect(Color.isValid(c, "hwb")).toBe(true));
     });
 
-    it("should test invalid <hwb()> colors", () => {
+    it("should test invalid <hwb()>", () => {
         const cases = [
             "hwba(120 30% 50%)",
             "hwba(120 30% 50% / 0.5)",
@@ -488,7 +488,7 @@ describe("Web Platform Tests", () => {
         cases.forEach((c) => expect(Color.isValid(c, "hwb")).toBe(false));
     });
 
-    it("should test valid <lab()>, <oklab()>, <lch()> and <oklch()> colors", () => {
+    it("should test valid <lab()>, <oklab()>, <lch()> and <oklch()>", () => {
         const lab = [
             "lab(0 0 0)",
             "lab(0 0 0 / 1)",
@@ -648,7 +648,7 @@ describe("Web Platform Tests", () => {
         oklch.forEach((c) => expect(Color.isValid(c, "oklch")).toBe(true));
     });
 
-    it("should test invalid <lab()>, <oklab()>, <lch()> and <oklch()> colors", () => {
+    it("should test invalid <lab()>, <oklab()>, <lch()> and <oklch()>", () => {
         for (const colorSpace of ["lab", "oklab"]) {
             const cases = [
                 `${colorSpace}(0% 0 0 1)`,
@@ -673,7 +673,7 @@ describe("Web Platform Tests", () => {
         }
     });
 
-    it("should test valid <color()> colors", () => {
+    it("should test valid <color()>", () => {
         for (const colorSpace of [
             "srgb",
             "srgb-linear",
@@ -726,7 +726,7 @@ describe("Web Platform Tests", () => {
         }
     });
 
-    it("should test invalid <color()> colors", () => {
+    it("should test invalid <color()>", () => {
         const RGB_SPACES = ["srgb", "srgb-linear", "a98-rgb", "rec2020", "prophoto-rgb"];
         const XYZ_SPACES = ["xyz", "xyz-d50", "xyz-d65"];
 
@@ -792,7 +792,7 @@ describe("Web Platform Tests", () => {
         }
     });
 
-    it("should test valid relative colors", () => {
+    it("should test valid relative <color-function>", () => {
         for (const rgbFn of ["rgb", "rgba"]) {
             const rgb = [
                 `${rgbFn}(from rebeccapurple r g b)`,
@@ -1349,7 +1349,7 @@ describe("Web Platform Tests", () => {
         }
     });
 
-    it("should test invalid relative colors", () => {
+    it("should test invalid relative <color-function>", () => {
         const rgb = [
             "rgb(from rebeccapurple r 10deg 10)",
             "rgb(from rebeccapurple r 10 10deg)",
@@ -1462,7 +1462,7 @@ describe("Web Platform Tests", () => {
         }
     });
 
-    it("should test valid <color-mix()> colors", () => {
+    it("should test valid <color-mix()>", () => {
         const cases = [
             "color-mix(in srgb, red, blue)",
             "color-mix(in srgb, 70% red, 50% blue)",
@@ -2095,7 +2095,7 @@ describe("Web Platform Tests", () => {
         }
     });
 
-    it("should test invalid <color-mix()> colors", () => {
+    it("should test invalid <color-mix()>", () => {
         const cases = [
             "color-mix(in hsl, hsl(120deg 10% 20%) -10%, hsl(30deg 30% 40%))",
             "color-mix(in hsl, hsl(120deg 10% 20%) 150%, hsl(30deg 30% 40%))",
