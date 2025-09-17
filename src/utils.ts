@@ -1,19 +1,13 @@
 import { Color } from "./Color.js";
 import { config } from "./config.js";
-import {
-    colorBases,
-    colorFunctionConverters,
-    colorFunctions,
-    colorSpaceConverters,
-    colorTypes,
-    namedColors,
-} from "./converters.js";
+import { colorBases, colorModels, colorFunctions, colorSpaces, colorTypes, namedColors } from "./converters.js";
 import { fitMethods } from "./math.js";
 import type {
     ColorBase,
     ColorConverter,
     ColorFunction,
-    ColorFunctionConverter,
+    ColorModelConverter,
+    ColorModel,
     ColorSpace,
     ColorSpaceConverter,
     ColorType,
@@ -239,10 +233,10 @@ export function registerColorBase(name: string, converter: ColorConverter) {
  * @throws If the name is already used by another color type.
  * @throws If the converter object is missing required properties or has invalid types.
  */
-export function registerColorFunction(name: string, converter: ColorFunctionConverter) {
+export function registerColorFunction(name: string, converter: ColorModelConverter) {
     const cleaned = name.replace(/(?:\s+)/g, "").toLowerCase() as ColorType;
-    const functions = colorFunctionConverters as unknown as Record<string, ColorFunctionConverter>;
-    const cf = colorFunctions as Record<string, ColorConverter>;
+    const models = colorModels as unknown as Record<string, ColorModelConverter>;
+    const functions = colorFunctions as Record<string, ColorConverter>;
     const types = colorTypes as Record<string, ColorConverter>;
 
     if (cleaned in colorTypes) {
@@ -285,9 +279,9 @@ export function registerColorFunction(name: string, converter: ColorFunctionConv
         throw new TypeError(`Converter.alphaVariant must be a string.`);
     }
 
-    functions[cleaned] = converter;
-    cf[cleaned] = converterFromFunctionConverter(cleaned, converter);
-    types[cleaned] = converterFromFunctionConverter(cleaned, converter);
+    models[cleaned] = converter;
+    functions[cleaned] = modelConverterToColorConverter(cleaned, converter);
+    types[cleaned] = modelConverterToColorConverter(cleaned, converter);
     cache.delete("graph");
 }
 
@@ -301,9 +295,9 @@ export function registerColorFunction(name: string, converter: ColorFunctionConv
  */
 export function registerColorSpace(name: string, converter: ColorSpaceConverter) {
     const cleaned = name.replace(/(?:\s+)/g, "-").toLowerCase() as ColorType;
-    const spaces = colorSpaceConverters as unknown as Record<string, ColorFunctionConverter>;
-    const functions = colorFunctionConverters as unknown as Record<string, ColorFunctionConverter>;
-    const cf = colorFunctions as Record<string, ColorConverter>;
+    const spaces = colorSpaces as unknown as Record<string, ColorModelConverter>;
+    const models = colorModels as unknown as Record<string, ColorModelConverter>;
+    const functions = colorFunctions as Record<string, ColorConverter>;
     const types = colorTypes as Record<string, ColorConverter>;
 
     if (cleaned in colorTypes) {
@@ -348,10 +342,10 @@ export function registerColorSpace(name: string, converter: ColorSpaceConverter)
         throw new TypeError("Converter.fromLinear must be a function if provided.");
     }
 
-    spaces[cleaned] = functionConverterFromSpaceConverter(cleaned, converter);
-    functions[cleaned] = functionConverterFromSpaceConverter(cleaned, converter);
-    cf[cleaned] = converterFromFunctionConverter(cleaned, functionConverterFromSpaceConverter(cleaned, converter));
-    types[cleaned] = converterFromFunctionConverter(cleaned, functionConverterFromSpaceConverter(cleaned, converter));
+    spaces[cleaned] = spaceConverterToModelConverter(cleaned, converter);
+    models[cleaned] = spaceConverterToModelConverter(cleaned, converter);
+    functions[cleaned] = modelConverterToColorConverter(cleaned, spaceConverterToModelConverter(cleaned, converter));
+    types[cleaned] = modelConverterToColorConverter(cleaned, spaceConverterToModelConverter(cleaned, converter));
     cache.delete("graph");
 }
 
@@ -418,8 +412,8 @@ export function unregister(...types: string[]) {
         delete colorTypes[type as ColorType];
         delete colorBases[type as ColorBase];
         delete colorFunctions[type as ColorFunction];
-        delete colorFunctionConverters[type as ColorFunction];
-        delete colorSpaceConverters[type as ColorSpace];
+        delete colorModels[type as ColorModel];
+        delete colorSpaces[type as ColorSpace];
     }
     cache.delete("graph");
     cache.delete("paths");
@@ -494,12 +488,12 @@ export function extractBalancedExpression(input: string, start: number) {
  * @returns The fitted or clipped color coordinates.
  * @throws If component properties are missing or an invalid method is specified.
  */
-export function fit(coords: number[], options: { model?: ColorFunction; method?: FitMethod; precision?: number } = {}) {
+export function fit(coords: number[], options: { model?: ColorModel; method?: FitMethod; precision?: number } = {}) {
     const { model = "srgb", method = "clip", precision } = options;
 
     if (method === "none") return coords;
 
-    const converter = colorFunctionConverters[model] as ColorFunctionConverter;
+    const converter = colorModels[model] as ColorModelConverter;
     const components = converter.components;
     let targetGamut = converter.targetGamut as ColorSpace;
     if (targetGamut !== null && typeof targetGamut !== "string") targetGamut = "srgb";
@@ -529,67 +523,60 @@ export function fit(coords: number[], options: { model?: ColorFunction; method?:
  * @param converter - An object implementing the color function's conversion logic and component definitions.
  * @returns An object of type `ColorConverter`.
  */
-export function converterFromFunctionConverter(name: string, converter: ColorFunctionConverter) {
+export function modelConverterToColorConverter(name: string, converter: ColorModelConverter) {
+    type AST = {
+        fn: string;
+        space: string | null;
+        fromOrigin: string | null;
+        c1: string;
+        c2: string;
+        c3: string;
+        alpha: string;
+        commaSeparated: boolean;
+    };
+
     const evaluateComponent = (
         token: string,
-        value: number[] | "hue" | "percentage",
+        value: number[] | "angle" | "percentage",
         base: Record<string, number> = {},
-        commaSeparated = false
+        commaSeparated = false,
+        relative = false
     ) => {
-        const parsePercent = (str: string) => {
+        const parsePercent = (str: string, min: number, max: number) => {
             const percent = parseFloat(str);
-            if (isNaN(percent)) return undefined;
+            if (isNaN(percent)) throw new Error(`Invalid percentage value: "${str}".`);
             if (value === "percentage") return percent;
-            if (_min < 0 && _max > 0) return ((percent / 100) * (_max - _min)) / 2;
-            return (percent / 100) * (_max - _min) + _min;
+            if (min < 0 && max > 0) return ((percent / 100) * (max - min)) / 2;
+            return (percent / 100) * (max - min) + min;
         };
 
-        const parseHue = (token: string): number => {
+        const parseAngle = (token: string) => {
             const value = parseFloat(token);
-            if (isNaN(value)) return 0;
+            if (isNaN(value)) throw new Error(`Invalid angle value: "${token}".`);
             if (token.endsWith("deg")) return value;
             if (token.endsWith("rad")) return value * (180 / pi);
             if (token.endsWith("grad")) return value * 0.9;
             if (token.endsWith("turn")) return value * 360;
-            return 0;
+            return value;
         };
 
-        if (token === "none") return 0;
-
-        const [_min, _max] = Array.isArray(value) ? value : value === "hue" ? [0, 360] : [0, 100];
-
-        if (/^-?(?:\d+|\d*\.\d+)$/.test(token)) {
-            if (commaSeparated && converter.supportsLegacy === true && value === "percentage") {
-                throw new Error("The legacy color syntax does not allow numbers for <percentage> components.");
-            }
-            return parseFloat(token);
-        }
-
-        if (token.endsWith("%")) {
-            if (commaSeparated && converter.supportsLegacy === true && value === "hue") {
-                throw new Error("The legacy color syntax does not allow percentages for <hue> components.");
-            }
-            return parsePercent(token);
-        }
-
-        if (/^-?(?:\d+|\d*\.\d+)(?:deg|rad|grad|turn)$/.test(token)) {
-            if (value === "hue") return parseHue(token);
-            else throw new Error(`Angle units are only valid for <hue> components.`);
-        }
-
-        if (token.startsWith("calc(")) {
+        const parseCalc = (token: string, _min: number, _max: number) => {
             let inner = token.slice(5, -1).trim();
             if (inner === "infinity") return _max;
             if (inner === "-infinity") return _min;
             if (inner === "NaN") return 0;
 
             inner = inner.replace(/(\d+(\.\d+)?)%/g, (match) => {
-                const result = parsePercent(match);
+                if (relative === true)
+                    throw new Error("<angle> and <percentage> values are converted to <number> in relative syntax.");
+                const result = parsePercent(match, _min, _max);
                 return result !== undefined ? String(result) : "0";
             });
 
             inner = inner.replace(/(\d+(\.\d+)?)(deg|rad|grad|turn)/g, (_, num, __, unit) => {
-                return String(parseHue(`${parseFloat(num)}${unit}`));
+                if (relative === true)
+                    throw new Error("<angle> and <percentage> values are converted to <number> in relative syntax.");
+                return String(parseAngle(`${parseFloat(num)}${unit}`));
             });
 
             const caclEnv = {
@@ -626,90 +613,149 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
                 const keys = Object.keys(caclEnv);
                 const values = Object.values(caclEnv);
                 const func = new Function(...keys, `return ${inner};`);
-                return func(...values);
+                return func(...values) as number;
             } catch (error) {
                 throw new Error(`Evaluation error: ${error}`);
             }
-        }
+        };
+
+        const evaluateAngle = () => {
+            if (/^-?(?:\d+|\d*\.\d+)(?:deg|rad|grad|turn)$/.test(token)) {
+                return parseAngle(token);
+            }
+
+            if (/^-?(?:\d+|\d*\.\d+)$/.test(token)) {
+                return parseFloat(token);
+            }
+
+            const [min, max] = [0, 360];
+
+            if (token.endsWith("%")) {
+                if (commaSeparated && supportsLegacy === true) {
+                    throw new Error("The legacy color syntax does not allow percentages for <angle> components.");
+                }
+                if (relative === true) {
+                    throw new Error("The relative color syntax doesn't allow percentages for <angle> components.");
+                }
+                return parsePercent(token, min, max);
+            }
+
+            if (token.startsWith("calc(")) {
+                return parseCalc(token, min, max);
+            }
+
+            throw new Error(
+                `Invalid angle value: "${token}". Must be a number, a number with a unit (deg, rad, grad, turn), or a percentage.`
+            );
+        };
+
+        const evaluatePercent = () => {
+            if (/^-?(?:\d+|\d*\.\d+)$/.test(token)) {
+                if (commaSeparated && supportsLegacy === true) {
+                    throw new Error("The legacy color syntax does not allow numbers for <percentage> components.");
+                }
+                return parseFloat(token);
+            }
+
+            const [min, max] = [0, 100];
+
+            if (token.endsWith("%")) {
+                return parsePercent(token, min, max);
+            }
+
+            if (token.startsWith("calc(")) {
+                return parseCalc(token, min, max);
+            }
+
+            throw new Error(`Invalid percentage value: "${token}". Must be a percentage or a number.`);
+        };
+
+        const evaluateNumber = () => {
+            if (/^-?(?:\d+|\d*\.\d+)$/.test(token)) {
+                return parseFloat(token);
+            }
+
+            const [min, max] = value as number[];
+
+            if (token.endsWith("%")) {
+                return parsePercent(token, min, max);
+            }
+
+            if (token.startsWith("calc(")) {
+                return parseCalc(token, min, max);
+            }
+
+            throw new Error(
+                `Invalid number value: "${token}". Must be a number${relative === false ? " or a percentage" : ""}.`
+            );
+        };
+
+        if (token === "none") return 0;
 
         if (token in base) return base[token];
+
+        if (value === "angle") return evaluateAngle();
+
+        if (value === "percentage") return evaluatePercent();
+
+        if (Array.isArray(value)) return evaluateNumber();
 
         throw new Error(`Unable to parse component token: ${token}`);
     };
 
-    const parseTokens = (tokens: string[], commaSeparated: boolean) => {
-        const funcName = tokens[0];
-        if (
-            (funcName === "color" ||
-                !(colorFunctionConverters[cleanedName as ColorFunction] as ColorFunctionConverter).supportsLegacy) &&
-            commaSeparated
-        ) {
-            throw new Error(`<${funcName}()> does not support comma-separated syntax.`);
-        }
-
-        if (tokens[1] === "from" && commaSeparated) {
-            throw new Error("Comma-separated syntax cannot be used with the 'from' keyword.");
-        }
-
-        const { components } = converter;
+    const parseAST = (ast: AST) => {
+        const { fn, space, fromOrigin, c1, c2, c3, alpha, commaSeparated } = ast;
+        const { components, supportsLegacy } = converter;
         components.alpha = { index: 3, value: [0, 1], precision: 3 };
 
+        if (commaSeparated && supportsLegacy !== true) {
+            throw new Error(`<${fn}()> does not support comma-separated syntax.`);
+        }
+
         const sorted = Object.entries(components).sort((a, b) => a[1].index - b[1].index);
-        const expectedBase = sorted.length - 1;
-        const expectedMax = sorted.length;
 
-        let componentStartIndex: number;
-        if (tokens[1] === "from") {
-            componentStartIndex = funcName === "color" ? 4 : 3;
-        } else {
-            componentStartIndex = funcName === "color" ? 2 : 1;
-        }
-
-        const provided = Math.max(0, tokens.length - componentStartIndex);
-
-        if (provided < expectedBase || provided > expectedMax) {
-            const range = expectedMax !== expectedBase ? `${expectedBase}–${expectedMax}` : String(expectedBase);
-            throw new Error(`${funcName}() expects ${range} components, but got ${provided}.`);
-        }
-
-        if (tokens[1] === "from") {
+        if (fromOrigin) {
             let colorSpace;
-            let componentStartIndex;
-            if (funcName === "color") {
-                colorSpace = tokens[3];
-                componentStartIndex = 4;
+            if (fn === "color") {
+                colorSpace = space;
+            } else if (fn in colorModels) {
+                colorSpace = fn;
             } else {
-                colorSpace = funcName;
-                componentStartIndex = 3;
+                for (const model in colorModels) {
+                    if ((colorModels[model as ColorModel] as ColorModelConverter).alphaVariant === fn) {
+                        colorSpace = model;
+                        break;
+                    }
+                }
             }
 
-            const baseColor = tokens[2];
-            const componentTokens = tokens.slice(componentStartIndex);
-            const baseComponents = Color.from(baseColor).in(colorSpace).get();
+            const originComponents = Color.from(fromOrigin)
+                .in(colorSpace as ColorModel)
+                .get();
 
-            const evaluatedComponents = componentTokens.map((token, i) => {
+            const evaluatedComponents = [c1, c2, c3, alpha].map((token, i) => {
                 const [, meta] = sorted[i];
 
-                return evaluateComponent(token, meta.value, baseComponents, commaSeparated);
+                return evaluateComponent(token, meta.value, originComponents, commaSeparated, true);
             });
 
             return evaluatedComponents.slice(0, 4);
         } else {
             const result: number[] = [];
             const percentFlags: boolean[] = [];
-            const sorted = Object.entries(components).sort((a, b) => a[1].index - b[1].index);
+            const tokens = [c1, c2, c3, alpha];
 
             for (let i = 0; i < sorted.length; i++) {
                 const [, meta] = sorted[i];
-                const token = tokens[i + (funcName === "color" ? 2 : 1)];
+                const token = tokens[i];
 
                 if (commaSeparated && token === "none") {
-                    throw new Error(`${funcName}() cannot use "none" in comma-separated syntax.`);
+                    throw new Error(`${fn}() cannot use "none" in comma-separated syntax.`);
                 }
 
                 if (
                     meta.index !== 3 &&
-                    meta.value !== "hue" &&
+                    meta.value !== "angle" &&
                     meta.value !== "percentage" &&
                     !token.startsWith("calc(")
                 ) {
@@ -726,7 +772,7 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
                 const allPercent = percentFlags.every(Boolean);
                 const nonePercent = percentFlags.every((f) => !f);
                 if (!allPercent && !nonePercent) {
-                    throw new Error(`${funcName}()'s <number> components must all be numbers or all percentages.`);
+                    throw new Error(`${fn}()'s <number> components must all be numbers or all percentages.`);
                 }
             }
 
@@ -734,11 +780,129 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
         }
     };
 
+    /**
+     * Index reference
+     *
+     * | 0     | 1    | 2   | 3    | 4 | 5   | 6   | 7     | 8     |
+     * -------------------------------------------------------------
+     * | rgb   | 255  | ,   | 0    | , | 0   |     |       |       |
+     * | rgb   | 255  | ,   | 0    | , | 0   | ,   | 0.5   |       |
+     * | rgb   | 255  | 0   | 0    |   |     |     |       |       |
+     * | rgb   | 255  | 0   | 0    | / | 0.5 |     |       |       |
+     * | rgb   | from | red | r    | g | b   |     |       |       |
+     * | rgb   | from | red | r    | g | b   | /   | alpha |       |
+     * | color | srgb | 1   | 0    | 0 |     |     |       |       |
+     * | color | srgb | 1   | 0    | 0 | /   | 0.5 |       |       |
+     * | color | from | red | srgb | r | g   | b   |       |       |
+     * | color | from | red | srgb | r | g   | b   | /     | alpha |
+     */
+    const getAST = (tokens: string[]) => {
+        const getAlpha = (index: number, separator: "/" | "," = "/") => {
+            if (tokens[index] !== undefined) {
+                if (tokens[index] === separator) {
+                    return { value: tokens[index + 1], hasAlpha: true };
+                }
+                throw new Error("Invalid alpha separator");
+            }
+            return { value: "1", hasAlpha: false };
+        };
+
+        let fn: string,
+            space: string | null,
+            fromOrigin: string | null,
+            c1: string,
+            c2: string,
+            c3: string,
+            alpha: string,
+            commaSeparated = false,
+            expectedLength: number;
+
+        if (tokens[0] === "color") {
+            fn = "color";
+            if (tokens[1] === "from") {
+                // color(from red srgb r g b) OR color(from red srgb r g b / alpha)
+                space = tokens[3];
+                fromOrigin = tokens[2];
+                c1 = tokens[4];
+                c2 = tokens[5];
+                c3 = tokens[6];
+                const { value, hasAlpha } = getAlpha(7);
+                expectedLength = hasAlpha ? 9 : 7;
+                alpha = value;
+            } else {
+                // color(srgb 1 0 0) OR color(srgb 1 0 0 / 0.5)
+                space = tokens[1];
+                fromOrigin = null;
+                c1 = tokens[2];
+                c2 = tokens[3];
+                c3 = tokens[4];
+                const { value, hasAlpha } = getAlpha(5);
+                expectedLength = hasAlpha ? 7 : 5;
+                alpha = value;
+            }
+        } else {
+            fn = tokens[0];
+            space = null;
+            if (tokens[1] === "from") {
+                // rgb(from red r g b) OR rgb(from red r g b / alpha)
+                fromOrigin = tokens[2];
+                c1 = tokens[3];
+                c2 = tokens[4];
+                c3 = tokens[5];
+                const { value, hasAlpha } = getAlpha(6);
+                expectedLength = hasAlpha ? 8 : 6;
+                alpha = value;
+            } else {
+                fromOrigin = null;
+                c1 = tokens[1];
+                if (tokens[2] === ",") {
+                    // rgb(255, 0, 0) OR rgb(255, 0, 0, 0.5)
+                    commaSeparated = true;
+                    c2 = tokens[3];
+                    c3 = tokens[5];
+                    const { value, hasAlpha } = getAlpha(6, ",");
+                    expectedLength = hasAlpha ? 8 : 6;
+                    alpha = value;
+                } else {
+                    // rgb(255 0 0) OR rgb(255 0 0 / 0.5)
+                    c2 = tokens[2];
+                    c3 = tokens[3];
+                    const { value, hasAlpha } = getAlpha(4);
+                    expectedLength = hasAlpha ? 6 : 4;
+                    alpha = value;
+                }
+            }
+        }
+
+        if (tokens.length !== expectedLength) {
+            throw new Error();
+        }
+
+        return { fn, space, fromOrigin, c1, c2, c3, alpha, commaSeparated };
+    };
+
+    /**
+     * Tokenization examples
+     *
+     * ─── rgb() ────────────────────────────────────────────────
+     * "rgb(255, 0, 0)"          --> [ "rgb", "255", ",", "0", ",", "0" ]
+     * "rgb(255, 0, 0, 0.5)"       --> [ "rgb", "255", ",", "0", ",", "0", ",", "0.5" ]
+     * "rgb(255 0 0)"              --> [ "rgb", "255", "0", "0" ]
+     * "rgb(255 0 0 / 0.5)"        --> [ "rgb", "255", "0", "0", "/", "0.5" ]
+     * "rgb(from red r g b)"       --> [ "rgb", "from", "red", "r", "g", "b" ]
+     * "rgb(from red r g b / a)"   --> [ "rgb", "from", "red", "r", "g", "b", "/", "alpha" ]
+     *
+     * ─── color() ─────────────────────────────────────────────
+     * "color(srgb 1 0 0)"                --> [ "color", "srgb", "1", "0", "0" ]
+     * "color(srgb 1 0 0 / 0.5)"          --> [ "color", "srgb", "1", "0", "0", "/", "0.5" ]
+     * "color(from red srgb r g b)"       --> [ "color", "from", "red", "srgb", "r", "g", "b" ]
+     * "color(from red srgb r g b / a)"   --> [ "color", "from", "red", "srgb", "r", "g", "b", "/", "alpha" ]
+     */
     const tokenize = (str: string) => {
-        const tokens = [];
+        const tokens: string[] = [];
         let i = 0;
         let funcName = "";
-        let commaSeparated = false;
+
         while (i < str.length && str[i] !== "(") {
             funcName += str[i];
             i++;
@@ -747,10 +911,10 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
         tokens.push(funcName);
 
         const innerStart = str.indexOf("(") + 1;
-        const innerEnd = str.lastIndexOf(")");
-        const innerStr = str.slice(innerStart, innerEnd).trim();
+        const innerStr = str.slice(innerStart, -1).trim();
 
         i = 0;
+
         if (innerStr.startsWith("from ")) {
             tokens.push("from");
 
@@ -782,43 +946,14 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
             const char = innerStr[i];
 
             if (char === ",") {
-                if (tokens.length === 1) {
-                    throw new Error("Leading commas are invalid");
-                }
-
-                if (tokens[0] === "color" || tokens[2] === "from") {
-                    throw new Error("Cannot mix comma-separated and space-separated syntax.");
-                } else if (commaSeparated === false && !(tokens.length in [2, 3, 4])) {
-                    throw new Error("Comma optional syntax requires no commas at all");
-                }
-
-                if (innerStr[i + 1] === ",") {
-                    throw new Error("Double commas are invalid");
-                }
-
-                commaSeparated = true;
+                tokens.push(",");
                 i++;
                 if (innerStr[i] === " ") i++;
             } else if (char === "/") {
-                if (commaSeparated) {
-                    throw new Error("Cannot mix comma-separated and space-separated syntax.");
-                }
-                const error = new Error("'/' can only be used before the alpha component.");
-                if (tokens[0] === "color") {
-                    if (tokens[1] === "from") {
-                        if (tokens.length !== 7) throw error;
-                    } else if (tokens.length !== 5) throw error;
-                } else {
-                    if (tokens[1] === "from") {
-                        if (tokens.length !== 6) throw error;
-                    } else if (tokens.length !== 4) throw error;
-                }
+                tokens.push("/");
                 i++;
                 if (innerStr[i] === " ") i++;
             } else if (char === " ") {
-                if (commaSeparated) {
-                    throw new Error(`Cannot mix comma-separated and space-separated syntax: ${innerStr}`);
-                }
                 i++;
             } else if (/[a-zA-Z#]/.test(char)) {
                 const identStart = i;
@@ -827,7 +962,6 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
                     ident += innerStr[i];
                     i++;
                 }
-
                 if (i < innerStr.length && innerStr[i] === "(") {
                     const { expression, end } = extractBalancedExpression(innerStr, identStart);
                     tokens.push(expression);
@@ -860,7 +994,7 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
             }
         }
 
-        return { tokens, commaSeparated };
+        return tokens;
     };
 
     const validateRelativeColorSpace = (str: string, name: string) => {
@@ -868,35 +1002,27 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
         if (!str.startsWith(prefix) || !str.endsWith(")")) {
             return false;
         }
+
         const innerStr = str.slice(prefix.length, -1).trim();
 
-        let depth = 0;
-        let colorEnd = innerStr.length;
-        for (let i = 0; i < innerStr.length; i++) {
-            const char = innerStr[i];
-            if (char === "(") {
-                depth++;
-            } else if (char === ")") {
-                if (depth === 0) {
-                    return false;
-                }
-                depth--;
-            } else if (char === " " && depth === 0) {
-                colorEnd = i;
-                break;
-            }
+        const { expression, end } = extractBalancedExpression(innerStr, 0);
+
+        if (!expression) {
+            return false;
         }
 
-        const rest = innerStr.slice(colorEnd).trim();
+        const rest = innerStr.slice(end).trim();
+
         const parts = rest.split(/\s+/);
         if (parts.length < 1) {
             return false;
         }
+
         const colorSpace = parts[0];
         return colorSpace === name;
     };
 
-    const cleanedName = name.replace(/\s+/g, " ").trim().toLowerCase();
+    const { components, bridge, fromBridge, toBridge, alphaVariant, supportsLegacy } = converter;
 
     const {
         PI: pi,
@@ -928,65 +1054,70 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
 
     return {
         isValid: (str: string) => {
-            const cleanedStr = str.trim().toLowerCase();
-            const { alphaVariant = cleanedName } = converter;
+            const { alphaVariant = name } = converter;
 
-            if (cleanedName in colorSpaceConverters) {
-                const startsWithColor = cleanedStr.startsWith(`color(${cleanedName} `);
-                const startsWithFrom =
-                    cleanedStr.startsWith("color(from") && validateRelativeColorSpace(cleanedStr, cleanedName);
+            if (name in colorSpaces) {
+                const startsWithColor = str.startsWith(`color(${name} `);
+                const startsWithFrom = str.startsWith("color(from") && validateRelativeColorSpace(str, name);
 
-                return (startsWithColor || startsWithFrom) && cleanedStr[cleanedStr.length - 1] === ")";
+                return (startsWithColor || startsWithFrom) && str[str.length - 1] === ")";
             }
 
-            return (
-                (cleanedStr.startsWith(`${cleanedName}(`) || cleanedStr.startsWith(`${alphaVariant}(`)) &&
-                cleanedStr[cleanedStr.length - 1] === ")"
-            );
+            return (str.startsWith(`${name}(`) || str.startsWith(`${alphaVariant}(`)) && str[str.length - 1] === ")";
         },
-        bridge: converter.bridge,
-        toBridge: (coords: number[]) => [...converter.toBridge(coords.slice(0, 3)), coords[3] ?? 1],
+
+        bridge,
+
+        toBridge: (coords: number[]) => [...toBridge(coords.slice(0, 3)), coords[3] ?? 1],
+
         parse: (str: string) => {
-            const cleaned = str.replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")").trim().toLowerCase();
-            const { tokens, commaSeparated } = tokenize(cleaned);
-            const components = parseTokens(tokens, commaSeparated);
-            return [...components.slice(0, 3), components[3] ?? 1];
+            try {
+                const tokens = tokenize(str);
+                const ast = getAST(tokens);
+                const components = parseAST(ast);
+                return [...components.slice(0, 3), components[3] ?? 1];
+            } catch {
+                throw new Error(`Invalid <color-function> syntax: ${str}.`);
+            }
         },
-        fromBridge: (coords: number[]) => [...converter.fromBridge(coords), coords[3] ?? 1],
-        format: ([c1, c2, c3, alpha = 1]: number[], options: FormattingOptions = {}) => {
+
+        fromBridge: (coords: number[]) => [...fromBridge(coords), coords[3] ?? 1],
+
+        format: ([c1, c2, c3, a = 1]: number[], options: FormattingOptions = {}) => {
             const { legacy = false, fit: fitMethod = "clip", precision = undefined, units = false } = options;
 
-            const clipped = fit([c1, c2, c3], { model: cleanedName as ColorFunction, method: fitMethod, precision });
-            const alphaFormatted = Number(min(max(alpha, 0), 1).toFixed(3)).toString();
+            const clipped = fit([c1, c2, c3], { model: name as ColorModel, method: fitMethod, precision });
+            const alpha = Number(min(max(a, 0), 1).toFixed(3)).toString();
 
-            let formattedComponents: string[];
+            let formatted: string[];
 
-            if (units && converter.components) {
-                formattedComponents = clipped.map((value, index) => {
-                    const componentConfig = Object.values(converter.components).find((comp) => comp.index === index);
-                    if (!componentConfig) return value.toString();
+            if (units && components) {
+                formatted = clipped.map((v, index) => {
+                    const def = Object.values(components).find((comp) => comp.index === index);
+                    if (!def) return v.toString();
 
-                    if (componentConfig.value === "percentage") {
-                        return `${value}%`;
-                    } else if (componentConfig.value === "hue") {
-                        return `${value}deg`;
+                    if (def.value === "percentage") {
+                        return `${v}%`;
+                    } else if (def.value === "angle") {
+                        return `${v}deg`;
                     }
-                    return value.toString();
+
+                    return v.toString();
                 });
             } else {
-                formattedComponents = clipped.map((val) => val.toString());
+                formatted = clipped.map((v) => v.toString());
             }
 
-            if (cleanedName in colorSpaceConverters) {
-                return `color(${cleanedName} ${formattedComponents.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
+            if (name in colorSpaces) {
+                return `color(${name} ${formatted.join(" ")}${a !== 1 ? ` / ${alpha}` : ""})`;
             }
 
-            if (legacy === true && converter.supportsLegacy === true) {
-                if (alpha === 1) return `${cleanedName}(${formattedComponents.join(", ")})`;
-                return `${converter.alphaVariant || cleanedName}(${formattedComponents.join(", ")}, ${alphaFormatted})`;
+            if (legacy === true && supportsLegacy === true) {
+                if (a === 1) return `${name}(${formatted.join(", ")})`;
+                return `${alphaVariant || name}(${formatted.join(", ")}, ${alpha})`;
             }
 
-            return `${cleanedName}(${formattedComponents.join(" ")}${alpha !== 1 ? ` / ${alphaFormatted}` : ""})`;
+            return `${name}(${formatted.join(" ")}${a !== 1 ? ` / ${alpha}` : ""})`;
         },
     };
 }
@@ -997,9 +1128,9 @@ export function converterFromFunctionConverter(name: string, converter: ColorFun
  * @template C - A tuple of component names for the color space (e.g., ["r", "g", "b"]).
  * @param name - The name of the color space (used for target gamut identification).
  * @param converter - The color space converter definition.
- * @returns An object of type `ColorFunctionConverter`.
+ * @returns An object of type `ColorModelConverter`.
  */
-export function functionConverterFromSpaceConverter<const C extends readonly string[]>(
+export function spaceConverterToModelConverter<const C extends readonly string[]>(
     name: string,
     converter: Omit<ColorSpaceConverter, "components"> & { components: C }
 ) {
@@ -1019,5 +1150,5 @@ export function functionConverterFromSpaceConverter<const C extends readonly str
             );
         },
         fromBridge: (coords: number[]) => multiplyMatrices(fromBridgeMatrix, coords).map((c) => fromLinear(c)),
-    } satisfies ColorFunctionConverter;
+    } satisfies ColorModelConverter;
 }

@@ -122,7 +122,7 @@ export const fitMethods = {
             if (!props) {
                 throw new Error(`Missing component properties for index ${i}.`);
             }
-            if (props.value === "hue") {
+            if (props.value === "angle") {
                 return ((value % 360) + 360) % 360;
             } else {
                 const [min, max] = Array.isArray(props.value) ? props.value : [0, 100];

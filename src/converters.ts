@@ -20,14 +20,14 @@ import {
 import type {
     ColorConverter,
     ColorFunction,
-    ColorFunctionConverter,
+    ColorModelConverter,
     FormattingOptions,
     HueInterpolationMethod,
     NamedColor,
 } from "./types.js";
 import {
-    converterFromFunctionConverter,
-    functionConverterFromSpaceConverter,
+    modelConverterToColorConverter,
+    spaceConverterToModelConverter,
     fit,
     extractBalancedExpression,
 } from "./utils.js";
@@ -193,8 +193,8 @@ export const namedColors = {
  *
  * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
  */
-export const colorSpaceConverters = {
-    srgb: functionConverterFromSpaceConverter("srgb", {
+export const colorSpaces = {
+    srgb: spaceConverterToModelConverter("srgb", {
         components: ["r", "g", "b"],
         bridge: "xyz-d65",
         toLinear: (c: number) => {
@@ -216,13 +216,13 @@ export const colorSpaceConverters = {
         toBridgeMatrix: MATRICES.SRGB_to_XYZD65,
         fromBridgeMatrix: MATRICES.XYZD65_to_SRGB,
     }),
-    "srgb-linear": functionConverterFromSpaceConverter("srgb-linear", {
+    "srgb-linear": spaceConverterToModelConverter("srgb-linear", {
         components: ["r", "g", "b"],
         bridge: "xyz-d65",
         toBridgeMatrix: MATRICES.SRGB_to_XYZD65,
         fromBridgeMatrix: MATRICES.XYZD65_to_SRGB,
     }),
-    "display-p3": functionConverterFromSpaceConverter("display-p3", {
+    "display-p3": spaceConverterToModelConverter("display-p3", {
         components: ["r", "g", "b"],
         bridge: "xyz-d65",
         toLinear: (c: number) => {
@@ -244,7 +244,7 @@ export const colorSpaceConverters = {
         toBridgeMatrix: MATRICES.P3_to_XYZD65,
         fromBridgeMatrix: MATRICES.XYZD65_to_P3,
     }),
-    rec2020: functionConverterFromSpaceConverter("rec2020", {
+    rec2020: spaceConverterToModelConverter("rec2020", {
         components: ["r", "g", "b"],
         bridge: "xyz-d65",
         toLinear: (c: number) => {
@@ -270,7 +270,7 @@ export const colorSpaceConverters = {
         toBridgeMatrix: MATRICES.REC2020_to_XYZD65,
         fromBridgeMatrix: MATRICES.XYZD65_to_REC2020,
     }),
-    "a98-rgb": functionConverterFromSpaceConverter("a98-rgb", {
+    "a98-rgb": spaceConverterToModelConverter("a98-rgb", {
         components: ["r", "g", "b"],
         bridge: "xyz-d65",
         toLinear: (c: number) => {
@@ -286,7 +286,7 @@ export const colorSpaceConverters = {
         toBridgeMatrix: MATRICES.A98_to_XYZD65,
         fromBridgeMatrix: MATRICES.XYZD65_to_A98,
     }),
-    "prophoto-rgb": functionConverterFromSpaceConverter("prophoto-rgb", {
+    "prophoto-rgb": spaceConverterToModelConverter("prophoto-rgb", {
         components: ["r", "g", "b"],
         bridge: "xyz-d50",
         toLinear: (c: number) => {
@@ -310,7 +310,7 @@ export const colorSpaceConverters = {
         toBridgeMatrix: MATRICES.ProPhoto_to_XYZD50,
         fromBridgeMatrix: MATRICES.XYZD50_to_ProPhoto,
     }),
-    "xyz-d65": functionConverterFromSpaceConverter("xyz-d65", {
+    "xyz-d65": spaceConverterToModelConverter("xyz-d65", {
         targetGamut: null,
         components: ["x", "y", "z"],
         bridge: "xyz-d65",
@@ -325,14 +325,14 @@ export const colorSpaceConverters = {
             [0, 0, 1],
         ],
     }),
-    "xyz-d50": functionConverterFromSpaceConverter("xyz-d50", {
+    "xyz-d50": spaceConverterToModelConverter("xyz-d50", {
         targetGamut: null,
         components: ["x", "y", "z"],
         bridge: "xyz-d65",
         toBridgeMatrix: MATRICES.D50_to_D65,
         fromBridgeMatrix: MATRICES.D65_to_d50,
     }),
-    xyz: functionConverterFromSpaceConverter("xyz", {
+    xyz: spaceConverterToModelConverter("xyz", {
         targetGamut: null,
         components: ["x", "y", "z"],
         bridge: "xyz-d65",
@@ -347,14 +347,14 @@ export const colorSpaceConverters = {
             [0, 0, 1],
         ],
     }),
-} as const satisfies Record<string, ColorFunctionConverter>;
+} as const satisfies Record<string, ColorModelConverter>;
 
 /**
- * A collection of `<color-function>`s and their conversion logic.
+ * A collection of manipulatable color models and their conversion logic.
  *
  * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
  */
-export const colorFunctionConverters = {
+export const colorModels = {
     rgb: {
         supportsLegacy: true,
         alphaVariant: "rgba",
@@ -371,7 +371,7 @@ export const colorFunctionConverters = {
         supportsLegacy: true,
         alphaVariant: "hsla",
         components: {
-            h: { index: 0, value: "hue", precision: 1 },
+            h: { index: 0, value: "angle", precision: 1 },
             s: { index: 1, value: "percentage", precision: 1 },
             l: { index: 2, value: "percentage", precision: 1 },
         },
@@ -381,7 +381,7 @@ export const colorFunctionConverters = {
     },
     hwb: {
         components: {
-            h: { index: 0, value: "hue", precision: 1 },
+            h: { index: 0, value: "angle", precision: 1 },
             w: { index: 1, value: "percentage", precision: 1 },
             b: { index: 2, value: "percentage", precision: 1 },
         },
@@ -405,7 +405,7 @@ export const colorFunctionConverters = {
         components: {
             l: { index: 0, value: "percentage", precision: 5 },
             c: { index: 1, value: [0, 150], precision: 5 },
-            h: { index: 2, value: "hue", precision: 5 },
+            h: { index: 2, value: "angle", precision: 5 },
         },
         bridge: "lab",
         toBridge: LCH_to_LAB,
@@ -427,24 +427,24 @@ export const colorFunctionConverters = {
         components: {
             l: { index: 0, value: [0, 1], precision: 5 },
             c: { index: 1, value: [0, 0.4], precision: 5 },
-            h: { index: 2, value: "hue", precision: 5 },
+            h: { index: 2, value: "angle", precision: 5 },
         },
         bridge: "oklab",
         toBridge: OKLCH_to_OKLAB,
         fromBridge: OKLAB_to_OKLCH,
     },
-    ...colorSpaceConverters,
+    ...colorSpaces,
 } as const;
 
 /**
  * A collection of `<color-function>`s as <color> converters.
  *
- * @see {@link https://www.w3.org/TR/css-color-4/|CSS Color Module Level 4}
+ * @see {@link https://www.w3.org/TR/css-color-5/|CSS Color Module Level 5}
  */
 export const colorFunctions = Object.fromEntries(
-    Object.entries(colorFunctionConverters).map(([name, converter]) => [
+    Object.entries(colorModels).map(([name, converter]) => [
         name as ColorFunction,
-        converterFromFunctionConverter(name, converter as ColorFunctionConverter),
+        modelConverterToColorConverter(name, converter as ColorModelConverter),
     ])
 ) as Record<ColorFunction, ColorConverter>;
 
@@ -488,6 +488,7 @@ export const colorBases = {
             return `#${hex}${a < 1 ? toHex(Math.round(a * 255)) : ""}`.toUpperCase();
         },
     },
+    ...colorFunctions,
     "named-color": {
         isValid: (str: string) => Object.keys(namedColors).some((key) => key === str),
         bridge: "rgb",
@@ -583,10 +584,21 @@ export const colorBases = {
                     rest = m ? m[2].trim() : "";
                 }
 
-                const weightMatch = rest.match(/^(\d+)%/);
-                const weight = weightMatch ? parseInt(weightMatch[1], 10) : undefined;
+                let weight: number | undefined;
 
-                const color = Color.from(colorExpression.trim());
+                if (rest.startsWith("calc(")) {
+                    weight = undefined;
+                } else {
+                    const weightMatch = rest.match(/^(\d+)%/);
+                    if (weightMatch) {
+                        const raw = parseInt(weightMatch[1], 10);
+                        weight = Math.min(1, Math.max(0, raw / 100));
+                    } else {
+                        weight = undefined;
+                    }
+                }
+
+                const color = Color.from(colorExpression);
                 return { color, weight };
             };
 
@@ -594,27 +606,39 @@ export const colorBases = {
             const { color: color2, weight: weight2 } = extractColorAndWeight(parts[2]);
 
             const getWeight2Prime = (weight1?: number, weight2?: number) => {
-                if (weight1 === undefined && weight2 !== undefined) {
+                if (weight1 === undefined && typeof weight2 === "number") {
                     weight1 = 1 - weight2;
-                } else if (weight1 !== undefined && weight2 === undefined) {
+                } else if (typeof weight1 === "number" && weight2 === undefined) {
                     weight2 = 1 - weight1;
+                } else if (weight1 === undefined && weight2 === undefined) {
+                    weight1 = weight2 = 0.5;
                 } else {
-                    weight1 = 0.5;
-                    weight2 = 0.5;
+                    weight1 = weight1 as number;
+                    weight2 = weight2 as number;
                 }
 
                 const totalWeight = weight1 + weight2;
+                let alphaMultiplier;
                 if (totalWeight > 1) {
                     weight1 /= totalWeight;
                     weight2 /= totalWeight;
+                } else {
+                    weight1 /= totalWeight;
+                    weight2 /= totalWeight;
+                    alphaMultiplier = totalWeight;
                 }
 
-                return weight2 / (weight1 + weight2);
+                return { amount: weight2, alphaMultiplier };
             };
 
-            const amount = getWeight2Prime(weight1, weight2);
+            const { amount, alphaMultiplier = 1 } = getWeight2Prime(weight1, weight2);
 
-            return color1.in(model).mix(color2, { amount, hue }).in("rgb").getCoords();
+            return color1
+                .set({ alpha: (a) => a * alphaMultiplier })
+                .in(model)
+                .mix(color2.set({ alpha: (a) => a * alphaMultiplier }), { amount, hue })
+                .in("rgb")
+                .getCoords();
         },
     },
     transparent: {
@@ -623,7 +647,6 @@ export const colorBases = {
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => [0, 0, 0, 0], // eslint-disable-line no-unused-vars
     },
-    ...colorFunctions,
 } satisfies Record<string, ColorConverter>;
 
 /**
@@ -632,11 +655,23 @@ export const colorBases = {
  * @see {@link https://www.w3.org/TR/css-color-5/|CSS Color Module Level 5}
  */
 export const colorTypes = {
+    ...colorBases,
     currentColor: {
         isValid: (str: string) => str === "currentcolor",
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => [0, 0, 0, 1], // eslint-disable-line no-unused-vars
+    },
+    "system-color": {
+        isValid: (str: string) => Object.keys(config.systemColors).some((key) => key.toLowerCase() === str),
+        bridge: "rgb",
+        toBridge: (coords: number[]) => coords,
+        parse: (str: string) => {
+            const { systemColors } = config;
+            const key = Object.keys(systemColors).find((k) => k.toLowerCase() === str);
+            const rgbArr = systemColors[key as keyof typeof systemColors][config.theme === "light" ? 0 : 1];
+            return [...rgbArr, 1];
+        },
     },
     "contrast-color": {
         isValid: (str: string) => str.slice(0, 15) === "contrast-color(" && str[str.length - 1] === ")",
@@ -832,16 +867,4 @@ export const colorTypes = {
             return Color.from(theme === "light" ? color1 : color2).getCoords();
         },
     },
-    "system-color": {
-        isValid: (str: string) => Object.keys(config.systemColors).some((key) => key.toLowerCase() === str),
-        bridge: "rgb",
-        toBridge: (coords: number[]) => coords,
-        parse: (str: string) => {
-            const { systemColors } = config;
-            const key = Object.keys(systemColors).find((k) => k.toLowerCase() === str);
-            const rgbArr = systemColors[key as keyof typeof systemColors][config.theme === "light" ? 0 : 1];
-            return [...rgbArr, 1];
-        },
-    },
-    ...colorBases,
 } satisfies Record<string, ColorConverter>;

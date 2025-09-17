@@ -1,6 +1,6 @@
 import { Color } from "./Color.js";
 import { systemColors } from "./config.js";
-import { namedColors, colorTypes, colorFunctionConverters, colorBases, colorSpaceConverters } from "./converters.js";
+import { namedColors, colorTypes, colorModels, colorBases, colorSpaces } from "./converters.js";
 import { EASINGS, fitMethods } from "./math.js";
 
 /* eslint-disable no-unused-vars */
@@ -26,10 +26,13 @@ export type ColorType = keyof typeof colorTypes;
 export type ColorBase = keyof typeof colorBases;
 
 /** Represents the available `<color-function>`s. */
-export type ColorFunction = keyof typeof colorFunctionConverters;
+export type ColorFunction = keyof typeof colorModels;
 
 /** Represents the available color spaces for `<color()>` function. */
-export type ColorSpace = keyof typeof colorSpaceConverters;
+export type ColorSpace = keyof typeof colorSpaces;
+
+/** Represents the available manipulatable color models. */
+export type ColorModel = keyof typeof colorModels;
 
 /** Represents a <named-color> identifier. */
 export type NamedColor = keyof typeof namedColors;
@@ -39,12 +42,12 @@ export type SystemColor = keyof typeof systemColors;
 
 /** Represents the color types that support conversion from XYZ. */
 export type OutputType = {
-    [K in keyof typeof colorTypes]: (typeof colorTypes)[K] extends {
+    [K in ColorType]: (typeof colorTypes)[K] extends {
         fromBridge?: (components: number[]) => number[];
     }
         ? K
         : never;
-}[keyof typeof colorTypes];
+}[ColorType];
 
 /** Represents a converter for `<color>`s. */
 export type ColorConverter = {
@@ -71,7 +74,7 @@ export type ColorConverter = {
 );
 
 /** Represents a converter for `<color-function>`s. */
-export type ColorFunctionConverter = {
+export type ColorModelConverter = {
     /** The target color gamut identifier that the function should be clamped to (e.g., `"srgb"`, `"display-p3"`), or `null` for color spaces without a fixed gamut (e.g., `lab`, `lch`). */
     targetGamut?: string | null;
 
@@ -123,8 +126,8 @@ export type ComponentDefinition = {
     /** Position of the component in the color array */
     index: number;
 
-    /** The value type for the component, which can be a tuple of two numbers representing a range, or a string indicating a special type ("hue" or "percentage"). */
-    value: number[] | "hue" | "percentage";
+    /** The value type for the component, which can be a tuple of two numbers representing a range, or a string indicating a special type ("angle" or "percentage"). */
+    value: number[] | "angle" | "percentage";
 
     /** Precision for rounding the component value */
     precision?: number;
@@ -135,9 +138,7 @@ export type ComponentDefinition = {
  *
  * @template M - The color model type.
  */
-export type Component<M extends keyof typeof colorFunctionConverters> =
-    | keyof (typeof colorFunctionConverters)[M]["components"]
-    | "alpha";
+export type Component<M extends ColorModel> = keyof (typeof colorModels)[M]["components"] | "alpha";
 
 /** Defines operations on a color within a specific `Model`, enabling method chaining. */
 export type Interface<M extends ColorFunction> = {
@@ -228,8 +229,26 @@ export type FormattingOptions = {
     /** Overrides the precision of the output color. */
     precision?: number;
 
-    /** Output components with units (e.g., `"hsl(250deg 74% 54%)"`) */
+    /** Output components with units (e.g., `"hsl(250deg 74% 54%)"`). */
     units?: boolean;
+};
+
+/** Options for generating a random Color instance. */
+export type RandomOptions = {
+    /** The color model to use (e.g., "rgb" or "hsl"). */
+    model?: ColorModel;
+
+    /** Optional limits for each channel, specified as a tuple of [min, max] values. */
+    limits?: Record<string, [number, number]>;
+
+    /** Optional bias functions for each channel, which transform the random value. */
+    bias?: Record<string, (x: number) => number>;
+
+    /** Optional base values for each channel. */
+    base?: Record<string, number>;
+
+    /** Optional deviation values for each channel, used to control randomness. */
+    deviation?: Record<string, number>;
 };
 
 /** Options for mixing two colors. */
@@ -248,7 +267,7 @@ export type MixOptions = {
 };
 
 /** Options for evaluating the accessibility of an element, such as text or UI components. */
-export type EvaluateAccessibilityOptions = {
+export type AccessibilityOptions = {
     /** The element type: "text" (default) or "non-text" (e.g., UI components per WCAG 1.4.11). */
     type?: "text" | "non-text";
 

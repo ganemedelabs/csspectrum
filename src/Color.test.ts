@@ -1,6 +1,6 @@
 import { Color } from "./Color";
-import { MATRICES } from "./math.js";
-import { ColorFunction } from "./types.js";
+import { EASINGS, MATRICES } from "./math.js";
+import { ColorModel } from "./types.js";
 import {
     configure,
     multiplyMatrices,
@@ -67,29 +67,34 @@ describe("Color", () => {
         });
     });
 
+    it("should regognize color space name in deeply nested color() syntax", () => {
+        const color = Color.from("color(from color(from red srgb 1 1 1) srgb-linear r g b)");
+        expect(color.model).toBe("srgb-linear");
+    });
+
     it("should return correct coords", () => {
-        const cases: [string, ColorFunction, number[]][] = [
-            ["blanchedalmond", "rgb", [255, 235, 205, 1]],
-            ["#7a7239", "rgb", [122, 114, 57, 1]],
-            ["rgb(68% 16% 50% / 0.3)", "rgb", [173, 41, 128, 0.3]],
-            ["hsla(182, 43%, 33%, 0.8)", "hsl", [182, 43, 33, 0.8]],
-            ["hwb(228 6% 9% / 0.6)", "hwb", [228, 6, 9, 0.6]],
-            ["lab(52.23% 40.16% 59.99% / 0.5)", "lab", [52.23, 50.2, 74.9875, 0.5]],
-            ["lch(62.23% 59.2% 126.2 / 0.5)", "lch", [62.23, 88.8, 126.2, 0.5]],
-            ["oklab(42.1% 41% -25% / 0.5)", "oklab", [0.421, 0.164, -0.1, 0.5]],
-            ["oklch(72.32% 0.12% 247.99 / 0.5)", "oklch", [0.7232, 0.00048, 247.99, 0.5]],
-            ["color(srgb 0.7 0.2 0.5 / 0.3)", "srgb", [0.7, 0.2, 0.5, 0.3]],
-            ["color(srgb-linear 0.49 0.04 0.25 / 0.4)", "srgb-linear", [0.49, 0.04, 0.25, 0.4]],
-            ["color(rec2020 0.6 0.3 0.4 / 0.5)", "rec2020", [0.6, 0.3, 0.4, 0.5]],
-            ["color(prophoto-rgb 0.8 0.1 0.6 / 0.6)", "prophoto-rgb", [0.8, 0.1, 0.6, 0.6]],
-            ["color(a98-rgb 0.5 0.4 0.7 / 0.7)", "a98-rgb", [0.5, 0.4, 0.7, 0.7]],
-            ["color(xyz-d65 0.4 0.5 0.2 / 0.8)", "xyz-d65", [0.4, 0.5, 0.2, 0.8]],
-            ["color(xyz-d50 0.3 0.6 0.1 / 0.9)", "xyz-d50", [0.3, 0.6, 0.1, 0.9]],
-            ["color(xyz 0.2 0.7 0.3 / 0.2)", "xyz", [0.2, 0.7, 0.3, 0.2]],
+        const cases: [string, number[]][] = [
+            ["blanchedalmond", [255, 235, 205, 1]],
+            ["#7a7239", [122, 114, 57, 1]],
+            ["rgb(68% 16% 50% / 0.3)", [173, 41, 128, 0.3]],
+            ["hsla(182, 43%, 33%, 0.8)", [182, 43, 33, 0.8]],
+            ["hwb(228 6% 9% / 0.6)", [228, 6, 9, 0.6]],
+            ["lab(52.23% 40.16% 59.99% / 0.5)", [52.23, 50.2, 74.9875, 0.5]],
+            ["lch(62.23% 59.2% 126.2 / 0.5)", [62.23, 88.8, 126.2, 0.5]],
+            ["oklab(42.1% 41% -25% / 0.5)", [0.421, 0.164, -0.1, 0.5]],
+            ["oklch(72.32% 0.12% 247.99 / 0.5)", [0.7232, 0.00048, 247.99, 0.5]],
+            ["color(srgb 0.7 0.2 0.5 / 0.3)", [0.7, 0.2, 0.5, 0.3]],
+            ["color(srgb-linear 0.49 0.04 0.25 / 0.4)", [0.49, 0.04, 0.25, 0.4]],
+            ["color(rec2020 0.6 0.3 0.4 / 0.5)", [0.6, 0.3, 0.4, 0.5]],
+            ["color(prophoto-rgb 0.8 0.1 0.6 / 0.6)", [0.8, 0.1, 0.6, 0.6]],
+            ["color(a98-rgb 0.5 0.4 0.7 / 0.7)", [0.5, 0.4, 0.7, 0.7]],
+            ["color(xyz-d65 0.4 0.5 0.2 / 0.8)", [0.4, 0.5, 0.2, 0.8]],
+            ["color(xyz-d50 0.3 0.6 0.1 / 0.9)", [0.3, 0.6, 0.1, 0.9]],
+            ["color(xyz 0.2 0.7 0.3 / 0.2)", [0.2, 0.7, 0.3, 0.2]],
         ];
 
-        cases.forEach(([input, space, expected]) => {
-            expect(Color.from(input).in(space).getCoords("clip")).toEqual(expected);
+        cases.forEach(([input, expected]) => {
+            expect(Color.from(input).getCoords("clip")).toEqual(expected);
         });
     });
 
@@ -210,9 +215,55 @@ describe("Color", () => {
         expect(Color.from("#ff5733").equals("rgb(255, 87, 51)")).toBe(true);
     });
 
-    it("should return a random color", () => {
-        const randomColor = Color.random("named-color");
-        expect(Color.type(randomColor)).toBe("named-color");
+    it("should return random Color instance based on different options", () => {
+        const c1 = Color.random();
+        expect(c1).toBeInstanceOf(Color);
+        expect(typeof c1.model).toBe("string");
+        expect(Array.isArray(c1.coords)).toBe(true);
+
+        const c2 = Color.random({ model: "oklch" });
+        expect(c2.model).toBe("oklch");
+        expect(c2.coords.length).toBe(4);
+
+        const c3 = Color.random({
+            model: "oklch",
+            limits: { l: [0.4, 0.6] },
+        });
+        expect(c3.coords[0]).toBeGreaterThanOrEqual(0.4);
+        expect(c3.coords[0]).toBeLessThanOrEqual(0.6);
+
+        const samplesBias = Array.from(
+            { length: 100 },
+            () =>
+                Color.random({
+                    model: "oklch",
+                    bias: { l: EASINGS["ease-out"] },
+                }).coords[0]
+        );
+        const avgBias = samplesBias.reduce((a, b) => a + b, 0) / samplesBias.length;
+        expect(avgBias).toBeGreaterThan(0.5);
+
+        const base = { l: 0.7, c: 0.2 };
+        const deviation = { l: 0.05, c: 0.05 };
+        const samplesDev = Array.from({ length: 50 }, () => Color.random({ model: "oklch", base, deviation }).coords);
+        const avgL = samplesDev.reduce((a, b) => a + b[0], 0) / samplesDev.length;
+        expect(avgL).toBeGreaterThan(0.6);
+        expect(avgL).toBeLessThan(0.8);
+
+        const c4 = Color.random({
+            model: "lch",
+            base: { h: 400 },
+            deviation: { h: 10 },
+        });
+        expect(c4.coords[2]).toBeGreaterThanOrEqual(0);
+        expect(c4.coords[2]).toBeLessThanOrEqual(360);
+
+        expect(() =>
+            Color.random({
+                model: "rgb",
+                base: { h: 120 },
+            })
+        ).toThrow();
     });
 
     it("should return true if a color is in gamut", () => {
@@ -223,34 +274,32 @@ describe("Color", () => {
     it("should handle none and calc(NaN) components correctly", () => {
         const color = Color.from("hsl(none calc(NaN) 50%)");
         expect(color.to("hsl")).toBe("hsl(0 0 50)");
-        const adjusted = color.in("hsl").set({ h: 150, s: 100 });
+        const adjusted = color.set({ h: 150, s: 100 });
         expect(adjusted.to("hsl")).toBe("hsl(150 100 50)");
     });
 
     it("should handle calc(infinity) components correctly", () => {
         const color = Color.from("hsl(calc(infinity) calc(-infinity) 50%)");
         expect(color.to("hsl")).toBe("hsl(0 0 50)");
-        const adjusted = color.in("hsl").set({ h: 100, s: 100 });
+        const adjusted = color.set({ h: 100, s: 100 });
         expect(adjusted.to("hsl")).toBe("hsl(100 100 50)");
     });
 
     it("should return correct component values using get()", () => {
-        const rgbColor = Color.from("rgb(0, 157, 255)");
-        const rgbInterface = rgbColor.in("rgb");
+        const color = Color.from("rgb(0, 157, 255)");
         const fit = "clip";
-        const rgb = rgbInterface.get(fit);
+        const rgb = color.get(fit);
         expect(rgb).toEqual({ r: 0, g: 157, b: 255, alpha: 1 });
     });
 
     it("should retrieve the correct array of components using getCoords()", () => {
-        const rgbColor = Color.from("rgb(0, 157, 255)");
-        const rgbInterface = rgbColor.in("rgb");
-        expect(rgbInterface.getCoords("clip")).toEqual([0, 157, 255, 1]);
+        const color = Color.from("rgb(0, 157, 255)");
+        expect(color.getCoords("clip")).toEqual([0, 157, 255, 1]);
     });
 
     it("should update multiple components with set()", () => {
-        const hslColor = Color.from("hsl(0, 100%, 50%)");
-        const updated = hslColor.in("hsl").set({
+        const color = Color.from("hsl(0, 100%, 50%)");
+        const updated = color.set({
             h: (h) => h + 50,
             s: (s) => s - 20,
         });
@@ -259,8 +308,8 @@ describe("Color", () => {
     });
 
     it("should update multiple components with setCoords()", () => {
-        const hslColor = Color.from("hsl(200 100% 50%)");
-        const updated = hslColor.in("hsl").setCoords([undefined, 50, 80]);
+        const color = Color.from("hsl(200 100% 50%)");
+        const updated = color.setCoords([undefined, 50, 80]);
         const coords = updated.getCoords("clip");
         expect(coords).toStrictEqual([200, 50, 80, 1]);
     });
@@ -273,7 +322,7 @@ describe("Color", () => {
     });
 
     it("should clamp component values when getting components", () => {
-        const rgbColor = Color.from("rgb(200, 100, 50)").in("rgb").set({ g: 400 });
+        const rgbColor = Color.from("rgb(200, 100, 50)").set({ g: 400 });
         const [, g] = rgbColor.getCoords("clip");
         expect(g).toBe(255);
     });
@@ -284,7 +333,7 @@ describe("Color", () => {
 
     it("should adjust opacity correctly", () => {
         const color = Color.from("rgb(120, 20, 170)");
-        const adjusted = color.in("rgb").set({ alpha: 0.5 });
+        const adjusted = color.set({ alpha: 0.5 });
         expect(adjusted.to("rgb")).toBe("rgb(120 20 170 / 0.5)");
     });
 
@@ -357,6 +406,53 @@ describe("Color", () => {
         expect(Color.from(systemColor).to("rgb")).toBe("rgb(50 150 250)");
     });
 
+    it("parses color-mix() weights correctly", () => {
+        const c1 = Color.from("color-mix(in hsl, hsl(0 100 50), hsl(120 100 50))");
+        expect(c1.to("hsl")).toBe("hsl(60 100 50)");
+
+        const c2 = Color.from("color-mix(in hsl, hsl(0 100 50) 50%, hsl(120 100 50))");
+        expect(c2.to("hsl")).toBe("hsl(60 100 50)");
+
+        const c3 = Color.from("color-mix(in hsl, hsl(0 100 50) 30%, hsl(120 100 50))");
+        expect(c3.to("hsl")).toBe("hsl(84 100 50)");
+
+        const c4 = Color.from("color-mix(in hsl, hsl(0 100 50), hsl(120 100 50) 50%)");
+        expect(c4.to("hsl")).toBe("hsl(60 100 50)");
+
+        const c5 = Color.from("color-mix(in hsl, hsl(0 100 50), hsl(120 100 50) 30%)");
+        expect(c5.to("hsl")).toBe("hsl(36 100 50)");
+
+        const c6 = Color.from("color-mix(in hsl, hsl(0 100 50) 70%, hsl(120 100 50) 30%)");
+        expect(c6.to("hsl")).toBe("hsl(36 100 50)");
+
+        const c7 = Color.from("color-mix(in hsl, hsl(0 100 50) 30%, hsl(120 100 50) 50%)");
+        expect(c7.to("hsl")).toBe("hsl(75 100 50 / 0.8)");
+
+        const c8 = Color.from("color-mix(in hsl, hsl(0 100 50) calc(30% + 20%), hsl(120 100 50))");
+        expect(c8.to("hsl")).toBe("hsl(60 100 50)");
+
+        const c9 = Color.from("color-mix(in hsl, hsl(0 100 50) 70%, hsl(120 100 50) calc(30% + 20%))");
+        expect(c9.to("hsl")).toBe("hsl(36 100 50)");
+
+        const c10 = Color.from("color-mix(in hsl, hsl(0 100 50) calc(10% + 20%), hsl(120 100 50) calc(30% + 20%))");
+        expect(c10.to("hsl")).toBe("hsl(60 100 50)");
+
+        const c11 = Color.from("color-mix(in hsl, hsl(0 100 50) 80%, hsl(120 100 50) 80%)");
+        expect(c11.to("hsl")).toBe("hsl(60 100 50)");
+
+        const c12 = Color.from("color-mix(in hsl, hsl(0 100 50) 200%, hsl(120 100 50))");
+        expect(c12.to("hsl")).toBe("hsl(0 100 50)");
+
+        const c13 = Color.from("color-mix(in hsl, hsl(0 100 50) -30%, hsl(120 100 50))");
+        expect(c13.to("hsl")).toBe("hsl(60 100 50)");
+
+        const c14 = Color.from("color-mix(in hsl, hsl(0 100 50) 20%, hsl(120 100 50) 80%)");
+        expect(c14.to("hsl")).toBe("hsl(96 100 50)");
+
+        const c15 = Color.from("color-mix(in hsl, hsl(0 100 50) 80%, hsl(120 100 50) 20%)");
+        expect(c15.to("hsl")).toBe("hsl(24 100 50)");
+    });
+
     it("should parse calc() expressions correctly", () => {
         const cases = [
             ["rgb(calc(50% + 10%) calc(20% * 3) calc(100% - 30%))", "rgb(153 153 178.5)"],
@@ -379,14 +475,14 @@ describe("Color", () => {
                 "color(srgb calc(pow(0.5, 2)) calc(log(100) / log(10) * 0.3) calc(round(0.756)) / calc(sign(0.8)))",
                 "color(srgb 0.25 0.6 1)",
             ],
-            ["rgb(from #ff0000 calc(r * 0.5) calc(g + 20%) calc(b + 30%))", "rgb(127.5 51 76.5)"],
-            ["hsl(from #00ff00 calc(h * 2) calc(s - 20%) calc(l / 2))", "hsl(240 80 25)"],
+            ["rgb(from #ff0000 calc(r * 0.5) calc(g + 50) calc(b + 75))", "rgb(127.5 50 75)"],
+            ["hsl(from #00ff00 calc(h * 2) calc(s - 20) calc(l / 2))", "hsl(240 80 25)"],
             [
                 "color(from #0000ff srgb calc(r * 2) calc(g + 0.1) calc(b - 0.1) / calc(alpha * 0.5))",
                 "color(srgb 0 0.1 0.9 / 0.5)",
             ],
-            ["oklch(from oklch(0.8 0.2 120deg) calc(l * 0.9) calc(c * 1.5) calc(h + 60deg))", "oklch(0.72 0.3 180)"],
-            ["lab(from lab(50 20 30) calc(l + 10%) calc(a * min(2, 3)) calc(b * max(0.5, 1)))", "lab(60 40 30)"],
+            ["oklch(from oklch(0.8 0.2 120deg) calc(l * 0.9) calc(c * 1.5) calc(h + 60))", "oklch(0.72 0.3 180)"],
+            ["lab(from lab(50 20 30) calc(l + 10) calc(a * min(2, 3)) calc(b * max(0.5, 1)))", "lab(60 40 30)"],
         ];
 
         cases.forEach(([input, expected]) => {
@@ -496,7 +592,7 @@ describe("Color registration system", () => {
         expect(ictcp.getCoords()).toEqual([0, -1, 1, 1]);
         expect(() => ictcp.set({ cp: 0 }).to("rgb")).not.toThrow();
 
-        const instance = new Color("ictcp" as ColorFunction, [NaN, -Infinity, Infinity]);
+        const instance = new Color("ictcp" as ColorModel, [NaN, -Infinity, Infinity]);
         expect(instance.getCoords()).toEqual([0, -1, 1, 1]);
 
         const relative = "ictcp(from ictcp(0.5 0.3 -0.2) i ct cp)";
@@ -519,7 +615,7 @@ describe("Color registration system", () => {
         expect(rec2100.getCoords()).toEqual([0, 0, 1, 1]);
         expect(() => rec2100.set({ r: 0 }).to("xyz-d65")).not.toThrow();
 
-        const instance = new Color("rec2100-linear" as ColorFunction, [NaN, -Infinity, Infinity]);
+        const instance = new Color("rec2100-linear" as ColorModel, [NaN, -Infinity, Infinity]);
         expect(instance.getCoords()).toEqual([0, 0, 1, 1]);
 
         const relative = "color(from color(rec2100-linear 0.7 0.3 0.1) rec2100-linear r g b)";
@@ -540,7 +636,7 @@ describe("Color registration system", () => {
 });
 
 declare module "./Color.js" {
-    interface Color<M extends ColorFunction> {
+    interface Color<M extends ColorModel> {
         /**
          * Lightens the color by the given amount.
          * @param amount - The amount to lighten the color by.
@@ -561,7 +657,7 @@ describe("use()", () => {
         const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
         const lightenPlugin = (ColorClass: typeof Color) => {
-            ColorClass.prototype.lighten = function <M extends ColorFunction>(this: Color<M>, amount: number) {
+            ColorClass.prototype.lighten = function <M extends ColorModel>(this: Color<M>, amount: number) {
                 return this.in("hsl").set({
                     l: (l: number) => clamp(l + amount, 0, 100),
                 });
@@ -569,7 +665,7 @@ describe("use()", () => {
         };
 
         const darkenPlugin = (ColorClass: typeof Color) => {
-            ColorClass.prototype.darken = function <M extends ColorFunction>(this: Color<M>, amount: number) {
+            ColorClass.prototype.darken = function <M extends ColorModel>(this: Color<M>, amount: number) {
                 return this.in("hsl").set({
                     l: (l: number) => clamp(l - amount, 0, 100),
                 });

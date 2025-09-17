@@ -870,7 +870,7 @@ describe("Web Platform Tests", () => {
             rgb.forEach((c) => expect(Color.isValid(c, "rgb")).toBe(true));
         }
 
-        for (const hslFn in ["hsl", "hsla"]) {
+        for (const hslFn of ["hsl", "hsla"]) {
             const hsl = [
                 `${hslFn}(from rebeccapurple h s l)`,
                 `${hslFn}(from rebeccapurple h s l / alpha)`,
@@ -1221,7 +1221,7 @@ describe("Web Platform Tests", () => {
 
         oklch.forEach((c) => expect(Color.isValid(c, "oklch")).toBe(true));
 
-        for (const colorSpace in ["srgb", "srgb-linear", "a98-rgb", "rec2020", "prophoto-rgb", "display-p3"]) {
+        for (const colorSpace of ["srgb", "srgb-linear", "a98-rgb", "rec2020", "prophoto-rgb", "display-p3"]) {
             const cases = [
                 `color(from color(${colorSpace} 0.7 0.5 0.3) ${colorSpace} r g b)`,
                 `color(from color(${colorSpace} 0.7 0.5 0.3) ${colorSpace} r g b / alpha)`,
@@ -1297,9 +1297,8 @@ describe("Web Platform Tests", () => {
             cases.forEach((c) => expect(Color.isValid(c, colorSpace)).toBe(true));
         }
 
-        for (const colorSpace in ["srgb", "srgb-linear", "a98-rgb", "rec2020", "prophoto-rgb", "display-p3"]) {
+        for (const colorSpace of ["xyz", "xyz-d50", "xyz-d65"]) {
             const cases = [
-                `color(from color-mix(in ${colorSpace}, color(${colorSpace} 0.7 0.5 0.3), color(${colorSpace} 0.7 0.5 0.3)) ${colorSpace} r g b / alpha)`,
                 `color(from color(${colorSpace} 7 -20.5 100) ${colorSpace} x y z)`,
                 `color(from color(${colorSpace} 7 -20.5 100) ${colorSpace} x y z / alpha)`,
                 `color(from color(${colorSpace} 7 -20.5 100 / 40%) ${colorSpace} x y z)`,
@@ -1394,7 +1393,7 @@ describe("Web Platform Tests", () => {
 
         hwb.forEach((c) => expect(Color.isValid(c, "hwb")).toBe(false));
 
-        for (const colorSpace in ["lab", "oklab"]) {
+        for (const colorSpace of ["lab", "oklab"]) {
             const cases = [
                 `${colorSpace}(from ${colorSpace}(.25 20 50) l 10deg 10)`,
                 `${colorSpace}(from ${colorSpace}(.25 20 50) l 10 10deg)`,
@@ -1411,7 +1410,7 @@ describe("Web Platform Tests", () => {
             cases.forEach((c) => expect(Color.isValid(c, colorSpace)).toBe(false));
         }
 
-        for (const colorSpace in ["lch", "oklch"]) {
+        for (const colorSpace of ["lch", "oklch"]) {
             const cases = [
                 `${colorSpace}(from ${colorSpace}(.70 45 30) l 10deg h)`,
                 `${colorSpace}(from ${colorSpace}(.70 45 30) l c 10%)`,
@@ -1429,7 +1428,7 @@ describe("Web Platform Tests", () => {
             cases.forEach((c) => expect(Color.isValid(c, colorSpace)).toBe(false));
         }
 
-        for (const colorSpace in ["srgb", "srgb-linear", "a98-rgb", "rec2020", "prophoto-rgb", "display-p3"]) {
+        for (const colorSpace of ["srgb", "srgb-linear", "a98-rgb", "rec2020", "prophoto-rgb", "display-p3"]) {
             const cases = [
                 `color(from color(${colorSpace} 0.7 0.5 0.3) ${colorSpace} 10deg g b)`,
                 `color(from color(${colorSpace} 0.7 0.5 0.3) ${colorSpace} r 10deg b)`,
@@ -1445,7 +1444,7 @@ describe("Web Platform Tests", () => {
             cases.forEach((c) => expect(Color.isValid(c, colorSpace)).toBe(false));
         }
 
-        for (const colorSpace in ["xyz", "xyz-d50", "xyz-d65"]) {
+        for (const colorSpace of ["xyz", "xyz-d50", "xyz-d65"]) {
             const cases = [
                 `color(from color(${colorSpace} 7 -20.5 100) ${colorSpace} 10deg y z)`,
                 `color(from color(${colorSpace} 7 -20.5 100) ${colorSpace} x 10deg z)`,

@@ -8,7 +8,7 @@ export type {
     NamedColor,
     OutputType,
     ColorConverter,
-    ColorFunctionConverter,
+    ColorModelConverter,
     ColorSpaceConverter,
     ComponentDefinition,
     Component,
@@ -18,11 +18,13 @@ export type {
     FitMethod,
     FormattingOptions,
     MixOptions,
-    EvaluateAccessibilityOptions,
+    AccessibilityOptions,
     Config,
     Plugin,
     SystemColor,
     FitFunction,
+    ColorModel,
+    RandomOptions,
 } from "./types.js";
 export {
     multiplyMatrices,
@@ -35,22 +37,15 @@ export {
     use,
     unregister,
     fit,
-    converterFromFunctionConverter,
-    functionConverterFromSpaceConverter,
+    modelConverterToColorConverter,
+    spaceConverterToModelConverter,
     cache,
     clean,
     extractBalancedExpression,
     plugins,
     registerFitMethod,
 } from "./utils.js";
-export {
-    namedColors,
-    colorSpaceConverters,
-    colorFunctionConverters,
-    colorFunctions,
-    colorBases,
-    colorTypes,
-} from "./converters.js";
+export { namedColors, colorSpaces, colorModels, colorFunctions, colorBases, colorTypes } from "./converters.js";
 export {
     HSL_to_RGB,
     HWB_to_RGB,
