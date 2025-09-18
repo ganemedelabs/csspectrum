@@ -440,16 +440,16 @@ describe("Color", () => {
         const c11 = Color.from("color-mix(in hsl, hsl(0 100 50) 80%, hsl(120 100 50) 80%)");
         expect(c11.to("hsl")).toBe("hsl(60 100 50)");
 
-        const c12 = Color.from("color-mix(in hsl, hsl(0 100 50) 200%, hsl(120 100 50))");
-        expect(c12.to("hsl")).toBe("hsl(0 100 50)");
+        const c12 = Color.from("color-mix(in hsl, hsl(0 100 50) 20%, hsl(120 100 50) 80%)");
+        expect(c12.to("hsl")).toBe("hsl(96 100 50)");
 
-        const c13 = Color.from("color-mix(in hsl, hsl(0 100 50) -30%, hsl(120 100 50))");
-        expect(c13.to("hsl")).toBe("hsl(60 100 50)");
+        const c13 = Color.from("color-mix(in hsl, hsl(0 100 50) 80%, hsl(120 100 50) 20%)");
+        expect(c13.to("hsl")).toBe("hsl(24 100 50)");
 
-        const c14 = Color.from("color-mix(in hsl, hsl(0 100 50) 20%, hsl(120 100 50) 80%)");
+        const c14 = Color.from("color-mix(in hsl, 20% hsl(0 100 50), 80% hsl(120 100 50))");
         expect(c14.to("hsl")).toBe("hsl(96 100 50)");
 
-        const c15 = Color.from("color-mix(in hsl, hsl(0 100 50) 80%, hsl(120 100 50) 20%)");
+        const c15 = Color.from("color-mix(in hsl, 80% hsl(0 100 50), 20% hsl(120 100 50))");
         expect(c15.to("hsl")).toBe("hsl(24 100 50)");
     });
 

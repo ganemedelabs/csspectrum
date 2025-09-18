@@ -20,6 +20,7 @@ import {
 import type {
     ColorConverter,
     ColorFunction,
+    ColorModel,
     ColorModelConverter,
     FormattingOptions,
     HueInterpolationMethod,
@@ -460,14 +461,14 @@ export const colorBases = {
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
             const HEX = str.slice(1);
-            if (![3, 4, 6, 8].includes(HEX.length)) throw new Error("Invalid hex color length");
+            if (![3, 4, 6, 8].includes(HEX.length)) throw new Error("Invalid hex color length.");
 
             for (const ch of HEX) {
                 const code = ch.charCodeAt(0);
                 const isDigit = code >= 48 && code <= 57;
                 const isLower = code >= 97 && code <= 102;
                 const isUpper = code >= 65 && code <= 70;
-                if (!(isDigit || isLower || isUpper)) throw new Error("Invalid hex color character");
+                if (!(isDigit || isLower || isUpper)) throw new Error("Invalid hex color character.");
             }
 
             const expand = (c: string) => parseInt(c.length === 1 ? c + c : c, 16);
@@ -495,7 +496,7 @@ export const colorBases = {
         toBridge: (coords: number[]) => coords,
         parse: (name: string) => {
             const rgb = namedColors[name as NamedColor];
-            if (!rgb) throw new Error(`Invalid named-color: ${name}`);
+            if (!rgb) throw new Error(`Invalid named-color: ${name}.`);
             return [...rgb, 1];
         },
         fromBridge: (coords: number[]) => coords,
@@ -511,13 +512,106 @@ export const colorBases = {
         bridge: "rgb",
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
+            const extractColorAndWeight = (colorStr: string) => {
+                const s = colorStr.trim();
+
+                let weight: number | undefined;
+                let remaining = s;
+
+                // check for leading percentage
+                const leadingWeightMatch = remaining.match(/^(\d+)%\s+/);
+                if (leadingWeightMatch) {
+                    const raw = parseInt(leadingWeightMatch[1], 10);
+                    weight = Math.min(1, Math.max(0, raw / 100));
+                    remaining = remaining.slice(leadingWeightMatch[0].length).trim();
+                }
+
+                let colorExpression = "";
+                let rest = "";
+
+                if (/^[a-z]/i.test(remaining)) {
+                    const { expression: expr, end: e } = extractBalancedExpression(remaining, 0);
+                    if (expr) {
+                        colorExpression = expr;
+                        rest = remaining.slice(e).trim();
+                    } else {
+                        const m = remaining.match(/^([^\s]+)(.*)$/);
+                        colorExpression = m ? m[1] : remaining;
+                        rest = m ? m[2].trim() : "";
+                    }
+                } else {
+                    const m = remaining.match(/^([^\s]+)(.*)$/);
+                    colorExpression = m ? m[1] : remaining;
+                    rest = m ? m[2].trim() : "";
+                }
+
+                // check trailing percentage
+                if (weight === undefined) {
+                    const trailingWeightMatch = rest.match(/^(-?(?:\d+\.?\d*|\.\d+))%/);
+                    if (trailingWeightMatch) {
+                        const raw = parseInt(trailingWeightMatch[1], 10);
+                        weight = raw / 100;
+                        rest = rest.slice(trailingWeightMatch[0].length).trim();
+
+                        if (weight < 0) {
+                            throw new Error("Percentages less than 0 are not valid.");
+                        } else if (weight > 1) {
+                            throw new Error("Percentages greater than 100 are not valid.");
+                        }
+                    } else if (rest.startsWith("calc(")) {
+                        // accept calc(...) syntactically but don't assign numeric weight
+                        const { expression: calcExpr, end } = extractBalancedExpression(rest, 0);
+                        if (!calcExpr) {
+                            throw new Error("Malformed calc() weight expression.");
+                        }
+                        // skip calc() completely
+                        rest = rest.slice(end).trim();
+                    }
+                }
+
+                // ✅ Final strict validation
+                if (rest.length > 0) {
+                    throw new Error(`Unexpected extra tokens after color: "${rest}"`);
+                }
+
+                const color = Color.from(colorExpression);
+                return { color, weight };
+            };
+
+            const getWeight2Prime = (weight1?: number, weight2?: number) => {
+                if (weight1 === undefined && typeof weight2 === "number") {
+                    weight1 = 1 - weight2;
+                } else if (typeof weight1 === "number" && weight2 === undefined) {
+                    weight2 = 1 - weight1;
+                } else if (weight1 === undefined && weight2 === undefined) {
+                    weight1 = weight2 = 0.5;
+                } else {
+                    weight1 = weight1 as number;
+                    weight2 = weight2 as number;
+
+                    if (weight1 + weight2 <= 0) {
+                        throw new Error("Sum of percengates cannot be 0%.");
+                    }
+                }
+
+                const totalWeight = weight1 + weight2;
+                let alphaMultiplier;
+                if (totalWeight > 1) {
+                    weight1 /= totalWeight;
+                    weight2 /= totalWeight;
+                } else {
+                    weight1 /= totalWeight;
+                    weight2 /= totalWeight;
+                    alphaMultiplier = totalWeight;
+                }
+
+                return { amount: weight2, alphaMultiplier };
+            };
+
             const fnName = "color-mix";
 
-            const fnIndex = str.indexOf(fnName);
-            if (fnIndex === -1) throw new Error("not a color-mix expression");
-
-            const { expression } = extractBalancedExpression(str, fnIndex + fnName.length);
-            if (!expression) throw new Error("malformed color-mix expression");
+            const { expression } = extractBalancedExpression(str, fnName.length);
+            if (!expression) throw new Error("Malformed color-mix expression.");
 
             const inner = expression.slice(1, -1).trim();
 
@@ -551,85 +645,32 @@ export const colorBases = {
             parts.push(current.trim());
 
             if (parts.length !== 3) {
-                throw new Error("color-mix must have three comma-separated parts");
+                throw new Error("color-mix must have three comma-separated parts.");
             }
 
             const inPart = parts[0];
             const inMatch = inPart.match(/^in\s+([a-z0-9-]+)(?:\s+(shorter|longer|increasing|decreasing)\s+hue)?$/);
             if (!inMatch) {
-                throw new Error("Invalid model and hue format");
+                throw new Error("Invalid model and hue format.");
             }
             const model = inMatch[1];
-            const hue = (inMatch[2] || "shorter") as HueInterpolationMethod;
+            let hue = inMatch[2] as HueInterpolationMethod;
 
-            const extractColorAndWeight = (colorStr: string) => {
-                const s = colorStr.trim();
-
-                let colorExpression = "";
-                let rest = "";
-
-                if (/^[a-z]/.test(s)) {
-                    const { expression: expr, end: e } = extractBalancedExpression(s, 0);
-                    if (expr) {
-                        colorExpression = expr;
-                        rest = s.slice(e).trim();
-                    } else {
-                        const m = s.match(/^([^\s]+)(.*)$/);
-                        colorExpression = m ? m[1] : s;
-                        rest = m ? m[2].trim() : "";
-                    }
-                } else {
-                    const m = s.match(/^([^\s]+)(.*)$/);
-                    colorExpression = m ? m[1] : s;
-                    rest = m ? m[2].trim() : "";
+            if (hue) {
+                const comps = colorModels[model as ColorModel].components;
+                if (!comps) {
+                    throw new Error(`Unknown color model: ${model}.`);
                 }
-
-                let weight: number | undefined;
-
-                if (rest.startsWith("calc(")) {
-                    weight = undefined;
-                } else {
-                    const weightMatch = rest.match(/^(\d+)%/);
-                    if (weightMatch) {
-                        const raw = parseInt(weightMatch[1], 10);
-                        weight = Math.min(1, Math.max(0, raw / 100));
-                    } else {
-                        weight = undefined;
-                    }
+                const hasHue = Object.values(comps).some((c) => c.value === "angle");
+                if (!hasHue) {
+                    throw new Error(`Hue interpolation not supported in ${model} space.`);
                 }
-
-                const color = Color.from(colorExpression);
-                return { color, weight };
-            };
+            } else {
+                hue = "shorter";
+            }
 
             const { color: color1, weight: weight1 } = extractColorAndWeight(parts[1]);
             const { color: color2, weight: weight2 } = extractColorAndWeight(parts[2]);
-
-            const getWeight2Prime = (weight1?: number, weight2?: number) => {
-                if (weight1 === undefined && typeof weight2 === "number") {
-                    weight1 = 1 - weight2;
-                } else if (typeof weight1 === "number" && weight2 === undefined) {
-                    weight2 = 1 - weight1;
-                } else if (weight1 === undefined && weight2 === undefined) {
-                    weight1 = weight2 = 0.5;
-                } else {
-                    weight1 = weight1 as number;
-                    weight2 = weight2 as number;
-                }
-
-                const totalWeight = weight1 + weight2;
-                let alphaMultiplier;
-                if (totalWeight > 1) {
-                    weight1 /= totalWeight;
-                    weight2 /= totalWeight;
-                } else {
-                    weight1 /= totalWeight;
-                    weight2 /= totalWeight;
-                    alphaMultiplier = totalWeight;
-                }
-
-                return { amount: weight2, alphaMultiplier };
-            };
 
             const { amount, alphaMultiplier = 1 } = getWeight2Prime(weight1, weight2);
 
