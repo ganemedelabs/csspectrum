@@ -37,6 +37,14 @@
         "./math": {
             "import": "./dist/math.js",
             "types": "./dist/math.d.ts"
+        },
+        "./plugins/harmony": {
+            "import": "./dist/plugins/harmony.js",
+            "types": "./dist/plugins/harmony.d.ts"
+        },
+        "./plugins/accessibility": {
+            "import": "./dist/plugins/accessibility.js",
+            "types": "./dist/plugins/accessibility.d.ts"
         }
     },
     "typesVersions": {
@@ -61,6 +69,12 @@
             ],
             "math.d.ts": [
                 "dist/math.d.ts"
+            ],
+            "plugins/harmony.d.ts": [
+                "dist/plugins/harmony.d.ts"
+            ],
+            "plugins/accessibility.d.ts": [
+                "dist/plugins/accessibility.d.ts"
             ]
         }
     },

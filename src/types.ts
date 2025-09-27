@@ -51,23 +51,49 @@ export type OutputType = {
 
 /** Represents a converter for `<color>`s. */
 export type ColorConverter = {
-    /** Checks whether a given string is a valid representation of this color type. */
+    /**
+     * Checks whether a given string is a valid representation of this color type.
+     *
+     * @param str - The string to validate.
+     * @returns `true` if the string is valid for this color type, otherwise `false`.
+     */
     isValid: (str: string) => boolean;
 
     /** The intermediate "bridge" color space used for conversion. Must be another `<color-function>` identifier (e.g., `"rgb"`, `"xyz"`). */
     bridge: string;
 
-    /** Converts coordinates from the native color function into the bridge color space. */
+    /**
+     * Converts coordinates from the native color function into the bridge color space.
+     *
+     * @param coords - The coordinates in the native color function's space.
+     * @returns The coordinates converted to the bridge color space.
+     */
     toBridge: (coords: number[]) => number[];
 
-    /** Parses a string representation of the color into its numeric coordinates. */
+    /**
+     * Parses a string representation of the color into its numeric coordinates.
+     *
+     * @param str - The string to parse.
+     * @returns The numeric coordinates of the color.
+     */
     parse: (str: string) => number[];
 } & (
     | {
-          /** Converts coordinates from the bridge color space back into the native color function's coordinate system. */
+          /**
+           * Converts coordinates from the bridge color space back into the native color function's coordinate system.
+           *
+           * @param coords - The coordinates in the bridge color space.
+           * @returns The coordinates converted back to the native color function's space.
+           */
           fromBridge: (coords: number[]) => number[];
 
-          /** Formats numeric component values into a valid CSS color string. */
+          /**
+           * Formats numeric component values into a valid CSS color string.
+           *
+           * @param coords - The numeric component values to format.
+           * @param options - Optional formatting options.
+           * @returns A formatted CSS color string, or `undefined` if formatting fails.
+           */
           format: (coords: number[], options?: FormattingOptions) => string | undefined;
       }
     | { fromBridge?: undefined; format?: undefined }
@@ -90,10 +116,20 @@ export type ColorModelConverter = {
     /** The intermediate "bridge" color space used for conversion. Must be another `<color-function>` identifier (e.g., `"rgb"`, `"xyz"`). */
     bridge: string;
 
-    /** Converts coordinates from the native color function into the bridge color space. */
+    /**
+     * Converts coordinates from the native color function into the bridge color space.
+     *
+     * @param coords - The coordinates in the native color function's space.
+     * @returns The coordinates converted to the bridge color space.
+     */
     toBridge: (coords: number[]) => number[];
 
-    /** Converts coordinates from the bridge color space back into the native color function's coordinate system. */
+    /**
+     * Converts coordinates from the bridge color space back into the native color function's coordinate system.
+     *
+     * @param coords - The coordinates in the bridge color space.
+     * @returns The coordinates converted back to the native color function's space.
+     */
     fromBridge: (coords: number[]) => number[];
 };
 
@@ -105,10 +141,20 @@ export type ColorSpaceConverter = {
     /** Names of components in this space. */
     components: string[];
 
-    /** Linearization function. Must be undefined if the matrix is linear. */
+    /**
+     * Linearization function. Must be undefined if the matrix is linear.
+     *
+     * @param c - The component value to linearize.
+     * @returns The linearized component value.
+     */
     toLinear?: (c: number) => number;
 
-    /** Inverse linearization. Must be undefined if the matrix is linear. */
+    /**
+     * Inverse linearization. Must be undefined if the matrix is linear.
+     *
+     * @param c - The linear component value to convert back.
+     * @returns The non-linear component value.
+     */
     fromLinear?: (c: number) => number;
 
     /** The intermediate "bridge" color space used for conversion. Must be another `<color-function>` identifier (e.g., `"rgb"`, `"xyz"`). */
@@ -142,65 +188,78 @@ export type Component<M extends ColorModel> = keyof (typeof colorModels)[M]["com
 
 /** Defines operations on a color within a specific `Model`, enabling method chaining. */
 export type Interface<M extends ColorFunction> = {
-    /** Gets all component values as an object. */
-    get: (
-        /** Method for fitting the color into the target gamut. */
-        fit?: FitMethod
-    ) => { [key in Component<M>]: number };
+    /**
+     * Gets all component values as an object.
+     *
+     * @param fitMethod -  Method for fitting the color into the target gamut.
+     * @returns An object mapping component names to their numeric values.
+     * @throws If the color model does not have defined components.
+     */
+    get: (fit?: FitMethod) => { [key in Component<M>]: number };
 
-    /** Gets all component values as an array. */
-    getCoords: (
-        /** Method for fitting the color into the target gamut. */
-        fit?: FitMethod
-    ) => number[];
+    /**
+     * Gets all component values as an array.
+     *
+     * @param fitMethod - Method for fitting the color into the target gamut.
+     * @return An array of component values in the order defined by the color model, with alpha as the fourth element.
+     * @throws If the color model does not have defined components.
+     */
+    getCoords: (fit?: FitMethod) => number[];
 
-    /** Sets component values using an object, supporting updater functions. */
+    /**
+     * Sets new values for the color components and returns a new `Color` instance with the updated values.
+     *
+     * The `values` parameter can be:
+     * - A partial object mapping component names (including "alpha") to numbers or updater functions.
+     * - A function that receives the current components and returns a partial object with updated values.
+     *
+     * Each component value can be set directly or via a function that receives the previous value.
+     * Values are clamped to their allowed ranges, and special handling is provided for `NaN`, `Infinity`, and `-Infinity`.
+     *
+     * @param values - Partial mapping of component names to new values or updater functions, or a function returning such a mapping.
+     * @returns A new `Color` instance with the updated component values.
+     * @throws If the color model does not have defined components.
+     *
+     * @example
+     * ```typescript
+     * // Direct value update
+     * set({ l: 50 }) // sets lightness to 50%
+     *
+     * // Using updater functions
+     * set({ r: r => r * 2 }) // doubles the red component
+     *
+     * // Using a function that returns multiple updates
+     * set(({ r, g, b }) => ({
+     *   r: r * 0.393 + g * 0.769 + b * 0.189,
+     *   g: r * 0.349 + g * 0.686 + b * 0.168,
+     *   b: r * 0.272 + g * 0.534 + b * 0.131,
+     * })) // applies a sepia filter
+     * ```
+     */
     set: (
-        /**
-         * Defines how color components should be updated:
-         *
-         * - Can be a partial object where each key is a component (e.g., `r`, `g`, `b`, `h`, `s`, `alpha`), and values
-         *   are either numbers (to set directly) or functions that receive the current value and return the new one.
-         *
-         * - Alternatively, can be a function that receives all current component values as an object,
-         *   and returns a partial object of updated values.
-         *
-         * ```typescript
-         * // Direct value update
-         * set({ l: 50 }) // sets lightness to 50%
-         *
-         * // Using updater functions
-         * set({ r: r => r * 2 }) // doubles the red component
-         *
-         * // Using a function that returns multiple updates
-         * set(({ r, g, b }) => ({
-         *   r: r * 0.393 + g * 0.769 + b * 0.189,
-         *   g: r * 0.349 + g * 0.686 + b * 0.168,
-         *   b: r * 0.272 + g * 0.534 + b * 0.131,
-         * })) // applies a sepia filter
-         * ```
-         */
         values:
             | Partial<{ [K in Component<M>]: number | ((prev: number) => number) }>
             | ((components: { [K in Component<M>]: number }) => Partial<{ [K in Component<M>]?: number }>)
     ) => Color<M>;
 
-    /** Sets component values using an array. */
+    /**
+     * Sets component values using an array.
+     *
+     * @param newCoords - An array of new coordinate values (numbers or undefined) to set.
+     * @returns The updated Color instance.
+     * @throws If the color model does not have defined components.
+     */
     setCoords: (coords: (number | undefined)[]) => Color<M>;
 
-    /** Mixes this color with another by a specified amount. */
-    mix: (
-        /** The color to mix with. Can be a string, or Color instance. */
-        other: Color<M> | string,
-        /**
-         * Options for mixing the colors:
-         * - `amount`: Amount of the second color to mix in, between 0 and 1.
-         * - `hue`: Method for interpolating hue values.
-         * - `easing`: Easing function to apply to the interpolation parameter.
-         * - `gamma`: Gamma correction value to use during mixing.
-         */
-        options?: MixOptions
-    ) => Color<M>;
+    /**
+     * Mixes this color with another by a specified amount.
+     *
+     * @param other - The color to mix with. Can be a string, or Color instance.
+     * @param options - Options for mixing the colors.
+     * @return A new Color instance representing the mixed color.
+     * @throws If the color model does not have defined components.
+     */
+    mix: (other: Color<M> | string, options?: MixOptions) => Color<M>;
 };
 
 /** Specifies the method used for interpolating hue values during color mixing. */
@@ -264,30 +323,4 @@ export type MixOptions = {
 
     /** Gamma correction value to use during mixing. */
     gamma?: number;
-};
-
-/** Options for evaluating the accessibility of an element, such as text or UI components. */
-export type AccessibilityOptions = {
-    /** The element type: "text" (default) or "non-text" (e.g., UI components per WCAG 1.4.11). */
-    type?: "text" | "non-text";
-
-    /** WCAG level to test ("AA" (default) or "AAA"). Ignored for non-WCAG algorithms. */
-    level?: "AA" | "AAA";
-
-    /** Font size in points (pt) for text elements. Ignored for non-text. Default: 12. */
-    fontSize?: number;
-
-    /** Font weight (e.g., 400 for normal, 700 for bold, or CSS strings "normal", "bold"). Ignored for non-text. Default: 400. */
-    fontWeight?: number;
-
-    /**
-     * The contrast algorithm to use: "wcag21" (default), "apca", or "oklab".
-     * - `"wcag21"`: Follows WCAG 2.1 but has limitations (e.g., sRGB-based, poor hue handling).
-     * - `"apca"`: Uses APCA-W3 (WCAG 3.0 draft), font-size/weight dependent. See https://git.myndex.com.
-     * - `"oklab"`: Uses OKLab lightness difference for perceptual uniformity.
-     *
-     * @remarks
-     * "wcag21" follows WCAG 2.1 guidelines but has limitations. Consider "apca" or "oklab" for better perceptual accuracy.
-     */
-    algorithm?: "wcag21" | "apca" | "oklab";
 };

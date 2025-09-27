@@ -5,7 +5,6 @@ import type {
     Component,
     Interface,
     MixOptions,
-    AccessibilityOptions,
     ColorType,
     OutputType,
     FormattingOptions,
@@ -28,7 +27,7 @@ export class Color<M extends ColorModel> {
 
     constructor(model: M, coords: number[] = [0, 0, 0, 0]) {
         if (!(model in colorModels)) {
-            throw new Error(`Unsupported color model: ${model}`);
+            throw new Error(`Unsupported color model: '${model}'`);
         }
 
         if (coords.length < 3 || coords.length > 4) {
@@ -66,7 +65,7 @@ export class Color<M extends ColorModel> {
             }
         }
 
-        throw new Error(`Unsupported or invalid color format: ${color}`);
+        throw new Error(`Unsupported or invalid color format: '${color}'`);
     }
 
     /**
@@ -239,7 +238,7 @@ export class Color<M extends ColorModel> {
         const { legacy = false, fit = "clip", precision = undefined, units = false } = options;
         const converter = colorTypes[type as OutputType];
 
-        if (!converter) throw new Error(`Unsupported color type: ${String(type)}.`);
+        if (!converter) throw new Error(`Unsupported color type: '${String(type)}'.`);
 
         const { fromBridge, bridge, format } = converter;
 
@@ -364,16 +363,13 @@ export class Color<M extends ColorModel> {
         }
 
         const instance = new Color(targetModel as ColorModel, [...value.slice(0, 3), currentCoords[3] ?? 1]);
+
         return {
-            // @ts-ignore
-            get: instance.get.bind(instance),
-            getCoords: instance.getCoords.bind(instance),
-            // @ts-ignore
-            set: instance.set.bind(instance),
-            // @ts-ignore
-            setCoords: instance.setCoords.bind(instance),
-            // @ts-ignore
-            mix: instance.mix.bind(instance),
+            get: instance.get.bind(instance) as Interface<N>["get"],
+            getCoords: instance.getCoords.bind(instance) as Interface<N>["getCoords"],
+            set: instance.set.bind(instance) as Interface<N>["set"],
+            setCoords: instance.setCoords.bind(instance) as Interface<N>["setCoords"],
+            mix: instance.mix.bind(instance) as Interface<N>["mix"],
         };
     }
 
@@ -381,6 +377,8 @@ export class Color<M extends ColorModel> {
      * Gets all component values as an object.
      *
      * @param fitMethod -  Method for fitting the color into the target gamut.
+     * @returns An object mapping component names to their numeric values.
+     * @throws If the color model does not have defined components.
      */
     get(fitMethod: FitMethod = "none") {
         const { model } = this;
@@ -419,6 +417,8 @@ export class Color<M extends ColorModel> {
      * Gets all component values as an array.
      *
      * @param fitMethod - Method for fitting the color into the target gamut.
+     * @return An array of component values in the order defined by the color model, with alpha as the fourth element.
+     * @throws If the color model does not have defined components.
      */
     getCoords(fitMethod = "none") {
         const { model, coords } = this;
@@ -462,16 +462,20 @@ export class Color<M extends ColorModel> {
     }
 
     /**
-     * Sets component values using an object, supporting updater functions.
+     * Sets new values for the color components and returns a new `Color` instance with the updated values.
      *
-     * @param values - Defines how color components should be updated:
+     * The `values` parameter can be:
+     * - A partial object mapping component names (including "alpha") to numbers or updater functions.
+     * - A function that receives the current components and returns a partial object with updated values.
      *
-     * - Can be a partial object where each key is a component (e.g., `r`, `g`, `b`, `h`, `s`, `alpha`), and values
-     *   are either numbers (to set directly) or functions that receive the current value and return the new one.
+     * Each component value can be set directly or via a function that receives the previous value.
+     * Values are clamped to their allowed ranges, and special handling is provided for `NaN`, `Infinity`, and `-Infinity`.
      *
-     * - Alternatively, can be a function that receives all current component values as an object,
-     *   and returns a partial object of updated values.
+     * @param values - Partial mapping of component names to new values or updater functions, or a function returning such a mapping.
+     * @returns A new `Color` instance with the updated component values.
+     * @throws If the color model does not have defined components.
      *
+     * @example
      * ```typescript
      * // Direct value update
      * set({ l: 50 }) // sets lightness to 50%
@@ -557,9 +561,11 @@ export class Color<M extends ColorModel> {
     }
 
     /**
-     * Sets component values using an array.
+     * Sets component values using an array and returns a new `Color` instance with the updated values.
      *
      * @param newCoords - An array of new coordinate values (numbers or undefined) to set.
+     * @returns The updated Color instance.
+     * @throws If the color model does not have defined components.
      */
     setCoords(newCoords: (number | undefined)[]) {
         const { model } = this;
@@ -612,6 +618,8 @@ export class Color<M extends ColorModel> {
      *
      * @param other - The color to mix with. Can be a string, or Color instance.
      * @param options - Options for mixing the colors.
+     * @return A new Color instance representing the mixed color.
+     * @throws If the color model does not have defined components.
      */
     mix(other: Color<M> | string, options: MixOptions = {}) {
         const interpolateHue = (from: number, to: number, t: number, method: string) => {
@@ -729,7 +737,7 @@ export class Color<M extends ColorModel> {
      * @param space - The color space to use for luminance calculation. Can be "xyz" (default) or "oklab".
      * @returns The luminance value of the color, a number between 0 and 1.
      */
-    luminance(space: "xyz" | "oklab" = "xyz"): number {
+    luminance(space: "xyz" | "oklab" = "xyz") {
         switch (space) {
             case "xyz": {
                 const [, Y] = this.in("xyz").getCoords();
@@ -759,7 +767,7 @@ export class Color<M extends ColorModel> {
      *          - "oklab": Lightness difference (0 to 1).
      * @throws If the algorithm is invalid.
      */
-    contrast(other: Color<ColorModel> | string, algorithm: "wcag21" | "apca" | "oklab" = "wcag21"): number {
+    contrast(other: Color<ColorModel> | string, algorithm: "wcag21" | "apca" | "oklab" = "wcag21") {
         const otherColor = typeof other === "string" ? Color.from(other) : other;
 
         if (algorithm === "wcag21") {
@@ -802,120 +810,6 @@ export class Color<M extends ColorModel> {
     }
 
     /**
-     * Evaluates the accessibility of the current color against another color using WCAG 2.x or alternative contrast guidelines.
-     *
-     * @param other - The other color to evaluate against (as a Color instance or string).
-     * @param options - Optional settings to customize the evaluation.
-     * @returns An object with accessibility status, contrast, required contrast, and helpful info.
-     * @throws If the algorithm, level, or font parameters are invalid.
-     */
-    accessibility(other: Color<ColorModel> | string, options: AccessibilityOptions = {}) {
-        const { type = "text", level = "AA", fontSize = 12, fontWeight = 400, algorithm = "wcag21" } = options;
-
-        if (!["AA", "AAA"].includes(level)) {
-            throw new Error("Invalid level: must be 'AA' or 'AAA'");
-        }
-        if (type === "text" && (fontSize <= 0 || !isFinite(fontSize))) {
-            throw new Error("Invalid fontSize: must be a positive number.");
-        }
-
-        if (type === "text" && (fontWeight < 100 || fontWeight > 900)) {
-            throw new Error("Invalid fontWeight: must be 100-900.");
-        }
-        const otherColor = typeof other === "string" ? Color.from(other) : other;
-
-        const contrast = this.contrast(otherColor, algorithm);
-        let requiredContrast: number, wcagSuccessCriterion: string, message: string;
-
-        if (algorithm === "wcag21") {
-            if (type === "text") {
-                const isLargeText = fontSize >= 18 || (fontSize >= 14 && fontWeight >= 700);
-                requiredContrast = { AA: isLargeText ? 3.0 : 4.5, AAA: isLargeText ? 4.5 : 7.0 }[level];
-                wcagSuccessCriterion = { AA: "1.4.3", AAA: "1.4.6" }[level];
-                message =
-                    contrast >= requiredContrast
-                        ? `Contrast ratio ${contrast.toFixed(2)} meets WCAG ${level} for ${isLargeText ? "large" : "normal"} text (${fontSize}pt, weight ${fontWeight}).`
-                        : `Contrast ratio ${contrast.toFixed(2)} fails WCAG ${level} (needs at least ${requiredContrast} for ${fontSize}pt, weight ${fontWeight}).`;
-            } else {
-                requiredContrast = 3.0;
-                wcagSuccessCriterion = "1.4.11";
-                message =
-                    contrast >= requiredContrast
-                        ? `Contrast ratio ${contrast.toFixed(2)} meets WCAG ${level} for non-text elements.`
-                        : `Contrast ratio ${contrast.toFixed(2)} fails WCAG ${level} for non-text (needs at least 3.0).`;
-            }
-        } else if (algorithm === "apca") {
-            if (type === "text") {
-                if (fontSize >= 24) {
-                    requiredContrast = level === "AA" ? 75 : 90;
-                } else if (fontSize >= 18) {
-                    requiredContrast = fontWeight >= 700 ? (level === "AA" ? 75 : 90) : level === "AA" ? 90 : 105;
-                } else if (fontSize >= 16) {
-                    requiredContrast = level === "AA" ? 90 : 105;
-                } else {
-                    requiredContrast = level === "AA" ? 100 : 115;
-                }
-            } else {
-                requiredContrast = level === "AA" ? 60 : 75;
-            }
-            wcagSuccessCriterion = "APCA (WCAG 3.0 draft)";
-            message =
-                Math.abs(contrast) >= requiredContrast
-                    ? `APCA contrast ${Math.abs(contrast).toFixed(2)} meets level ${level} for ${type === "text" ? "text" : "non-text"} elements.`
-                    : `APCA contrast ${Math.abs(contrast).toFixed(2)} fails level ${level} for ${type === "text" ? "text" : "non-text"} elements (needs at least ${requiredContrast}).`;
-            return {
-                passes: Math.abs(contrast) >= requiredContrast,
-                contrast: Math.abs(contrast),
-                requiredContrast,
-                wcagSuccessCriterion,
-                message,
-            };
-        } else if (algorithm === "oklab") {
-            if (type === "text") {
-                requiredContrast = fontSize >= 18 || (fontSize >= 14 && fontWeight >= 700) ? 0.2 : 0.3;
-                wcagSuccessCriterion = "OKLab (experimental)";
-                message =
-                    contrast >= requiredContrast
-                        ? `OKLab lightness difference ${contrast.toFixed(2)} meets requirements for text (${fontSize}pt, weight ${fontWeight}).`
-                        : `OKLab lightness difference ${contrast.toFixed(2)} fails requirements (needs at least ${requiredContrast} for ${fontSize}pt, weight ${fontWeight}).`;
-            } else {
-                requiredContrast = 0.25;
-                wcagSuccessCriterion = "OKLab (experimental)";
-                message =
-                    contrast >= requiredContrast
-                        ? `OKLab lightness difference ${contrast.toFixed(2)} meets requirements for non-text elements.`
-                        : `OKLab lightness difference ${contrast.toFixed(2)} fails requirements (needs at least ${requiredContrast}).`;
-            }
-        } else {
-            throw new Error("Unsupported contrast algorithm: must be 'wcag21', 'apca', or 'oklab'.");
-        }
-
-        const passes = Math.abs(contrast) >= requiredContrast;
-        const impact = !passes
-            ? algorithm === "wcag21" && level === "AAA"
-                ? "minor"
-                : type === "text" && (fontSize >= 18 || (fontSize >= 14 && fontWeight >= 700))
-                  ? "moderate"
-                  : "serious"
-            : "none";
-
-        return {
-            passes,
-            contrast: +Math.abs(contrast).toFixed(2),
-            requiredContrast,
-            level,
-            fontSize: type === "text" ? fontSize : undefined,
-            fontWeight: type === "text" ? fontWeight : undefined,
-            textColor: this as Color<any>, // eslint-disable-line @typescript-eslint/no-explicit-any
-            otherColor,
-            wcagSuccessCriterion,
-            impact,
-            algorithm,
-            message,
-        };
-    }
-
-    /**
      * Calculates the color difference (ΔEOK) between the current color and another color using the OKLAB color space.
      *
      * @param other - The other color to compare against (as a Color instance or string).
@@ -926,8 +820,7 @@ export class Color<M extends ColorModel> {
      * OKLAB's perceptual uniformity allows for a straightforward distance calculation without additional weighting.
      * The result is normalized by a factor of 100 to align with OKLAB's L range (0-1) and approximate the JND scale.
      */
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    deltaEOK(other: Color<any> | string) {
+    deltaEOK(other: Color<ColorModel> | string) {
         const [L1, a1, b1] = this.in("oklab").getCoords();
         const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("oklab").getCoords();
 
@@ -946,8 +839,7 @@ export class Color<M extends ColorModel> {
      * @param other - The other color to compare against (as a Color instance or string).
      * @returns The ΔE76 value — a non-negative number where smaller values indicate more similar colors.
      */
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    deltaE76(other: Color<any> | string) {
+    deltaE76(other: Color<ColorModel> | string) {
         const [L1, a1, b1] = this.in("lab").getCoords();
         const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("lab").getCoords();
 
@@ -965,8 +857,7 @@ export class Color<M extends ColorModel> {
      * @param other - The other color to compare against (as a Color instance or string).
      * @returns The ΔE94 value — a non-negative number where smaller values indicate more similar colors.
      */
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    deltaE94(other: Color<any> | string): number {
+    deltaE94(other: Color<ColorModel> | string) {
         const [L1, a1, b1] = this.in("lab").getCoords();
         const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("lab").getCoords();
 
@@ -998,8 +889,7 @@ export class Color<M extends ColorModel> {
      * @param other - The other color to compare against (as a Color instance or string).
      * @returns The ΔE2000 value — a non-negative number where smaller values indicate more similar colors.
      */
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    deltaE2000(other: Color<any> | string): number {
+    deltaE2000(other: Color<ColorModel> | string) {
         const [L1, a1, b1] = this.in("lab").getCoords();
         const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("lab").getCoords();
 
@@ -1086,9 +976,19 @@ export class Color<M extends ColorModel> {
      * @param other - The other color to compare against (as a Color instance or string).
      * @param epsilon - Tolerance for floating point comparison. Defaults to 1e-5.
      * @returns Whether the two colors are equal within the given epsilon.
+     *
+     * @remarks
+     * - This method checks **numeric equality** in the underlying color space
+     *   (or XYZ if the models differ). It is not a perceptual comparison.
+     * - Use this for exactness in conversions, testing, or serialization,
+     *   not for determining whether two colors "look the same" to the human eye.
+     * - For perceptual comparisons, use one of the ΔE methods instead:
+     *   - {@link deltaEOK} (modern, based on OKLAB)
+     *   - {@link deltaE76} (basic, Euclidean distance in LAB)
+     *   - {@link deltaE94} (weighted improvements over LAB)
+     *   - {@link deltaE2000} (most accurate, accounts for perceptual interactions)
      */
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    equals(other: Color<any> | string, epsilon = 1e-5): boolean {
+    equals(other: Color<ColorModel> | string, epsilon = 1e-5) {
         const otherColor = typeof other === "string" ? Color.from(other) : other;
 
         if (otherColor.model !== this.model) {
@@ -1113,7 +1013,7 @@ export class Color<M extends ColorModel> {
         gamut = gamut.toLowerCase();
 
         if (!(gamut in colorSpaces)) {
-            throw new Error(`Unsupported color gamut: ${gamut}.`);
+            throw new Error(`Unsupported color gamut: '${gamut}'.`);
         }
         const { components, targetGamut } = colorModels[gamut as ColorSpace];
 
@@ -1130,5 +1030,14 @@ export class Color<M extends ColorModel> {
         }
 
         return true;
+    }
+
+    /**
+     * Clones the current `Color` instance.
+     *
+     * @returns A copy of the current `Color` instance.
+     */
+    clone() {
+        return new Color(this.model, this.coords);
     }
 }
