@@ -2,8 +2,8 @@ import { Color } from "../Color.js";
 import { ColorModel } from "../types.js";
 
 declare module "../Color.js" {
-    /* eslint-disable no-unused-vars, @typescript-eslint/no-explicit-any */
-    interface Color<M extends ColorModel> {
+    /* eslint-disable no-unused-vars */
+    interface Color<M extends ColorModel = ColorModel> {
         /**
          * Evaluates the accessibility of the current color against another color using WCAG 2.x or alternative contrast guidelines.
          *
@@ -12,9 +12,9 @@ declare module "../Color.js" {
          * @returns An object with accessibility status, contrast, required contrast, and helpful info.
          * @throws If the algorithm, level, or font parameters are invalid.
          */
-        accessibility(other: Color<any> | string, options?: AccessibilityOptions): AccessibilityResult;
+        accessibility(other: Color<ColorModel> | string, options?: AccessibilityOptions): AccessibilityResult;
     }
-    /* eslint-enable no-unused-vars, @typescript-eslint/no-explicit-any */
+    /* eslint-enable no-unused-vars */
 }
 
 /** Options for evaluating the accessibility of an element, such as text or UI components. */

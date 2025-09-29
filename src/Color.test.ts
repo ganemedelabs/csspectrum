@@ -1,12 +1,17 @@
 import { Color } from "./Color";
+import { colorModels } from "./converters.js";
 import { EASINGS, MATRICES } from "./math.js";
-import { ColorModel } from "./types.js";
+import { ColorModel, ColorModelConverter, ColorSpace, FitMethod } from "./types.js";
 import {
     configure,
+    extractBalancedExpression,
+    fit,
     multiplyMatrices,
+    registerColorBase,
     registerColorFunction,
     registerColorSpace,
     registerColorType,
+    registerFitMethod,
     registerNamedColor,
     unregister,
     use,
@@ -95,7 +100,7 @@ describe("Color", () => {
         ];
 
         cases.forEach(([input, expected]) => {
-            expect(Color.from(input).getCoords("clip")).toEqual(expected);
+            expect(Color.from(input).getCoords({ fit: "clip", precision: undefined })).toEqual(expected);
         });
     });
 
@@ -281,14 +286,13 @@ describe("Color", () => {
 
     it("should return correct component values using get()", () => {
         const color = Color.from("rgb(0, 157, 255)");
-        const fit = "clip";
-        const rgb = color.get(fit);
+        const rgb = color.get({ fit: "clip" });
         expect(rgb).toEqual({ r: 0, g: 157, b: 255, alpha: 1 });
     });
 
     it("should retrieve the correct array of components using getCoords()", () => {
         const color = Color.from("rgb(0, 157, 255)");
-        expect(color.getCoords("clip")).toEqual([0, 157, 255, 1]);
+        expect(color.getCoords({ fit: "clip" })).toEqual([0, 157, 255, 1]);
     });
 
     it("should update multiple components with set()", () => {
@@ -297,14 +301,14 @@ describe("Color", () => {
             h: (h) => h + 50,
             s: (s) => s - 20,
         });
-        const [h, s] = updated.getCoords("clip");
+        const [h, s] = updated.getCoords({ fit: "clip" });
         expect([h, s]).toStrictEqual([50, 80]);
     });
 
     it("should update multiple components with setCoords()", () => {
         const color = Color.from("hsl(200 100% 50%)");
         const updated = color.setCoords([undefined, 50, 80]);
-        const coords = updated.getCoords("clip");
+        const coords = updated.getCoords({ fit: "clip" });
         expect(coords).toStrictEqual([200, 50, 80, 1]);
     });
 
@@ -317,7 +321,7 @@ describe("Color", () => {
 
     it("should clamp component values when getting components", () => {
         const rgbColor = Color.from("rgb(200, 100, 50)").set({ g: 400 });
-        const [, g] = rgbColor.getCoords("clip");
+        const [, g] = rgbColor.getCoords({ fit: "clip" });
         expect(g).toBe(255);
     });
 
@@ -484,6 +488,49 @@ describe("Color", () => {
             expect(Color.from(input).to(type, { precision: 4 })).toBe(expected);
         });
     });
+
+    it("should gamut map out-of-gamut sRGB coords consistently", () => {
+        const coords = [1.2, -0.3, 0.5];
+        const model = "srgb";
+        const epsilon = 1e-5;
+
+        const clipCoords = new Color(model, coords).getCoords({ fit: "clip" });
+        const chromaCoords = new Color(model, coords).getCoords({ fit: "chroma-reduction" });
+        const cssCoords = new Color(model, coords).getCoords({ fit: "css-gamut-map" });
+
+        expect(clipCoords).toEqual([1, 0, 0.5, 1]);
+        expect(chromaCoords.every((c) => c >= 0 - epsilon && c <= 1 + epsilon)).toBe(true);
+        expect(cssCoords.every((c) => c >= 0 - epsilon && c <= 1 + epsilon)).toBe(true);
+
+        expect(chromaCoords).not.toEqual(clipCoords);
+        expect(cssCoords).not.toEqual(clipCoords);
+    });
+
+    it("should leave already in-gamut coords unchanged", () => {
+        const fitMethods: FitMethod[] = ["clip", "chroma-reduction", "css-gamut-map"];
+        const coords = [0.5, 0.5, 0.5];
+        const model = "srgb";
+
+        for (const fit of fitMethods) {
+            const fitted = new Color(model, coords).getCoords({ fit });
+            expect(fitted).toEqual([...coords, 1]);
+        }
+    });
+
+    it("should gamut map extreme coords differently per method", () => {
+        const fitMethods: FitMethod[] = ["clip", "chroma-reduction", "css-gamut-map"];
+        const coords = [2, 2, -1];
+        const model = "srgb";
+        const epsilon = 1e-5;
+
+        const results = fitMethods.map((fit) => new Color(model, coords).getCoords({ fit }));
+
+        for (const res of results) {
+            expect(res.every((c) => c >= 0 - epsilon && c <= 1 + epsilon)).toBe(true);
+        }
+
+        expect(new Set(results.map((r) => JSON.stringify(r))).size).toBeGreaterThan(1);
+    });
 });
 
 describe("Color registration system", () => {
@@ -496,7 +543,7 @@ describe("Color registration system", () => {
 
     it("should register a <color-function>", () => {
         /**
-         * @see {@link https://colour.readthedocs.io/en/latest/_modules/colour/models/rgb/ictcp.html#XYZ_to_ICtCp|Source code for colour.models.rgb.ictcp}
+         * @see {@link https://colour.readthedocs.io/en/latest/_modules/colour/models/rgb/ictcp.html|Source code for colour.models.rgb.ictcp}
          */
         registerColorFunction("ictcp", {
             bridge: "rec2020",
@@ -620,11 +667,11 @@ describe("Color registration system", () => {
         expect(outOfSrgb.inGamut("rec2100-linear")).toBe(true);
     });
 
-    it("should register a new <color> syntax", () => {
+    it("should register a new <color-base> syntax", () => {
         /**
          * @see {@link https://cie.co.at/datatable/cie-1931-colour-matching-functions-2-degree-observer|CIE 1931 colour-matching functions, 2 degree observer}
          */
-        registerColorType("wavelength", {
+        registerColorBase("wavelength", {
             isValid: (str: string) => str.slice(0, 11) === "wavelength(" && str[str.length - 1] === ")",
             bridge: "xyz-d65",
             toBridge: (coords: number[]) => coords,
@@ -1132,6 +1179,157 @@ describe("Color registration system", () => {
         expect(Color.isValid(relative, "xyz-d65"));
     });
 
+    it("should register a new <color> syntax", () => {
+        registerColorType("color-at", {
+            isValid: (str: string) => str.slice(0, 9) === "color-at(" && str[str.length - 1] === ")",
+            bridge: "rgb",
+            toBridge: (coords: number[]) => coords,
+            parse: (str: string) => {
+                const timeToMinutes = (t: string) => {
+                    const [h, m] = t.split(":").map(Number);
+                    return h * 60 + m;
+                };
+
+                const extractTimeAndColor = (part: string) => {
+                    const s = part.trim();
+
+                    if (!s.startsWith("'")) {
+                        throw new Error("Time must start with a single quote.");
+                    }
+
+                    let i = 1;
+                    let timeStr = "";
+                    while (i < s.length && s[i] !== "'") {
+                        timeStr += s[i];
+                        i++;
+                    }
+
+                    if (i >= s.length || s[i] !== "'") {
+                        throw new Error("Unclosed time quote.");
+                    }
+
+                    i++;
+
+                    while (i < s.length && /\s/.test(s[i])) {
+                        i++;
+                    }
+
+                    const remaining = s.slice(i).trim();
+
+                    let colorExpression = "";
+
+                    if (remaining.startsWith("(") || /^[a-z]/i.test(remaining)) {
+                        const { expression: expr, end: e } = extractBalancedExpression(remaining, 0);
+                        if (expr) {
+                            colorExpression = expr;
+                            const rest = remaining.slice(e).trim();
+                            if (rest.length > 0) {
+                                throw new Error(`Unexpected extra tokens after color: '${rest}'.`);
+                            }
+                        } else {
+                            const m = remaining.match(/^([^\s]+)(.*)$/);
+                            if (!m) {
+                                throw new Error("Invalid color expression.");
+                            }
+                            colorExpression = m[1];
+                            const rest = m[2].trim();
+                            if (rest.length > 0) {
+                                throw new Error(`Unexpected extra tokens after color: '${rest}'.`);
+                            }
+                        }
+                    } else {
+                        const m = remaining.match(/^([^\s]+)(.*)$/);
+                        if (!m) {
+                            throw new Error("Invalid color expression.");
+                        }
+                        colorExpression = m[1];
+                        const rest = m[2].trim();
+                        if (rest.length > 0) {
+                            throw new Error(`Unexpected extra tokens after color: '${rest}'.`);
+                        }
+                    }
+
+                    return { minutes: timeToMinutes(timeStr), color: Color.from(colorExpression) };
+                };
+
+                const inner = str.slice(9, -1).trim();
+
+                const parts: string[] = [];
+                let i = 0;
+                let current = "";
+
+                while (i < inner.length) {
+                    const char = inner[i];
+
+                    if (char === ",") {
+                        parts.push(current.trim());
+                        current = "";
+                        i++;
+                        continue;
+                    }
+
+                    if (char === "(" || /[a-zA-Z]/.test(char)) {
+                        const { expression: expr, end } = extractBalancedExpression(inner, i);
+                        if (expr) {
+                            current += expr;
+                            i = end;
+                            continue;
+                        }
+                    }
+
+                    current += char;
+                    i++;
+                }
+
+                parts.push(current.trim());
+
+                if (parts.length === 0) {
+                    throw new Error("color-at must have at least one time-color pair.");
+                }
+
+                const pairs = parts.map(extractTimeAndColor);
+
+                pairs.sort((a, b) => a.minutes - b.minutes);
+
+                let currentMinutes: number;
+                try {
+                    const now = new Date();
+                    if (isNaN(now.getTime())) throw new Error("Invalid date");
+                    currentMinutes = now.getHours() * 60 + now.getMinutes();
+                } catch {
+                    return pairs[0].color.in("rgb").getCoords();
+                }
+
+                for (let j = pairs.length - 1; j >= 0; j--) {
+                    if (currentMinutes >= pairs[j].minutes) {
+                        return pairs[j].color.in("rgb").getCoords();
+                    }
+                }
+
+                return pairs[0].color.in("rgb").getCoords();
+            },
+        });
+
+        const timed = "color-at('06:00' skyblue, '12:00' gold, '18:00' orangered, '22:00' midnightblue)";
+        const value = Color.from(timed).to("named-color");
+        expect(["skyblue", "gold", "orangered", "midnightblue"].includes(value)).toBe(true);
+
+        const complex = `
+            color-at(
+                '06:00' rgb(135, 206, 235),
+                '08:00' hsl(195 53% 79%),
+                '10:00' hwb(203 53% 2%),
+                '12:00' lab(51.98 -8.36 -32.83),
+                '14:00' lch(58.36 64.78 270.78),
+                '16:00' oklab(0.79 0.05 0.16),
+                '18:00' oklch(0.69 0.19 32.32),
+                '20:00' color(srgb 0.09 0.09 0.43),
+                '22:00' color(display-p3 0.02 0.04 0.05)
+            )
+        `;
+        expect(Color.isValid(complex, "color-at"));
+    });
+
     it("should unregister <color> types from the system", () => {
         unregister("hwb", "prophoto-rgb", "lch");
 
@@ -1139,10 +1337,377 @@ describe("Color registration system", () => {
         expect(() => Color.from("red").in("prophoto-rgb").set({ b: 0 })).toThrow();
         expect(() => new Color("lch", [90, 100, 280])).toThrow();
     });
+
+    it("register a new fit method", () => {
+        const MATRIX_16 = [
+            [0.401288, 0.650173, -0.051461],
+            [-0.250268, 1.204414, 0.045854],
+            [-0.002079, 0.048952, 0.953127],
+        ];
+
+        const invert3x3 = (m: number[][]) => {
+            const a = m[0][0],
+                b = m[0][1],
+                c = m[0][2];
+            const d = m[1][0],
+                e = m[1][1],
+                f = m[1][2];
+            const g = m[2][0],
+                h = m[2][1],
+                i = m[2][2];
+
+            const A = e * i - f * h;
+            const B = c * h - b * i;
+            const C = b * f - c * e;
+            const D = f * g - d * i;
+            const E = a * i - c * g;
+            const F = c * d - a * f;
+            const G = d * h - e * g;
+            const H = b * g - a * h;
+            const I = a * e - b * d;
+
+            const det = a * A + b * D + c * G;
+            if (Math.abs(det) < 1e-12) throw new Error("Singular matrix");
+
+            const invDet = 1 / det;
+            return [
+                [A * invDet, B * invDet, C * invDet],
+                [D * invDet, E * invDet, F * invDet],
+                [G * invDet, H * invDet, I * invDet],
+            ];
+        };
+
+        const MATRIX_INVERSE_16 = invert3x3(MATRIX_16);
+
+        const sign = (x: number) => (x < 0 ? -1 : 1);
+
+        const luminanceLevelAdaptationFactor = (L_A: number) => {
+            const k = 1 / (5 * L_A + 1);
+            const k4 = Math.pow(k, 4);
+            return 0.2 * k4 * (5 * L_A) + 0.1 * Math.pow(1 - k4, 2) * Math.pow(5 * L_A, 1 / 3);
+        };
+
+        const chromaticInductionFactors = (n: number): [number, number] => {
+            const N_bb = 0.725 * Math.pow(1 / n, 0.2);
+            return [N_bb, N_bb];
+        };
+
+        const baseExponentialNonLinearity = (n: number) => 1.48 + Math.sqrt(n);
+
+        const viewingConditionsDependentParameters = (Y_b: number, Y_w: number, L_A: number) => {
+            const n = Y_b / Y_w;
+            const F_L = luminanceLevelAdaptationFactor(L_A);
+            const [N_bb, N_cb] = chromaticInductionFactors(n);
+            const z = baseExponentialNonLinearity(n);
+            return { n, F_L, N_bb, N_cb, z };
+        };
+
+        const degreeOfAdaptation = (F: number, L_A: number) => F * (1 - (1 / 3.6) * Math.exp((-L_A - 42) / 92));
+
+        const postAdaptationNonLinearResponseCompressionForward = (RGB: number[], F_L: number) => {
+            return RGB.map((comp) => {
+                const tmp = Math.pow((F_L * comp) / 100.0, 0.42);
+                return (400 * tmp) / (27.13 + tmp) + 0.1;
+            });
+        };
+
+        const postAdaptationNonLinearResponseCompressionInverse = (RGBc: number[], F_L: number) => {
+            return RGBc.map((comp) => {
+                const v = comp - 0.1;
+                const s = sign(v);
+                const absV = Math.abs(v);
+                if (absV <= 1e-12) return 0;
+                const inner = (27.13 * absV) / (400 - absV);
+                return s * (100 / F_L) * Math.pow(inner, 1 / 0.42);
+            });
+        };
+
+        const opponentColourDimensionsForward = (RGB: number[]) => {
+            const [R, G, B] = RGB;
+            const a = R - (12 * G) / 11 + B / 11;
+            const b = (R + G - 2 * B) / 9;
+            return [a, b];
+        };
+
+        const hueAngle = (a: number, b: number) => {
+            const rad = Math.atan2(b, a);
+            let deg = (rad * 180) / Math.PI;
+            if (deg < 0) deg += 360;
+            return deg % 360;
+        };
+
+        const eccentricityFactor = (h: number) => 0.25 * (Math.cos(2 + (h * Math.PI) / 180) + 3.8);
+
+        const achromaticResponseForward = (RGB_a: number[], N_bb: number) => {
+            const [R, G, B] = RGB_a;
+            return (2 * R + G + (1 / 20) * B - 0.305) * N_bb;
+        };
+
+        const achromaticResponseInverse = (A_w: number, J: number, c: number, z: number) => {
+            return A_w * Math.pow(J / 100, 1 / (c * z));
+        };
+
+        const lightnessCorrelate = (A: number, A_w: number, c: number, z: number) => {
+            return 100 * Math.pow(A / A_w, c * z);
+        };
+
+        const brightnessCorrelate = (c: number, J: number, A_w: number, F_L: number) => {
+            return (4 / c) * Math.sqrt(J / 100) * (A_w + 4) * Math.pow(F_L, 0.25);
+        };
+
+        const temporaryMagnitudeQuantityForward = (
+            N_c: number,
+            N_cb: number,
+            e_t: number,
+            a: number,
+            b: number,
+            RGB_a: number[]
+        ) => {
+            const [Ra, Ga, Ba] = RGB_a;
+            const denom = Ra + Ga + (21 * Ba) / 20;
+            if (denom === 0) return 0;
+            return ((50000 / 13) * N_c * N_cb * e_t * Math.sqrt(a * a + b * b)) / denom;
+        };
+
+        const temporaryMagnitudeQuantityInverse = (C: number, J: number, n: number) => {
+            const base = Math.sqrt(J / 100) * Math.pow(1.64 - Math.pow(0.29, n), 0.73);
+            if (base === 0) return 0;
+            return Math.pow(C / base, 1 / 0.9);
+        };
+
+        const chromaCorrelate = (
+            J: number,
+            n: number,
+            N_c: number,
+            N_cb: number,
+            e_t: number,
+            a: number,
+            b: number,
+            RGB_a: number[]
+        ) => {
+            const t = temporaryMagnitudeQuantityForward(N_c, N_cb, e_t, a, b, RGB_a);
+            return Math.pow(t, 0.9) * Math.sqrt(J / 100) * Math.pow(1.64 - Math.pow(0.29, n), 0.73);
+        };
+
+        const colourfulnessCorrelate = (C: number, F_L: number) => C * Math.pow(F_L, 0.25);
+
+        const saturationCorrelate = (M: number, Q: number) => 100 * Math.sqrt(M / Q);
+
+        const P = (N_c: number, N_cb: number, e_t: number, t: number, A: number, N_bb: number) => {
+            const P1 = ((50000 / 13) * N_c * N_cb * e_t) / t;
+            const P2 = A / N_bb + 0.305;
+            const P3 = 21 / 20;
+            return [P1, P2, P3] as [number, number, number];
+        };
+
+        const postAdaptationNonLinearResponseCompressionMatrix = (P_2: number, a: number, b: number) => {
+            const R_a = (460 * P_2 + 451 * a + 288 * b) / 1403;
+            const G_a = (460 * P_2 - 891 * a - 261 * b) / 1403;
+            const B_a = (460 * P_2 - 220 * a - 6300 * b) / 1403;
+            return [R_a, G_a, B_a];
+        };
+
+        const opponentColourDimensionsInverse = (Pn: [number, number, number], hDeg: number) => {
+            const [P_1, , P_3] = Pn;
+            const hr = (hDeg * Math.PI) / 180;
+            const sin_hr = Math.sin(hr);
+            const cos_hr = Math.cos(hr);
+            const P_4 = P_1 / sin_hr;
+            const P_5 = P_1 / cos_hr;
+            const n = Pn[1] * (2 + P_3) * (460 / 1403);
+
+            if (Math.abs(sin_hr) >= Math.abs(cos_hr)) {
+                const b = n / (P_4 + (2 + P_3) * (220 / 1403) * (cos_hr / sin_hr) - 27 / 1403 + P_3 * (6300 / 1403));
+                const a = b * (cos_hr / sin_hr);
+                return [a, b];
+            } else {
+                const a = n / (P_5 + (2 + P_3) * (220 / 1403) - (27 / 1403 - P_3 * (6300 / 1403)) * (sin_hr / cos_hr));
+                const b = a * (sin_hr / cos_hr);
+                return [a, b];
+            }
+        };
+
+        const XYZ_to_CAM16 = (
+            XYZ: number[],
+            XYZ_w: number[] = [95.05, 100.0, 108.88],
+            L_A = 318.31,
+            Y_b = 20.0,
+            surround = { F: 1.0, c: 0.69, N_c: 1.0 },
+            discountIlluminant = false,
+            computeH = false
+        ) => {
+            const RGB_w = multiplyMatrices(MATRIX_16, XYZ_w);
+            const D = discountIlluminant ? 1.0 : Math.max(0, Math.min(1, degreeOfAdaptation(surround.F, L_A)));
+            const { n, F_L, N_bb, N_cb, z } = viewingConditionsDependentParameters(Y_b, XYZ_w[1], L_A);
+
+            const D_RGB = [
+                (D * XYZ_w[1]) / (RGB_w[0] || 1e-12) + 1 - D,
+                (D * XYZ_w[1]) / (RGB_w[1] || 1e-12) + 1 - D,
+                (D * XYZ_w[1]) / (RGB_w[2] || 1e-12) + 1 - D,
+            ];
+
+            const RGB_wc = [D_RGB[0] * RGB_w[0], D_RGB[1] * RGB_w[1], D_RGB[2] * RGB_w[2]];
+
+            const RGB_aw = postAdaptationNonLinearResponseCompressionForward(RGB_wc, F_L);
+            const A_w = achromaticResponseForward(RGB_aw, N_bb);
+
+            const RGB = multiplyMatrices(MATRIX_16, XYZ);
+            const RGB_c = [D_RGB[0] * RGB[0], D_RGB[1] * RGB[1], D_RGB[2] * RGB[2]];
+            const RGB_a = postAdaptationNonLinearResponseCompressionForward(RGB_c, F_L);
+
+            const [a, b] = opponentColourDimensionsForward(RGB_a);
+            const h = hueAngle(a, b);
+
+            const e_t = eccentricityFactor(h);
+            const H = computeH ? NaN : NaN;
+
+            const A = achromaticResponseForward(RGB_a, N_bb);
+            const J = lightnessCorrelate(A, A_w, surround.c, z);
+            const Q = brightnessCorrelate(surround.c, J, A_w, F_L);
+
+            const C = chromaCorrelate(J, n, surround.N_c, N_cb, e_t, a, b, RGB_a);
+            const M = colourfulnessCorrelate(C, F_L);
+            const s = saturationCorrelate(M, Q);
+
+            return {
+                J,
+                C,
+                h,
+                s,
+                Q,
+                M,
+                H,
+            };
+        };
+
+        const CAM16_to_XYZ = (
+            specification: { J?: number; C?: number; M?: number; h: number },
+            XYZ_w: number[] = [95.05, 100.0, 108.88],
+            L_A = 318.31,
+            Y_b = 20.0,
+            surround = { F: 1.0, c: 0.69, N_c: 1.0 },
+            discountIlluminant = false
+        ) => {
+            const J = specification.J ?? NaN;
+            let C = specification.C ?? NaN;
+            const M = specification.M ?? NaN;
+            const h = specification.h;
+
+            const RGB_w = multiplyMatrices(MATRIX_16, XYZ_w);
+            const D = discountIlluminant ? 1.0 : Math.max(0, Math.min(1, degreeOfAdaptation(surround.F, L_A)));
+            const { n, F_L, N_bb, N_cb, z } = viewingConditionsDependentParameters(Y_b, XYZ_w[1], L_A);
+
+            const D_RGB = [
+                (D * XYZ_w[1]) / (RGB_w[0] || 1e-12) + 1 - D,
+                (D * XYZ_w[1]) / (RGB_w[1] || 1e-12) + 1 - D,
+                (D * XYZ_w[1]) / (RGB_w[2] || 1e-12) + 1 - D,
+            ];
+
+            const RGB_wc = [D_RGB[0] * RGB_w[0], D_RGB[1] * RGB_w[1], D_RGB[2] * RGB_w[2]];
+            const RGB_aw = postAdaptationNonLinearResponseCompressionForward(RGB_wc, F_L);
+            const A_w = achromaticResponseForward(RGB_aw, N_bb);
+
+            if (Number.isNaN(C) && !Number.isNaN(M)) {
+                C = M / Math.pow(F_L, 0.25);
+            }
+
+            if (Number.isNaN(C)) {
+                throw new Error('Either "C" or "M" must be provided in specification.');
+            }
+
+            const t = temporaryMagnitudeQuantityInverse(C, J, n);
+            const e_t = eccentricityFactor(h);
+            const A = achromaticResponseInverse(A_w, J, surround.c, z);
+            const Pn = P(surround.N_c, N_cb, e_t, t, A, N_bb);
+            const [, P_2] = Pn;
+
+            let [a, b] = opponentColourDimensionsInverse(Pn, h);
+            if (t === 0) {
+                a = 0;
+                b = 0;
+            }
+
+            const RGB_a = postAdaptationNonLinearResponseCompressionMatrix(P_2, a, b);
+            const RGB_c = postAdaptationNonLinearResponseCompressionInverse(RGB_a, F_L);
+            const RGB = [RGB_c[0] / D_RGB[0], RGB_c[1] / D_RGB[1], RGB_c[2] / D_RGB[2]];
+            const XYZ = multiplyMatrices(MATRIX_INVERSE_16, RGB);
+            return XYZ;
+        };
+
+        /**
+         * @see {@link https://colour.readthedocs.io/en/develop/_modules/colour/appearance/cam16.html|Source code for colour.appearance.cam16}
+         */
+        registerFitMethod("cam16-ucs", (coords, model): number[] => {
+            const { targetGamut } = colorModels[model] as ColorModelConverter;
+            if (targetGamut === null) return coords;
+
+            const color = new Color(model, coords);
+            if (color.inGamut(targetGamut as ColorSpace, 1e-5)) return coords;
+
+            const XYZ = color.in("xyz-d65").getCoords();
+            const cam = XYZ_to_CAM16(XYZ);
+            const c1 = 0.007,
+                c2 = 0.0228;
+            const Jp = ((1 + 100 * c1) * cam.J) / (1 + c1 * cam.J);
+            const Mp = Math.log(1 + c2 * cam.M) / c2;
+            const ap = Mp * Math.cos((cam.h * Math.PI) / 180);
+            const bp = Mp * Math.sin((cam.h * Math.PI) / 180);
+
+            const epsilon = 1e-5;
+            let scale = 1.0;
+            let clippedCoords: number[] = [];
+
+            while (scale > 0) {
+                const ap_s = ap * scale;
+                const bp_s = bp * scale;
+
+                const Mp_s = Math.sqrt(ap_s * ap_s + bp_s * bp_s);
+                const h_s = (Math.atan2(bp_s, ap_s) * 180) / Math.PI;
+                const M_s = (Math.exp(c2 * Mp_s) - 1) / c2;
+                const J_s = Jp / (1 - c1 * Jp);
+
+                const XYZ_s = CAM16_to_XYZ({ J: J_s, M: M_s, h: h_s });
+
+                const candidateCoords = new Color("xyz-d65", XYZ_s).in(model).getCoords();
+                const candidate = new Color(model, candidateCoords);
+                if (candidate.inGamut(targetGamut as ColorSpace, epsilon)) {
+                    clippedCoords = candidate.getCoords();
+                    break;
+                }
+
+                scale -= 0.05;
+            }
+
+            if (!clippedCoords.length) {
+                clippedCoords = fit(color.getCoords().slice(0, 3), model);
+            }
+
+            return clippedCoords;
+        });
+
+        const coords = [1.2, -0.3, 0.5];
+        const model = "srgb";
+        const epsilon = 1e-5;
+
+        const cam16Coords = new Color(model, coords).getCoords({ fit: "cam16-ucs" as FitMethod });
+        const chromaCoords = new Color(model, coords).getCoords({ fit: "chroma-reduction" });
+        const cssCoords = new Color(model, coords).getCoords({ fit: "css-gamut-map" });
+
+        expect(cam16Coords.every((c) => c >= 0 - epsilon && c <= 1 + epsilon)).toBe(true);
+        expect(chromaCoords.every((c) => c >= 0 - epsilon && c <= 1 + epsilon)).toBe(true);
+        expect(cssCoords.every((c) => c >= 0 - epsilon && c <= 1 + epsilon)).toBe(true);
+
+        expect(chromaCoords).not.toEqual(cam16Coords);
+        expect(cssCoords).not.toEqual(cam16Coords);
+
+        const withinGamut = [0.5, 0.5, 0.5];
+        const fitted = new Color(model, withinGamut).getCoords({ fit: "cam16-ucs" as FitMethod });
+        expect(fitted).toEqual([...withinGamut, 1]);
+    });
 });
 
 declare module "./Color.js" {
-    interface Color<M extends ColorModel> {
+    interface Color<M extends ColorModel = ColorModel> {
         /**
          * Lightens the color by the given amount.
          * @param amount - The amount to lighten the color by.

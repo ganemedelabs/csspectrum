@@ -114,7 +114,7 @@ export function use(...pluginFns: Plugin[]) {
 }
 
 /**
- * Registers a new <color> converter under the specified name.
+ * Registers a new `<color>` converter under the specified name.
  *
  * @param name - The unique name to associate with the color converter.
  * @param converter - The converter object implementing the color conversion logic.
@@ -126,7 +126,7 @@ export function registerColorType(name: string, converter: ColorConverter) {
     const obj = colorTypes as Record<string, ColorConverter>;
 
     if (cleaned in colorTypes) {
-        throw new Error(`The name "${cleaned}" is already used.`);
+        throw new Error(`The name '${cleaned}' is already used.`);
     }
 
     if (typeof converter !== "object" || converter === null) {
@@ -169,7 +169,7 @@ export function registerColorType(name: string, converter: ColorConverter) {
 }
 
 /**
- * Registers a new <color-base> converter under the specified name.
+ * Registers a new `<color-base>` converter under the specified name.
  *
  * @param name - The unique name to associate with the color base converter.
  * @param converter - The converter object implementing the color base conversion logic.
@@ -182,7 +182,7 @@ export function registerColorBase(name: string, converter: ColorConverter) {
     const types = colorTypes as Record<string, ColorConverter>;
 
     if (cleaned in colorTypes) {
-        throw new Error(`The name "${cleaned}" is already used.`);
+        throw new Error(`The name '${cleaned}' is already used.`);
     }
 
     if (typeof converter !== "object" || converter === null) {
@@ -226,7 +226,7 @@ export function registerColorBase(name: string, converter: ColorConverter) {
 }
 
 /**
- * Registers a new <color-function> converter under the specified name.
+ * Registers a new `<color-function>` converter under the specified name.
  *
  * @param name - The unique name to associate with the color function converter.
  * @param converter - The converter object implementing the color function conversion logic.
@@ -239,8 +239,22 @@ export function registerColorFunction(name: string, converter: ColorModelConvert
     const functions = colorFunctions as Record<string, ColorConverter>;
     const types = colorTypes as Record<string, ColorConverter>;
 
+    if (
+        typeof converter.components === "object" &&
+        converter.components !== null &&
+        !Array.isArray(converter.components)
+    ) {
+        const normalizedComponents: Record<string, ComponentDefinition> = {};
+        for (const key of Object.keys(converter.components)) {
+            normalizedComponents[key.toLowerCase()] = converter.components[key];
+        }
+        converter.components = normalizedComponents;
+    } else {
+        throw new TypeError(`Converter.components must be a non-null object.`);
+    }
+
     if (cleaned in colorTypes) {
-        throw new Error(`The name "${cleaned}" is already used.`);
+        throw new Error(`The name '${cleaned}' is already used.`);
     }
 
     if (typeof converter !== "object" || converter === null) {
@@ -259,14 +273,6 @@ export function registerColorFunction(name: string, converter: ColorModelConvert
         throw new TypeError(`Converter.fromBridge must be a function.`);
     }
 
-    if (
-        typeof converter.components !== "object" ||
-        converter.components === null ||
-        Array.isArray(converter.components)
-    ) {
-        throw new TypeError(`Converter.components must be a non-null object.`);
-    }
-
     if ("targetGamut" in converter && converter.targetGamut !== null && typeof converter.targetGamut !== "string") {
         throw new TypeError(`Converter.targetGamut must be a string or null.`);
     }
@@ -277,6 +283,17 @@ export function registerColorFunction(name: string, converter: ColorModelConvert
 
     if ("alphaVariant" in converter && typeof converter.alphaVariant !== "string") {
         throw new TypeError(`Converter.alphaVariant must be a string.`);
+    }
+
+    const componentNames = Object.keys(converter.components);
+
+    const uniqueComponentNames = new Set(componentNames);
+    if (uniqueComponentNames.size !== componentNames.length) {
+        throw new Error("Converter.components must have unique component names.");
+    }
+
+    if (componentNames.includes("none")) {
+        throw new Error('Converter.components cannot have a component named "none".');
     }
 
     models[cleaned] = converter;
@@ -301,7 +318,7 @@ export function registerColorSpace(name: string, converter: ColorSpaceConverter)
     const types = colorTypes as Record<string, ColorConverter>;
 
     if (cleaned in colorTypes) {
-        throw new Error(`The name "${cleaned}" is already used.`);
+        throw new Error(`The name '${cleaned}' is already used.`);
     }
 
     if (typeof converter !== "object" || converter === null) {
@@ -367,13 +384,13 @@ export function registerNamedColor(name: string, rgb: [number, number, number]) 
     const colorMap = namedColors as Record<NamedColor, [number, number, number]>;
 
     if (colorMap[cleaned]) {
-        throw new Error(`<named-color> "${name}" is already registered.`);
+        throw new Error(`<named-color> '${name}' is already registered.`);
     }
 
     const duplicate = Object.entries(colorMap).find(([, value]) => value.every((channel, i) => channel === rgb[i]));
 
     if (duplicate) {
-        throw new Error(`RGB value [${rgb.join(", ")}] is already registered as "${duplicate[0]}".`);
+        throw new Error(`RGB value [${rgb.join(", ")}] is already registered as '${duplicate[0]}'.`);
     }
 
     colorMap[cleaned] = rgb;
@@ -392,7 +409,7 @@ export function registerFitMethod(name: string, method: FitFunction) {
     const methods = fitMethods as Record<string, FitFunction>;
 
     if (cleaned in fitMethods) {
-        throw new Error(`The name "${cleaned}" is already used.`);
+        throw new Error(`The name '${cleaned}' is already used.`);
     }
 
     if (typeof method !== "function") {
@@ -483,15 +500,18 @@ export function extractBalancedExpression(input: string, start: number) {
  *
  * @param coords - The color coordinates to fit or clip.
  * @param model - The color model to use (e.g., "rgb", "oklch", "xyz-d50", etc.).
- * @param method - The fitting method to use. Defaults to "clip".
- * @param precision - Overrides the default precision of component definitions.
+ * @param options - Optional settings for fitting or clipping.
  * @returns The fitted or clipped color coordinates.
  * @throws If component properties are missing or an invalid method is specified.
  */
-export function fit(coords: number[], options: { model?: ColorModel; method?: FitMethod; precision?: number } = {}) {
-    const { model = "srgb", method = "clip", precision } = options;
+export function fit(
+    coords: number[],
+    model: ColorModel,
+    options: { method?: FitMethod; precision?: number | null } = {}
+) {
+    const { method = "clip", precision } = options;
 
-    if (method === "none") return coords;
+    let clipped: number[];
 
     const converter = colorModels[model] as ColorModelConverter;
     const components = converter.components;
@@ -503,15 +523,50 @@ export function fit(coords: number[], options: { model?: ColorModel; method?: Fi
         componentProps[props.index] = props;
     }
 
-    const fn = fitMethods[method];
-    if (!fn) {
-        throw new Error(`Invalid gamut cliiping method: must be ${Object.keys(fitMethods).join(", ")} or "none".`);
+    if (method === "none") {
+        clipped = coords;
+    } else if (method === "clip") {
+        clipped = coords.slice(0, 3).map((value, i) => {
+            const props = componentProps[i];
+            if (!props) {
+                throw new Error(`Missing component properties for index ${i}.`);
+            }
+            if (props.value === "angle") {
+                return ((value % 360) + 360) % 360;
+            } else {
+                const [min, max] = Array.isArray(props.value) ? props.value : [0, 100];
+                return Math.min(max, Math.max(min, value));
+            }
+        });
+    } else {
+        const fn = fitMethods[method];
+        if (!fn) {
+            throw new Error(`Invalid gamut cliiping method: must be ${Object.keys(fitMethods).join(", ")} or "none".`);
+        }
+
+        clipped = fn(coords, model);
     }
 
-    const clipped = fn(coords, { model, componentProps, targetGamut });
+    if (precision === null) return clipped;
 
     return clipped.map((value, i) => {
-        const p = precision ?? componentProps[i]?.precision ?? 3;
+        let p: number | null | undefined;
+
+        if (typeof precision === "number") {
+            p = precision;
+        } else {
+            const localPrecision = componentProps[i]?.precision;
+            if (localPrecision === null) {
+                p = null;
+            } else if (typeof localPrecision === "number") {
+                p = localPrecision;
+            } else {
+                p = 3;
+            }
+        }
+
+        if (p === null) return value;
+
         return Number(value.toFixed(p));
     });
 }
@@ -544,7 +599,7 @@ export function modelConverterToColorConverter(name: string, converter: ColorMod
     ) => {
         const parsePercent = (str: string, min: number, max: number) => {
             const percent = parseFloat(str);
-            if (isNaN(percent)) throw new Error(`Invalid percentage value: "${str}".`);
+            if (isNaN(percent)) throw new Error(`Invalid percentage value: '${str}'.`);
             if (value === "percentage") return percent;
             if (min < 0 && max > 0) return ((percent / 100) * (max - min)) / 2;
             return (percent / 100) * (max - min) + min;
@@ -552,7 +607,7 @@ export function modelConverterToColorConverter(name: string, converter: ColorMod
 
         const parseAngle = (token: string) => {
             const value = parseFloat(token);
-            if (isNaN(value)) throw new Error(`Invalid angle value: "${token}".`);
+            if (isNaN(value)) throw new Error(`Invalid angle value: '${token}'.`);
             if (token.endsWith("deg")) return value;
             if (token.endsWith("rad")) return value * (180 / pi);
             if (token.endsWith("grad")) return value * 0.9;
@@ -645,7 +700,7 @@ export function modelConverterToColorConverter(name: string, converter: ColorMod
             }
 
             throw new Error(
-                `Invalid angle value: "${token}". Must be a number, a number with a unit (deg, rad, grad, turn), or a percentage.`
+                `Invalid angle value: '${token}'. Must be a number, a number with a unit (deg, rad, grad, turn), or a percentage.`
             );
         };
 
@@ -667,7 +722,7 @@ export function modelConverterToColorConverter(name: string, converter: ColorMod
                 return parseCalc(token, min, max);
             }
 
-            throw new Error(`Invalid percentage value: "${token}". Must be a percentage or a number.`);
+            throw new Error(`Invalid percentage value: '${token}'. Must be a percentage or a number.`);
         };
 
         const evaluateNumber = () => {
@@ -686,7 +741,7 @@ export function modelConverterToColorConverter(name: string, converter: ColorMod
             }
 
             throw new Error(
-                `Invalid number value: "${token}". Must be a number${relative === false ? " or a percentage" : ""}.`
+                `Invalid number value: '${token}'. Must be a number${relative === false ? " or a percentage" : ""}.`
             );
         };
 
@@ -1086,7 +1141,7 @@ export function modelConverterToColorConverter(name: string, converter: ColorMod
         format: ([c1, c2, c3, a = 1]: number[], options: FormattingOptions = {}) => {
             const { legacy = false, fit: fitMethod = "clip", precision = undefined, units = false } = options;
 
-            const clipped = fit([c1, c2, c3], { model: name as ColorModel, method: fitMethod, precision });
+            const clipped = fit([c1, c2, c3], name as ColorModel, { method: fitMethod, precision });
             const alpha = Number(min(max(a, 0), 1).toFixed(3)).toString();
 
             let formatted: string[];

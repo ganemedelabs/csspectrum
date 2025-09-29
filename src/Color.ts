@@ -14,6 +14,7 @@ import type {
     ColorModelConverter,
     ColorModel,
     RandomOptions,
+    GetOptions,
 } from "./types.js";
 import { EASINGS } from "./math.js";
 
@@ -21,7 +22,7 @@ import { EASINGS } from "./math.js";
  * The `Color` class represents a dynamic CSS color object, allowing for the manipulation
  * and retrieval of colors in various formats (e.g., RGB, HEX, HSL).
  */
-export class Color<M extends ColorModel> {
+export class Color<M extends ColorModel = ColorModel> {
     model: M;
     coords: number[];
 
@@ -34,12 +35,14 @@ export class Color<M extends ColorModel> {
             throw new Error("Coordinates array must have 3 or 4 elements.");
         }
 
-        if (coords.length === 3) {
-            coords.push(1);
+        const normalized = coords.slice();
+
+        if (normalized.length === 3) {
+            normalized.push(1);
         }
 
         this.model = model;
-        this.coords = coords;
+        this.coords = normalized;
     }
 
     /**
@@ -48,20 +51,23 @@ export class Color<M extends ColorModel> {
      * @param color - The color string to convert.
      * @returns A new `Color` instance.
      */
-    static from(color: NamedColor): Color<any>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
-    static from(color: string): Color<any>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
-    static from(color: NamedColor | string) {
+    /* eslint-disable no-unused-vars, @typescript-eslint/no-explicit-any */
+    static from(color: NamedColor): Color<"rgb">;
+    static from(color: string): Color<any>;
+    static from<T extends ColorModel = ColorModel>(color: string): Color<T>;
+    static from<T extends ColorModel = ColorModel>(color: NamedColor | string): Color<T | any> {
+        /* eslint-enable no-unused-vars, @typescript-eslint/no-explicit-any */
         const cleaned = clean(color);
 
         for (const type in colorTypes) {
-            const { parse, bridge, toBridge, isValid } = colorTypes[type as ColorType];
+            const { parse, bridge, toBridge, isValid } = colorTypes[type as ColorModel];
 
             if (isValid(cleaned)) {
                 const parsed = parse(cleaned);
 
-                if (type in colorModels) return new Color(type as ColorModel, parsed);
+                if (type in colorModels) return new Color(type as T, parsed);
 
-                return new Color(bridge as ColorModel, toBridge(parsed));
+                return new Color(bridge as T, toBridge(parsed));
             }
         }
 
@@ -76,6 +82,7 @@ export class Color<M extends ColorModel> {
      */
     static type(color: string, strict = false): ColorType | undefined {
         const cleaned = clean(color);
+
         for (const type in colorTypes) {
             const { isValid, bridge, parse, toBridge } = colorTypes[type as ColorType];
 
@@ -91,6 +98,7 @@ export class Color<M extends ColorModel> {
                 }
             }
         }
+
         return undefined;
     }
 
@@ -104,17 +112,17 @@ export class Color<M extends ColorModel> {
     static isValid(color: string, type?: ColorType): boolean; // eslint-disable-line no-unused-vars
     static isValid(color: string, type?: string): boolean; // eslint-disable-line no-unused-vars
     static isValid(color: string, type?: ColorType | string) {
-        type = type?.trim().toLowerCase();
-        const cleaned = clean(color);
+        const cleanedType = type?.trim().toLowerCase();
+        const cleanedColor = clean(color);
 
         try {
-            if (type) {
-                const { isValid, bridge, parse, toBridge } = colorTypes[type as ColorType];
-                if (isValid(cleaned)) {
-                    const coords = toBridge(parse(cleaned));
+            if (cleanedType) {
+                const { isValid, bridge, parse, toBridge } = colorTypes[cleanedType as ColorType];
+                if (isValid(cleanedColor)) {
+                    const coords = toBridge(parse(cleanedColor));
                     return typeof new Color(bridge as ColorModel, coords) === "object";
                 } else return false;
-            } else return typeof Color.from(cleaned) === "object";
+            } else return typeof Color.from(cleanedColor) === "object";
         } catch {
             return false;
         }
@@ -233,25 +241,25 @@ export class Color<M extends ColorModel> {
     to(type: string, options?: FormattingOptions): string; // eslint-disable-line no-unused-vars
     to(type: OutputType, options?: FormattingOptions): string; // eslint-disable-line no-unused-vars
     to(type: OutputType | string, options: FormattingOptions = {}) {
-        type = type.toLowerCase();
+        const cleanedType = type.toLowerCase();
 
         const { legacy = false, fit = "clip", precision = undefined, units = false } = options;
-        const converter = colorTypes[type as OutputType];
+        const converter = colorTypes[cleanedType as OutputType];
 
-        if (!converter) throw new Error(`Unsupported color type: '${String(type)}'.`);
+        if (!converter) throw new Error(`Unsupported color type: '${String(cleanedType)}'.`);
 
         const { fromBridge, bridge, format } = converter;
 
         if (!fromBridge || !format) {
-            throw new Error(`Invalid output type: ${String(type)}.`);
+            throw new Error(`Invalid output type: ${String(cleanedType)}.`);
         }
 
-        if (type === this.model) {
+        if (cleanedType === this.model) {
             return format(this.coords, { legacy, fit, precision, units });
         }
 
-        if (type in colorModels) {
-            const coords = this.in(type).getCoords();
+        if (cleanedType in colorModels) {
+            const coords = this.in(cleanedType).getCoords();
             return format(coords, { legacy, fit, precision, units });
         }
 
@@ -265,11 +273,11 @@ export class Color<M extends ColorModel> {
      * @param model - The target color model.
      * @returns An object containing methods to get, set, and mix color components in the specified color model.
      */
-    in<N extends ColorModel>(model: N): Interface<N>; // eslint-disable-line no-unused-vars
+    in<T extends ColorModel = ColorModel>(model: T): Interface<T>; // eslint-disable-line no-unused-vars
     in(model: string): Interface<any>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
-    in<N extends ColorModel>(model: string | N): Interface<N> {
+    in<T extends ColorModel = ColorModel>(model: string | T): Interface<T> {
         const { model: currentModel, coords: currentCoords } = this;
-        const targetModel = model;
+        const targetModel = model.trim().toLowerCase();
 
         let value = currentCoords;
 
@@ -365,24 +373,24 @@ export class Color<M extends ColorModel> {
         const instance = new Color(targetModel as ColorModel, [...value.slice(0, 3), currentCoords[3] ?? 1]);
 
         return {
-            get: instance.get.bind(instance) as Interface<N>["get"],
-            getCoords: instance.getCoords.bind(instance) as Interface<N>["getCoords"],
-            set: instance.set.bind(instance) as Interface<N>["set"],
-            setCoords: instance.setCoords.bind(instance) as Interface<N>["setCoords"],
-            mix: instance.mix.bind(instance) as Interface<N>["mix"],
+            get: instance.get.bind(instance) as Interface<T>["get"],
+            getCoords: instance.getCoords.bind(instance) as Interface<T>["getCoords"],
+            set: instance.set.bind(instance) as Interface<T>["set"],
+            setCoords: instance.setCoords.bind(instance) as Interface<T>["setCoords"],
+            mix: instance.mix.bind(instance) as Interface<T>["mix"],
         };
     }
 
     /**
      * Gets all component values as an object.
      *
-     * @param fitMethod -  Method for fitting the color into the target gamut.
+     * @param options - Options for retrieving the coordinates.
      * @returns An object mapping component names to their numeric values.
      * @throws If the color model does not have defined components.
      */
-    get(fitMethod: FitMethod = "none") {
+    get(options: GetOptions = {}) {
         const { model } = this;
-        const coords = this.getCoords(fitMethod);
+        const coords = this.getCoords(options);
 
         const { components } = colorModels[model] as unknown as Record<
             string,
@@ -416,11 +424,12 @@ export class Color<M extends ColorModel> {
     /**
      * Gets all component values as an array.
      *
-     * @param fitMethod - Method for fitting the color into the target gamut.
+     * @param options - Options for retrieving the coordinates.
      * @return An array of component values in the order defined by the color model, with alpha as the fourth element.
      * @throws If the color model does not have defined components.
      */
-    getCoords(fitMethod = "none") {
+    getCoords(options: GetOptions = {}) {
+        const { fit: fitMethod = "none", precision } = options;
         const { model, coords } = this;
 
         const { components } = colorModels[model] as unknown as Record<
@@ -454,8 +463,11 @@ export class Color<M extends ColorModel> {
         });
 
         if (fitMethod) {
-            const clipped = fit(normalized.slice(0, 3), { model, method: fitMethod as FitMethod });
-            return [...clipped, coords[3]];
+            const clipped = fit(normalized.slice(0, 3), model, {
+                method: fitMethod as FitMethod,
+                precision: "precision" in options ? precision : null,
+            });
+            return [...clipped.slice(0, 3), coords[3]];
         }
 
         return [...normalized.slice(0, 3), coords[3]];
@@ -621,7 +633,7 @@ export class Color<M extends ColorModel> {
      * @return A new Color instance representing the mixed color.
      * @throws If the color model does not have defined components.
      */
-    mix(other: Color<M> | string, options: MixOptions = {}) {
+    mix<T extends ColorModel = ColorModel>(other: Color<T> | string, options: MixOptions = {}) {
         const interpolateHue = (from: number, to: number, t: number, method: string) => {
             const deltaHue = (a: number, b: number) => {
                 const d = (((b - a) % 360) + 360) % 360;
@@ -738,7 +750,8 @@ export class Color<M extends ColorModel> {
      * @returns The luminance value of the color, a number between 0 and 1.
      */
     luminance(space: "xyz" | "oklab" = "xyz") {
-        switch (space) {
+        const cleanedSpace = space.trim().toLowerCase();
+        switch (cleanedSpace) {
             case "xyz": {
                 const [, Y] = this.in("xyz").getCoords();
                 return Y;
@@ -769,44 +782,51 @@ export class Color<M extends ColorModel> {
      */
     contrast(other: Color<ColorModel> | string, algorithm: "wcag21" | "apca" | "oklab" = "wcag21") {
         const otherColor = typeof other === "string" ? Color.from(other) : other;
+        const cleanedAlgorithm = algorithm.trim().toLowerCase();
 
-        if (algorithm === "wcag21") {
-            const L_bg = otherColor.luminance();
-            const L_text = this.luminance();
-            return (Math.max(L_text, L_bg) + 0.05) / (Math.min(L_text, L_bg) + 0.05);
-        } else if (algorithm === "oklab") {
-            const oklab1 = this.in("oklab").getCoords();
-            const oklab2 = otherColor.in("oklab").getCoords();
-            return Math.abs(oklab1[0] - oklab2[0]);
-        } else if (algorithm === "apca") {
-            const L_text = this.luminance();
-            const L_bg = otherColor.luminance();
+        switch (cleanedAlgorithm) {
+            case "wcag21": {
+                const L_bg = otherColor.luminance();
+                const L_text = this.luminance();
+                return (Math.max(L_text, L_bg) + 0.05) / (Math.min(L_text, L_bg) + 0.05);
+            }
+            case "oklab": {
+                const oklab1 = this.in("oklab").getCoords();
+                const oklab2 = otherColor.in("oklab").getCoords();
+                return Math.abs(oklab1[0] - oklab2[0]);
+            }
+            case "apca": {
+                const L_text = this.luminance();
+                const L_bg = otherColor.luminance();
 
-            const Ntx = 0.57;
-            const Nbg = 0.56;
-            const Rtx = 0.62;
-            const Rbg = 0.65;
-            const W_scale = 1.14;
-            const W_offset = 0.027;
-            const W_clamp = 0.1;
-            const B_thrsh = 0.022;
-            const B_clip = 1.414;
+                const Ntx = 0.57;
+                const Nbg = 0.56;
+                const Rtx = 0.62;
+                const Rbg = 0.65;
+                const W_scale = 1.14;
+                const W_offset = 0.027;
+                const W_clamp = 0.1;
+                const B_thrsh = 0.022;
+                const B_clip = 1.414;
 
-            const yText = Math.max(L_text, 0);
-            const yBg = Math.max(L_bg, 0);
+                const yText = Math.max(L_text, 0);
+                const yBg = Math.max(L_bg, 0);
 
-            const yTextClamped = yText < B_thrsh ? yText + Math.pow(B_thrsh - yText, B_clip) : yText;
-            const yBgClamped = yBg < B_thrsh ? yBg + Math.pow(B_thrsh - yBg, B_clip) : yBg;
+                const yTextClamped = yText < B_thrsh ? yText + Math.pow(B_thrsh - yText, B_clip) : yText;
+                const yBgClamped = yBg < B_thrsh ? yBg + Math.pow(B_thrsh - yBg, B_clip) : yBg;
 
-            let S_apc: number;
-            if (yBg > yText) S_apc = (Math.pow(yBgClamped, Nbg) - Math.pow(yTextClamped, Ntx)) * W_scale;
-            else S_apc = (Math.pow(yBgClamped, Rbg) - Math.pow(yTextClamped, Rtx)) * W_scale;
+                let S_apc: number;
+                if (yBg > yText) S_apc = (Math.pow(yBgClamped, Nbg) - Math.pow(yTextClamped, Ntx)) * W_scale;
+                else S_apc = (Math.pow(yBgClamped, Rbg) - Math.pow(yTextClamped, Rtx)) * W_scale;
 
-            if (Math.abs(S_apc) < W_clamp) return 0;
+                if (Math.abs(S_apc) < W_clamp) return 0;
 
-            return S_apc > 0 ? (S_apc - W_offset) * 100 : (S_apc + W_offset) * 100;
+                return S_apc > 0 ? (S_apc - W_offset) * 100 : (S_apc + W_offset) * 100;
+            }
+            default: {
+                throw new Error(`Unsupported contrast algorithm: must be 'wcag21', 'apca', or 'oklab'.`);
+            }
         }
-        throw new Error(`Unsupported contrast algorithm: must be 'wcag21', 'apca', or 'oklab'.`);
     }
 
     /**
@@ -1010,16 +1030,16 @@ export class Color<M extends ColorModel> {
     inGamut(gamut: ColorSpace, epsilon?: number): boolean; // eslint-disable-line no-unused-vars
     inGamut(gamut: string, epsilon?: number): boolean; // eslint-disable-line no-unused-vars
     inGamut(gamut: ColorSpace | string, epsilon = 1e-5) {
-        gamut = gamut.toLowerCase();
+        const cleanedGamut = gamut.trim().toLowerCase();
 
-        if (!(gamut in colorSpaces)) {
-            throw new Error(`Unsupported color gamut: '${gamut}'.`);
+        if (cleanedGamut in colorSpaces === false) {
+            throw new Error(`Unsupported color gamut: '${cleanedGamut}'.`);
         }
-        const { components, targetGamut } = colorModels[gamut as ColorSpace];
+        const { components, targetGamut } = colorModels[cleanedGamut as ColorSpace];
 
         if (targetGamut === null) return true;
 
-        const coords = this.in(gamut).getCoords();
+        const coords = this.in(cleanedGamut).getCoords();
 
         for (const [, props] of Object.entries(components)) {
             const value = coords[props.index];

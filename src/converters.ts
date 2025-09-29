@@ -438,7 +438,7 @@ export const colorModels = {
 } as const;
 
 /**
- * A collection of `<color-function>`s as <color> converters.
+ * A collection of `<color-function>`s as `<color>` converters.
  *
  * @see {@link https://www.w3.org/TR/css-color-5/|CSS Color Module Level 5}
  */
@@ -450,7 +450,7 @@ export const colorFunctions = Object.fromEntries(
 ) as Record<ColorFunction, ColorConverter>;
 
 /**
- * A collection of `<color-base>`s as <color> converters.
+ * A collection of `<color-base>`s as `<color>` converters.
  *
  * @see {@link https://www.w3.org/TR/css-color-5/|CSS Color Module Level 5}
  */
@@ -518,7 +518,6 @@ export const colorBases = {
                 let weight: number | undefined;
                 let remaining = s;
 
-                // check for leading percentage
                 const leadingWeightMatch = remaining.match(/^(\d+)%\s+/);
                 if (leadingWeightMatch) {
                     const raw = parseInt(leadingWeightMatch[1], 10);
@@ -545,7 +544,6 @@ export const colorBases = {
                     rest = m ? m[2].trim() : "";
                 }
 
-                // check trailing percentage
                 if (weight === undefined) {
                     const trailingWeightMatch = rest.match(/^(-?(?:\d+\.?\d*|\.\d+))%/);
                     if (trailingWeightMatch) {
@@ -559,19 +557,16 @@ export const colorBases = {
                             throw new Error("Percentages greater than 100 are not valid.");
                         }
                     } else if (rest.startsWith("calc(")) {
-                        // accept calc(...) syntactically but don't assign numeric weight
                         const { expression: calcExpr, end } = extractBalancedExpression(rest, 0);
                         if (!calcExpr) {
                             throw new Error("Malformed calc() weight expression.");
                         }
-                        // skip calc() completely
                         rest = rest.slice(end).trim();
                     }
                 }
 
-                // ✅ Final strict validation
                 if (rest.length > 0) {
-                    throw new Error(`Unexpected extra tokens after color: "${rest}"`);
+                    throw new Error(`Unexpected extra tokens after color: '${rest}'.`);
                 }
 
                 const color = Color.from(colorExpression);
@@ -833,14 +828,16 @@ export const colorTypes = {
         fromBridge: (coords: number[]) => coords,
         format: ([red, green, blue, alpha = 1]: number[], options: FormattingOptions = {}) => {
             const { legacy = false, precision = 3, fit: fitMethod = "clip" } = options;
-            const [fr, fg, fb] = fit([red, green, blue], { model: "rgb", method: fitMethod });
+            const [fr, fg, fb] = fit([red, green, blue], "rgb", { method: fitMethod });
 
             const r = fr / 255;
             const g = fg / 255;
             const b = fb / 255;
             const k = 1 - Math.max(r, g, b);
 
-            const formatComponent = (value: number) => Number(value.toFixed(precision)).toString();
+            const formatComponent = (value: number) => {
+                return Number(precision === null ? value : value.toFixed(precision)).toString();
+            };
 
             const c = formatComponent(k === 1 ? 0 : (1 - r - k) / (1 - k));
             const m = formatComponent(k === 1 ? 0 : (1 - g - k) / (1 - k));

@@ -4,7 +4,7 @@ import { ColorModel, ColorSpace } from "../types.js";
 
 declare module "../Color.js" {
     // eslint-disable-next-line no-unused-vars
-    interface Color<M extends ColorModel> {
+    interface Color<M extends ColorModel = ColorModel> {
         /**
          * Generates a set of harmonious colors based on the specified options.
          *

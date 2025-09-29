@@ -34,10 +34,10 @@ export type ColorSpace = keyof typeof colorSpaces;
 /** Represents the available manipulatable color models. */
 export type ColorModel = keyof typeof colorModels;
 
-/** Represents a <named-color> identifier. */
+/** Represents a `<named-color>` identifier. */
 export type NamedColor = keyof typeof namedColors;
 
-/** Represents a <system-color> identifier. */
+/** Represents a `<system-color>` identifier. */
 export type SystemColor = keyof typeof systemColors;
 
 /** Represents the color types that support conversion from XYZ. */
@@ -175,8 +175,8 @@ export type ComponentDefinition = {
     /** The value type for the component, which can be a tuple of two numbers representing a range, or a string indicating a special type ("angle" or "percentage"). */
     value: number[] | "angle" | "percentage";
 
-    /** Precision for rounding the component value */
-    precision?: number;
+    /** Precision for rounding the component value, or `null` to disable rounding. */
+    precision?: number | null;
 };
 
 /**
@@ -186,25 +186,34 @@ export type ComponentDefinition = {
  */
 export type Component<M extends ColorModel> = keyof (typeof colorModels)[M]["components"] | "alpha";
 
+/** Represents options for retrieving the coordinates. */
+export type GetOptions = {
+    /** Method for fitting the color into the target gamut. */
+    fit?: FitMethod;
+
+    /** Overrides the precision of the output color components, or `null` to disable rounding. */
+    precision?: number | null;
+};
+
 /** Defines operations on a color within a specific `Model`, enabling method chaining. */
 export type Interface<M extends ColorFunction> = {
     /**
      * Gets all component values as an object.
      *
-     * @param fitMethod -  Method for fitting the color into the target gamut.
+     * @param options - Options for retrieving the coordinates.
      * @returns An object mapping component names to their numeric values.
      * @throws If the color model does not have defined components.
      */
-    get: (fit?: FitMethod) => { [key in Component<M>]: number };
+    get: (options?: GetOptions) => { [key in Component<M>]: number };
 
     /**
      * Gets all component values as an array.
      *
-     * @param fitMethod - Method for fitting the color into the target gamut.
+     * @param options - Options for retrieving the coordinates.
      * @return An array of component values in the order defined by the color model, with alpha as the fourth element.
      * @throws If the color model does not have defined components.
      */
-    getCoords: (fit?: FitMethod) => number[];
+    getCoords: (options?: GetOptions) => number[];
 
     /**
      * Sets new values for the color components and returns a new `Color` instance with the updated values.
@@ -269,24 +278,15 @@ export type HueInterpolationMethod = "shorter" | "longer" | "increasing" | "decr
 export type Easing = keyof typeof EASINGS;
 
 /** Represents a gamut mapping method. */
-export type FitFunction = (
-    coords: number[],
-    context?: { model?: ColorFunction; componentProps?: ComponentDefinition[]; targetGamut?: ColorSpace | null }
-) => number[];
+export type FitFunction = (coords: number[], model: ColorFunction) => number[];
 
 /** Describes the available methods for fitting the color into the target gamut. */
-export type FitMethod = keyof typeof fitMethods | "none";
+export type FitMethod = keyof typeof fitMethods | "clip" | "none";
 
 /** Options for formatting color output. */
-export type FormattingOptions = {
+export type FormattingOptions = GetOptions & {
     /** Use legacy syntax (e.g., `"rgb(255, 0, 0, 0.5)"`). */
     legacy?: boolean;
-
-    /** Method for fitting the color into the target gamut. */
-    fit?: FitMethod;
-
-    /** Overrides the precision of the output color. */
-    precision?: number;
 
     /** Output components with units (e.g., `"hsl(250deg 74% 54%)"`). */
     units?: boolean;
