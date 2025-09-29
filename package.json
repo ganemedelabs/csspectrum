@@ -1,7 +1,7 @@
 {
     "name": "saturon",
     "version": "0.1.0",
-    "description": "A TypeScript library for working with CSS color formats, providing conversion, manipulation, and analysis tools for various color models and spaces.",
+    "description": "A runtime-extensible JavaScript library for parsing, converting, and manipulating colors with full CSS spec support.",
     "type": "module",
     "private": false,
     "author": "ganemedelabs",
