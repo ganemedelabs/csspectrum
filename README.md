@@ -4,7 +4,7 @@
 ![npm](https://img.shields.io/npm/dw/saturon)
 ![License](https://img.shields.io/npm/l/saturon)
 
-A fast, tiny, extensible color library fully aligned with W3C Color Level 4/5 specs — built for developers and color scientists alike.
+A runtime-extensible JavaScript library for parsing, converting, and manipulating colors with full CSS spec support.
 
 ## 📋 Table of Contents
 
