@@ -80,7 +80,7 @@ console.log(mixed.to("hsl")); // → hsl(60, 100%, 50%)
 ### New Named Color Registration
 
 ```js
-Color.registerNamedColor("sunsetblush", [255, 94, 77]);
+registerNamedColor("sunsetblush", [255, 94, 77]);
 const rgb = Color.from("rgb(255, 94, 77)");
 console.log(rgb.to("named-color")); // → sunsetblush
 ```
@@ -99,7 +99,7 @@ const converter = {
     fromBridge: (rgb: number[]) => [/* i, ct, cp */],
 };
 
-Color.registerFormat("ictcp", converter);
+registerColorFunction("ictcp", converter);
 const ictcp = Color.from("ictcp(0.2 0.2 -0.1)");
 console.log(ictcp.to("rgb")); // → rgb(6.09 6.58 90.88)
 ```
