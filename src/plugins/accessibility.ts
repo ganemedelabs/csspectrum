@@ -32,15 +32,14 @@ export type AccessibilityOptions = {
     fontWeight?: number;
 
     /**
-     * The contrast algorithm to use: "wcag21" (default), "apca", or "oklab".
+     * The contrast algorithm to use: "wcag21" (default), or "apca".
      * - `"wcag21"`: Follows WCAG 2.1 but has limitations (e.g., sRGB-based, poor hue handling).
      * - `"apca"`: Uses APCA-W3 (WCAG 3.0 draft), font-size/weight dependent. See https://git.myndex.com.
-     * - `"oklab"`: Uses OKLab lightness difference for perceptual uniformity.
      *
      * @remarks
-     * "wcag21" follows WCAG 2.1 guidelines but has limitations. Consider "apca" or "oklab" for better perceptual accuracy.
+     * "wcag21" follows WCAG 2.1 guidelines but has limitations. Consider "apca" for better perceptual accuracy.
      */
-    algorithm?: "wcag21" | "apca" | "oklab";
+    algorithm?: "wcag21" | "apca";
 };
 
 /** Represents the result of an accessibility check, typically for color contrast. */
@@ -78,8 +77,8 @@ export type AccessibilityResult = {
     /** The impact level or description of the result, if available. */
     impact?: string;
 
-    /** The algorithm used for contrast calculation ("wcag21", "apca", or "oklab"). */
-    algorithm?: "wcag21" | "apca" | "oklab";
+    /** The algorithm used for contrast calculation ("wcag21", or "apca"). */
+    algorithm?: "wcag21" | "apca";
 };
 
 /**
@@ -161,24 +160,8 @@ export function accessibilityPlugin(ColorClass: typeof Color) {
                 wcagSuccessCriterion,
                 message,
             };
-        } else if (algorithm === "oklab") {
-            if (type === "text") {
-                requiredContrast = fontSize >= 18 || (fontSize >= 14 && fontWeight >= 700) ? 0.2 : 0.3;
-                wcagSuccessCriterion = "OKLab (experimental)";
-                message =
-                    contrast >= requiredContrast
-                        ? `OKLab lightness difference ${contrast.toFixed(2)} meets requirements for text (${fontSize}pt, weight ${fontWeight}).`
-                        : `OKLab lightness difference ${contrast.toFixed(2)} fails requirements (needs at least ${requiredContrast} for ${fontSize}pt, weight ${fontWeight}).`;
-            } else {
-                requiredContrast = 0.25;
-                wcagSuccessCriterion = "OKLab (experimental)";
-                message =
-                    contrast >= requiredContrast
-                        ? `OKLab lightness difference ${contrast.toFixed(2)} meets requirements for non-text elements.`
-                        : `OKLab lightness difference ${contrast.toFixed(2)} fails requirements (needs at least ${requiredContrast}).`;
-            }
         } else {
-            throw new Error("Unsupported contrast algorithm: must be 'wcag21', 'apca', or 'oklab'.");
+            throw new Error("Unsupported contrast algorithm: must be 'wcag21', or 'apca'.");
         }
 
         const passes = Math.abs(contrast) >= requiredContrast;

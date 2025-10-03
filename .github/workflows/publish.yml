@@ -20,7 +20,7 @@
 # 4. In your GitHub repository, navigate to Settings > Secrets and variables > Actions.
 # 5. Add a new repository secret named `NPM_TOKEN` with the token value from NPM.
 
-name: Publish NPM package
+name: Publish NPM Package
 
 on:
     push:
@@ -31,12 +31,12 @@ jobs:
     publish:
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v4
               with:
                   fetch-depth: 0
 
             - name: Setup Node.js
-              uses: actions/setup-node@v2
+              uses: actions/setup-node@v4
               with:
                   node-version: "20"
                   registry-url: "https://registry.npmjs.org"

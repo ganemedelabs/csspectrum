@@ -29,7 +29,7 @@ export type HarmonyResult = Color<"oklch">[] & {
         bestContrast: number;
 
         /** The OKLCH color values as a tuple `[L, C, H]`. */
-        oklch: [number, number, number];
+        oklch: number[];
     }[];
 
     /** The overall score of the palette, or `null` if not available. */
@@ -63,60 +63,51 @@ export type ScorePaletteResult = {
     minSep: number;
 };
 
-/** options for generating harmonious colors. */
+/** Options for generating harmonious colors. */
 export type HarmonyOptions = {
     /** The harmony scheme to use (e.g., complementary, analogous). */
     scheme?: HarmonyScheme;
 
-    /** Number of harmonious colors to generate. */
+    /** Number of harmonious colors to generate. Defaults to 5. */
     count?: number;
 
-    /** Desired tone or emotional context for the color harmony. */
+    /** Desired tone for the color harmony (e.g., pastel, dark). */
     tone?: HarmonyTone;
 
-    /** Display context, such as "light", "dark", or "auto". */
-    context?: "light" | "dark" | "auto";
-
-    /** The color space to constrain the output colors (e.g., display-p3, rec2020). */
+    /** The color space to constrain the output colors (e.g., srgb (default), display-p3). */
     gamut?: ColorSpace;
 
-    /** Minimum contrast ratio between generated colors. */
-    minContrast?: number;
-
-    /** Amount of randomness to introduce ("low", "medium", "high"). */
+    /** Amount of randomness to introduce ("low", "medium" (default), "high"). */
     jitter?: "low" | "medium" | "high";
 
-    /** Number of samples to consider during generation. */
+    /** Number of samples to consider during generation. Defaults to 16. */
     samples?: number;
 
-    /** Bias the harmony towards "warm", "cool", or "none". */
-    hueBias?: "warm" | "cool" | "none";
+    /** Whether to include the base color as-is in the final palette. Defaults to false. */
+    includeBase?: boolean;
 };
 
+export const tones = [
+    "vibrant",
+    "dark",
+    "bright",
+    "pastel",
+    "muted",
+    "nocturne",
+    "candy",
+    "earth",
+    "neon",
+    "serene",
+    "bold",
+] as const;
+
+export const schemes = ["complementary", "split", "triad", "analogous", "tetradic", "rectangle"] as const;
+
 /** Represents the available color harmony schemes. */
-export type HarmonyScheme =
-    | "complementary"
-    | "split"
-    | "triad"
-    | "analogous"
-    | "tetradic"
-    | "rectangle"
-    | "shades"
-    | "tints"
-    | "tones";
+export type HarmonyScheme = (typeof schemes)[number];
 
 /** Represents the available color tones for the harmony plugin. */
-export type HarmonyTone =
-    | "default"
-    | "vibrant"
-    | "pastel"
-    | "muted"
-    | "nocturne"
-    | "candy"
-    | "earth"
-    | "neon"
-    | "serene"
-    | "bold";
+export type HarmonyTone = (typeof tones)[number];
 
 /**
  * Adds `harmony` method to the provided `ColorClass` prototype.
@@ -124,15 +115,15 @@ export type HarmonyTone =
  * @param ColorClass - The color class to extend with palette generation.
  *
  * @example
- * ```typescript
+ * ```typescript:disable-run
  * import { use } from "saturon/utils";
  * import { harmonyPlugin } from "saturon/plugins/harmony";
  *
  * use(harmonyPlugin);
  *
- * const palette = Color.from("#3498db").harmony({ scheme: "triad", tone: "vibrant", count: 4 });
+ * const palette = Color.from("#3498db").harmony({ scheme: "triad", tone: "vibrant", count: 4, includeBaseColor: true });
  * palette
- *   .map((c) => c.in("rgb").getCoords("clip"))
+ *   .map((c) => c.in("rgb").getCoords({ fit: "clip", precision: undefined }))
  *   .forEach((c) => {
  *       const [r, g, b] = c;
  *       console.log(`\x1b[48;2;${r};${g};${b}m   \x1b[0m rgb(${r} ${g} ${b})`);
@@ -161,8 +152,6 @@ export function harmonyPlugin(ColorClass: typeof Color) {
 
     const clamp = (v: number, a = 0, b = 1) => Math.max(a, Math.min(b, v));
 
-    const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-
     const mod360 = (v: number) => {
         v = v % 360;
         if (v < 0) v += 360;
@@ -186,20 +175,14 @@ export function harmonyPlugin(ColorClass: typeof Color) {
         return clamp(center + u * halfRange, 0, 1);
     };
 
-    const findMaxChroma = (
-        h: number,
-        L: number,
-        gamut: string = "srgb",
-        Ctor: typeof ColorClass,
-        rng: () => number
-    ) => {
+    const findMaxChroma = (h: number, L: number, gamut: string = "srgb", rng: () => number) => {
         if (L < 0.01 || L > 0.99) return 0;
         let lo = 0;
         let hi = 0.4 + rng() * 0.4;
         let test: Color<"oklch">;
 
         for (let i = 0; i < 16; i++) {
-            test = new Ctor("oklch", [L, hi, h, 1]);
+            test = new ColorClass("oklch", [L, hi, h, 1]);
             if (!test.inGamut(gamut)) break;
             lo = hi;
             hi *= 1.8;
@@ -208,7 +191,7 @@ export function harmonyPlugin(ColorClass: typeof Color) {
 
         for (let i = 0; i < 32; i++) {
             const mid = (lo + hi) / 2;
-            test = new Ctor("oklch", [L, mid, h, 1]);
+            test = new ColorClass("oklch", [L, mid, h, 1]);
             if (test.inGamut(gamut)) lo = mid;
             else hi = mid;
         }
@@ -217,18 +200,18 @@ export function harmonyPlugin(ColorClass: typeof Color) {
         return Math.max(0, lo + jitter);
     };
 
-    const shrinkChromaToGamut = (L: number, Cinit: number, h: number, gamut: string, Ctor: typeof ColorClass) => {
-        let test = new Ctor("oklch", [L, Cinit, h, 1]);
-        if (test.inGamut(gamut)) return { C: Cinit, adjusted: false };
+    const shrinkChromaToGamut = (L: number, Cinit: number, h: number, gamut: string) => {
+        let test = new ColorClass("oklch", [L, Cinit, h, 1]);
+        if (test.inGamut(gamut)) return Cinit;
         let lo = 0,
             hi = Cinit;
         for (let i = 0; i < 32; i++) {
             const mid = (lo + hi) / 2;
-            test = new Ctor("oklch", [L, mid, h, 1]);
+            test = new ColorClass("oklch", [L, mid, h, 1]);
             if (test.inGamut(gamut)) lo = mid;
             else hi = mid;
         }
-        return { C: lo, adjusted: true };
+        return lo;
     };
 
     const generateAnchors = (
@@ -236,55 +219,45 @@ export function harmonyPlugin(ColorClass: typeof Color) {
         baseHue: number,
         count: number,
         rng: () => number,
-        jitterDeg: number,
-        hueBias: "warm" | "cool" | "none"
+        jitterDeg: number
     ) => {
         const baseAnchors: number[] = [];
         const jitter = (deg: number): number => (rng() * 2 - 1) * deg;
 
-        const biasShift = (h: number): number => {
-            if (hueBias === "warm") {
-                if (h > 90 && h < 270) h = lerp(h, rng() < 0.5 ? 90 : 270, 0.3);
-            } else if (hueBias === "cool") {
-                if (h < 90 || h > 270) h = lerp(h, 180, 0.3);
-            }
-            return mod360(h);
-        };
-
         switch (scheme) {
             case "complementary":
-                baseAnchors.push(biasShift(mod360(baseHue)));
-                baseAnchors.push(biasShift(mod360(baseHue + 180)));
+                baseAnchors.push(mod360(baseHue));
+                baseAnchors.push(mod360(baseHue + 180));
                 break;
             case "split":
-                baseAnchors.push(biasShift(mod360(baseHue)));
-                baseAnchors.push(biasShift(mod360(baseHue + 150)));
-                baseAnchors.push(biasShift(mod360(baseHue + 210)));
+                baseAnchors.push(mod360(baseHue));
+                baseAnchors.push(mod360(baseHue + 150));
+                baseAnchors.push(mod360(baseHue + 210));
                 break;
             case "triad":
-                baseAnchors.push(biasShift(mod360(baseHue)));
-                baseAnchors.push(biasShift(mod360(baseHue + 120)));
-                baseAnchors.push(biasShift(mod360(baseHue + 240)));
+                baseAnchors.push(mod360(baseHue));
+                baseAnchors.push(mod360(baseHue + 120));
+                baseAnchors.push(mod360(baseHue + 240));
                 break;
             case "analogous":
-                baseAnchors.push(biasShift(mod360(baseHue - 30)));
-                baseAnchors.push(biasShift(mod360(baseHue)));
-                baseAnchors.push(biasShift(mod360(baseHue + 30)));
+                baseAnchors.push(mod360(baseHue - 30));
+                baseAnchors.push(mod360(baseHue));
+                baseAnchors.push(mod360(baseHue + 30));
                 break;
             case "tetradic":
-                baseAnchors.push(biasShift(mod360(baseHue)));
-                baseAnchors.push(biasShift(mod360(baseHue + 90)));
-                baseAnchors.push(biasShift(mod360(baseHue + 180)));
-                baseAnchors.push(biasShift(mod360(baseHue + 270)));
+                baseAnchors.push(mod360(baseHue));
+                baseAnchors.push(mod360(baseHue + 90));
+                baseAnchors.push(mod360(baseHue + 180));
+                baseAnchors.push(mod360(baseHue + 270));
                 break;
             case "rectangle":
-                baseAnchors.push(biasShift(mod360(baseHue)));
-                baseAnchors.push(biasShift(mod360(baseHue + 60)));
-                baseAnchors.push(biasShift(mod360(baseHue + 180)));
-                baseAnchors.push(biasShift(mod360(baseHue + 240)));
+                baseAnchors.push(mod360(baseHue));
+                baseAnchors.push(mod360(baseHue + 60));
+                baseAnchors.push(mod360(baseHue + 180));
+                baseAnchors.push(mod360(baseHue + 240));
                 break;
             default:
-                baseAnchors.push(biasShift(mod360(baseHue)));
+                baseAnchors.push(mod360(baseHue));
         }
 
         const colors: number[] = [];
@@ -334,40 +307,49 @@ export function harmonyPlugin(ColorClass: typeof Color) {
         return result;
     };
 
-    const roleTemplate = (
-        role: string,
-        tone: HarmonyTone = "default",
-        context: string = "auto",
-        scheme: HarmonyScheme | undefined
-    ) => {
+    const roleTemplate = (role: string, tone: HarmonyTone | undefined) => {
         const tones = {
             default: {
                 primary: { L: 0.55, range: 0.15, skew: 1.0, Cmul: 1.0 },
                 tint: { L: 0.85, range: 0.1, skew: 1.2, Cmul: 0.5 },
                 shade: { L: 0.3, range: 0.1, skew: 1.2, Cmul: 0.65 },
                 accent: { L: 0.6, range: 0.14, skew: 1.0, Cmul: 1.1 },
-                neutral: { L: context === "dark" ? 0.15 : 0.92, range: 0.05, skew: 1.0, Cmul: 0.08 },
+                neutral: { L: 0.92, range: 0.05, skew: 1.0, Cmul: 0.08 },
             },
             vibrant: {
                 primary: { L: 0.5, range: 0.14, skew: 0.8, Cmul: 1.3 },
                 tint: { L: 0.8, range: 0.08, skew: 1.0, Cmul: 0.7 },
                 shade: { L: 0.25, range: 0.1, skew: 0.9, Cmul: 0.85 },
                 accent: { L: 0.55, range: 0.16, skew: 0.8, Cmul: 1.6 },
-                neutral: { L: context === "dark" ? 0.1 : 0.96, range: 0.04, skew: 1.0, Cmul: 0.06 },
+                neutral: { L: 0.96, range: 0.04, skew: 1.0, Cmul: 0.06 },
+            },
+            dark: {
+                primary: { L: 0.3, range: 0.1, skew: 0.7, Cmul: 1.0 },
+                tint: { L: 0.5, range: 0.08, skew: 0.8, Cmul: 0.5 },
+                shade: { L: 0.15, range: 0.1, skew: 0.7, Cmul: 0.7 },
+                accent: { L: 0.35, range: 0.12, skew: 0.7, Cmul: 1.2 },
+                neutral: { L: 0.75, range: 0.05, skew: 1.0, Cmul: 0.1 },
+            },
+            bright: {
+                primary: { L: 0.65, range: 0.12, skew: 1.2, Cmul: 1.2 },
+                tint: { L: 0.9, range: 0.06, skew: 1.3, Cmul: 0.6 },
+                shade: { L: 0.5, range: 0.1, skew: 1.1, Cmul: 0.8 },
+                accent: { L: 0.7, range: 0.12, skew: 1.2, Cmul: 1.5 },
+                neutral: { L: 0.98, range: 0.03, skew: 1.0, Cmul: 0.05 },
             },
             pastel: {
                 primary: { L: 0.8, range: 0.1, skew: 1.4, Cmul: 0.5 },
                 tint: { L: 0.94, range: 0.04, skew: 1.4, Cmul: 0.2 },
-                shade: { L: 0.65, range: 0.08, skew: 1.4, Cmul: 0.35 },
+                shade: { L: 0.6, range: 0.08, skew: 1.4, Cmul: 0.35 },
                 accent: { L: 0.82, range: 0.1, skew: 1.4, Cmul: 0.7 },
-                neutral: { L: context === "dark" ? 0.25 : 0.98, range: 0.03, skew: 1.0, Cmul: 0.04 },
+                neutral: { L: 0.98, range: 0.03, skew: 1.0, Cmul: 0.04 },
             },
             muted: {
                 primary: { L: 0.5, range: 0.14, skew: 1.3, Cmul: 0.6 },
                 tint: { L: 0.75, range: 0.1, skew: 1.3, Cmul: 0.3 },
                 shade: { L: 0.35, range: 0.1, skew: 1.3, Cmul: 0.45 },
                 accent: { L: 0.55, range: 0.14, skew: 1.3, Cmul: 0.75 },
-                neutral: { L: context === "dark" ? 0.18 : 0.9, range: 0.06, skew: 1.0, Cmul: 0.07 },
+                neutral: { L: 0.9, range: 0.06, skew: 1.0, Cmul: 0.07 },
             },
             nocturne: {
                 primary: { L: 0.35, range: 0.12, skew: 0.9, Cmul: 1.0 },
@@ -377,58 +359,55 @@ export function harmonyPlugin(ColorClass: typeof Color) {
                 neutral: { L: 0.05, range: 0.03, skew: 1.0, Cmul: 0.04 },
             },
             candy: {
-                primary: { L: 0.65, range: 0.12, skew: 1.0, Cmul: 1.4 },
-                tint: { L: 0.82, range: 0.08, skew: 1.0, Cmul: 1.0 },
-                shade: { L: 0.35, range: 0.1, skew: 1.0, Cmul: 1.0 },
-                accent: { L: 0.75, range: 0.1, skew: 1.0, Cmul: 1.7 },
-                neutral: { L: context === "dark" ? 0.2 : 0.95, range: 0.04, skew: 1.0, Cmul: 0.04 },
+                primary: { L: 0.65, range: 0.12, skew: 1.0, Cmul: 1.5 },
+                tint: { L: 0.75, range: 0.08, skew: 1.0, Cmul: 1.3 },
+                shade: { L: 0.5, range: 0.1, skew: 1.0, Cmul: 1.3 },
+                accent: { L: 0.7, range: 0.1, skew: 1.0, Cmul: 1.8 },
+                neutral: { L: 0.8, range: 0.04, skew: 1.0, Cmul: 0.2 },
             },
             earth: {
                 primary: { L: 0.45, range: 0.16, skew: 1.1, Cmul: 0.7 },
                 tint: { L: 0.7, range: 0.12, skew: 1.2, Cmul: 0.4 },
                 shade: { L: 0.25, range: 0.12, skew: 1.1, Cmul: 0.55 },
-                accent: { L: 0.5, range: 0.16, skew: 1.1, Cmul: 0.9 },
-                neutral: { L: context === "dark" ? 0.12 : 0.88, range: 0.07, skew: 1.0, Cmul: 0.1 },
+                accent: { L: 0.55, range: 0.16, skew: 1.1, Cmul: 0.9 },
+                neutral: { L: 0.88, range: 0.07, skew: 1.0, Cmul: 0.1 },
             },
             neon: {
                 primary: { L: 0.6, range: 0.1, skew: 0.7, Cmul: 1.8 },
                 tint: { L: 0.9, range: 0.06, skew: 0.8, Cmul: 1.2 },
                 shade: { L: 0.4, range: 0.08, skew: 0.7, Cmul: 1.5 },
                 accent: { L: 0.65, range: 0.1, skew: 0.7, Cmul: 2.0 },
-                neutral: { L: context === "dark" ? 0.08 : 0.98, range: 0.02, skew: 1.0, Cmul: 0.05 },
+                neutral: { L: 0.98, range: 0.02, skew: 1.0, Cmul: 0.05 },
             },
             serene: {
-                primary: { L: 0.7, range: 0.08, skew: 1.5, Cmul: 0.4 },
-                tint: { L: 0.88, range: 0.05, skew: 1.5, Cmul: 0.15 },
-                shade: { L: 0.5, range: 0.06, skew: 1.5, Cmul: 0.3 },
-                accent: { L: 0.72, range: 0.08, skew: 1.5, Cmul: 0.6 },
-                neutral: { L: context === "dark" ? 0.22 : 0.96, range: 0.03, skew: 1.0, Cmul: 0.03 },
+                primary: { L: 0.7, range: 0.08, skew: 1.5, Cmul: 0.5 },
+                tint: { L: 0.88, range: 0.05, skew: 1.5, Cmul: 0.25 },
+                shade: { L: 0.5, range: 0.06, skew: 1.5, Cmul: 0.4 },
+                accent: { L: 0.72, range: 0.08, skew: 1.5, Cmul: 0.7 },
+                neutral: { L: 0.96, range: 0.03, skew: 1.0, Cmul: 0.15 },
             },
             bold: {
                 primary: { L: 0.45, range: 0.18, skew: 0.6, Cmul: 1.5 },
                 tint: { L: 0.75, range: 0.12, skew: 0.7, Cmul: 1.0 },
                 shade: { L: 0.2, range: 0.14, skew: 0.6, Cmul: 1.2 },
                 accent: { L: 0.5, range: 0.18, skew: 0.6, Cmul: 1.8 },
-                neutral: { L: context === "dark" ? 0.05 : 0.95, range: 0.05, skew: 1.0, Cmul: 0.1 },
+                neutral: { L: 0.95, range: 0.05, skew: 1.0, Cmul: 0.1 },
             },
         };
-        const set = tones[tone] || tones.default;
-        let tmpl = set[role as keyof typeof set] || set.primary;
-        if (scheme === "shades") tmpl = { ...tmpl, L: tmpl.L * 0.7, range: tmpl.range * 1.5, Cmul: tmpl.Cmul * 0.8 };
-        if (scheme === "tints") tmpl = { ...tmpl, L: tmpl.L * 1.2, range: tmpl.range * 1.2, Cmul: tmpl.Cmul * 0.6 };
-        if (scheme === "tones") tmpl = { ...tmpl, Cmul: tmpl.Cmul * 0.5, range: tmpl.range * 1.3 };
-        return tmpl;
+        const set = tones[tone as HarmonyTone] || tones.default;
+        return set[role as keyof typeof set] || set.primary;
     };
 
     type Swatch = {
         color: Color<"oklch">;
-        okLCH: [number, number, number];
+        okLCH: number[];
         role: string;
     };
 
-    const scorePalette = (swatches: Swatch[], minContrast: number = 4.5) => {
+    const scorePalette = (swatches: Swatch[]) => {
         const n = swatches.length;
         const totalPairs = (n * (n - 1)) / 2;
+        const minContrast = 4.5;
 
         let contrastPairs = 0;
         let contrastSum = 0;
@@ -473,19 +452,66 @@ export function harmonyPlugin(ColorClass: typeof Color) {
             if (highContrastPair) break;
         }
 
-        const hues = swatches.map((s) => s.okLCH[2]).filter((h) => !isNaN(h));
-        let harmony = 0;
-        if (hues.length > 1) {
-            const hueDiffs = [];
-            for (let i = 0; i < hues.length; i++) {
-                for (let j = i + 1; j < hues.length; j++) {
-                    hueDiffs.push(angleDiff(hues[i], hues[j]));
-                }
+        const computeCH = (col1: Color<"oklch">, col2: Color<"oklch">) => {
+            const lab1 = col1.in("lab").getCoords();
+            const L1 = lab1[0];
+            const a1 = lab1[1];
+            const b1 = lab1[2];
+            const C1 = Math.sqrt(a1 ** 2 + b1 ** 2);
+            const h1 = ((Math.atan2(b1, a1) * 180) / Math.PI + 360) % 360;
+
+            const lab2 = col2.in("lab").getCoords();
+            const L2 = lab2[0];
+            const a2 = lab2[1];
+            const b2 = lab2[2];
+            const C2 = Math.sqrt(a2 ** 2 + b2 ** 2);
+            const h2 = ((Math.atan2(b2, a2) * 180) / Math.PI + 360) % 360;
+
+            const deltaL = Math.abs(L1 - L2);
+            const lSum = L1 + L2;
+
+            const deltaH = angleDiff(h1, h2);
+            const deltaHAb = 2 * Math.sqrt(C1 * C2) * Math.sin((deltaH * Math.PI) / 360);
+            const deltaCAb = Math.abs(C1 - C2);
+
+            const DeltaC = Math.sqrt(deltaHAb ** 2 + (deltaCAb / 1.46) ** 2);
+
+            const HC = 0.04 + 0.53 * Math.tanh(0.8 - 0.045 * DeltaC);
+
+            const HLsum = 0.28 + 0.54 * Math.tanh(-3.88 + 0.029 * lSum);
+            const HDeltaL = 0.14 + 0.15 * Math.tanh(-2 + 0.2 * deltaL);
+            const HL = HLsum + HDeltaL;
+
+            const computeHSY = (L: number, C: number, h: number) => {
+                const EC = 0.5 + 0.5 * Math.tanh(-2 + 0.5 * C);
+                const HS =
+                    -0.08 -
+                    0.14 * Math.sin(((h + 50) * Math.PI) / 180) -
+                    0.07 * Math.sin(((2 * h + 90) * Math.PI) / 180);
+                const x = (90 - h) / 10;
+                const EY = ((0.22 * L - 12.8) / 10) * Math.exp(x - Math.exp(x));
+                return EC * (HS + EY);
+            };
+
+            const HSY1 = computeHSY(L1, C1, h1);
+            const HSY2 = computeHSY(L2, C2, h2);
+            const HH = HSY1 + HSY2;
+
+            const ch = HC + HL + HH;
+            return ch;
+        };
+
+        let harmonySum = 0;
+        let pairCount = 0;
+        for (let i = 0; i < n; i++) {
+            for (let j = i + 1; j < n; j++) {
+                harmonySum += computeCH(swatches[i].color, swatches[j].color);
+                pairCount++;
             }
-            const meanDiff = hueDiffs.reduce((a, b) => a + b, 0) / hueDiffs.length;
-            const varDiff = hueDiffs.reduce((a, b) => a + (b - meanDiff) ** 2, 0) / hueDiffs.length;
-            harmony = clamp(1 - Math.sqrt(varDiff) / 60, 0, 1);
         }
+        const harmony = pairCount > 0 ? harmonySum / pairCount : 0;
+
+        const normalizedHarmony = clamp((harmony + 1.3) / 3, 0, 1);
 
         const minDeltaE = 25;
 
@@ -497,7 +523,7 @@ export function harmonyPlugin(ColorClass: typeof Color) {
             chromaBalance * 1.5 +
             balance * 1.2 +
             highContrastPair * 1.0 +
-            harmony * 1.5 +
+            normalizedHarmony * 1.5 +
             (contrastSum / (totalPairs || 1)) * 0.015 +
             sepPenalty;
 
@@ -508,117 +534,57 @@ export function harmonyPlugin(ColorClass: typeof Color) {
             chromaBalance,
             balance,
             highContrastPair,
-            harmony,
+            harmony: normalizedHarmony,
             minSep,
         };
     };
 
-    const nudgeSwatch = (
-        swatch: Swatch,
-        others: Swatch[],
-        gamut: string,
-        Ctor: typeof ColorClass,
-        rng: () => number
-    ): Swatch => {
-        let [L, C, h] = swatch.okLCH;
-        let attempts = 0;
-        const maxAttempts = 10;
-        let color = swatch.color;
-        const minDeltaE = 25;
-
-        while (attempts < maxAttempts) {
-            let minDE = Infinity;
-            for (const other of others) {
-                if (other === swatch) continue;
-                const dE = color.deltaEOK(other.color);
-                if (dE < minDE) minDE = dE;
-            }
-            if (minDE >= minDeltaE) break;
-
-            const nudgeL = (rng() - 0.5) * 0.1;
-            const nudgeC = (rng() - 0.5) * 0.05;
-            const nudgeH = (rng() - 0.5) * 15;
-            L = clamp(L + nudgeL, 0.01, 0.99);
-            C = clamp(C + nudgeC, 0.005, 2.0);
-            h = mod360(h + nudgeH);
-
-            const shrinkRes = shrinkChromaToGamut(L, C, h, gamut, Ctor);
-            C = shrinkRes.C;
-            color = new Ctor("oklch", [L, C, h]);
-            attempts++;
-        }
-
-        return { color, okLCH: [L, C, h], role: swatch.role };
-    };
-
     ColorClass.prototype.harmony = function (options = {}) {
         const {
-            scheme = undefined,
+            scheme,
             count = 5,
-            tone = "default",
-            context = "auto",
+            tone,
             gamut = "srgb",
-            minContrast = 4.5,
             jitter = "medium",
             samples = 16,
-            hueBias = "none",
+            includeBase = false,
         } = options;
-
-        const toneLimits = {
-            default: { minL: 0.15, maxL: 0.95, minC: 0.0, maxC: 0.2 },
-            vibrant: { minL: 0.1, maxL: 0.95, minC: 0.1, maxC: 0.3 },
-            pastel: { minL: 0.7, maxL: 1.0, minC: 0.02, maxC: 0.1 },
-            muted: { minL: 0.3, maxL: 0.8, minC: 0.03, maxC: 0.15 },
-            nocturne: { minL: 0.0, maxL: 0.4, minC: 0.05, maxC: 0.25 },
-            candy: { minL: 0.3, maxL: 0.9, minC: 0.1, maxC: 0.35 },
-            earth: { minL: 0.2, maxL: 0.7, minC: 0.05, maxC: 0.18 },
-            neon: { minL: 0.4, maxL: 0.9, minC: 0.2, maxC: 0.4 },
-            serene: { minL: 0.6, maxL: 0.95, minC: 0.01, maxC: 0.08 },
-            bold: { minL: 0.1, maxL: 0.8, minC: 0.15, maxC: 0.35 },
-        };
 
         if (count < 2) {
             throw new Error("Harmony generation requires at least 2 colors.");
-        }
-
-        if (minContrast < 1 || minContrast > 21) {
-            throw new Error("minContrast must be between 1 and 21.");
         }
 
         if (samples <= 0 || samples > 256) {
             throw new Error("Samples must be between 1 and 256.");
         }
 
-        if (["auto", "light", "dark"].includes(context) === false) {
-            throw new Error(`Context must be 'auto', 'light' or 'dark'.`);
-        }
-
         if (["low", "medium", "high"].includes(jitter) === false) {
             throw new Error("jitter must be 'low', 'medium' or 'high'.");
         }
 
-        if (["none", "warm", "cool"].includes(hueBias) === false) {
-            throw new Error("hueBias must be 'none', 'warm' or 'cool'.");
+        if (typeof scheme === "string" && schemes.includes(scheme) === false) {
+            throw new Error(`Unknown scheme: '${scheme}'. Valid schemes are: ${schemes.join(", ")}.`);
         }
 
-        if (tone in toneLimits === false) {
-            throw new Error(`Unknown tone: '${tone}'. Valid tones are: ${Object.keys(toneLimits).join(", ")}`);
+        if (typeof tone === "string" && tones.includes(tone) === false) {
+            throw new Error(`Unknown tone: '${tone}'. Valid tones are: ${tones.join(", ")}.`);
         }
 
         if (gamut in colorSpaces === false) {
-            throw new Error(`Unknown gamut: '${gamut}'. Valid gamuts are: ${Object.keys(colorSpaces).join(", ")}`);
+            throw new Error(`Unknown gamut: '${gamut}'. Valid gamuts are: ${Object.keys(colorSpaces).join(", ")}.`);
         }
 
         const seed = Date.now().toString();
         const rng = mulberry32(xfnv1a(seed));
         const jitterDeg = { low: 4, medium: 8, high: 14 }[jitter];
 
-        const [baseL, baseC, baseH, baseA] = this.in("oklch").getCoords();
+        const [baseL, baseC, baseH] = this.in("oklch").getCoords();
+        const baseColor = new ColorClass("oklch", [baseL, baseC, baseH]);
 
-        const cusp = findMaxChroma(baseH, baseL, gamut, ColorClass, rng);
+        const cusp = findMaxChroma(baseH, baseL, gamut, rng);
         const workingC = Math.min(baseC, Number.isFinite(cusp) ? cusp * 0.8 : 0.5);
 
-        const anchors = generateAnchors(scheme, workingC < 0.03 ? rng() * 360 : baseH, count, rng, jitterDeg, hueBias);
+        const anchors = generateAnchors(scheme, workingC < 0.03 ? rng() * 360 : baseH, count, rng, jitterDeg);
 
         if (workingC >= 0.03 && !anchors.some((h) => angleDiff(h, baseH) < 8)) {
             anchors.unshift(baseH);
@@ -627,60 +593,55 @@ export function harmonyPlugin(ColorClass: typeof Color) {
 
         const roles = roleOrderForCount(count);
 
-        const generateCandidate = () => {
+        const generateCandidate = (): Swatch[] => {
+            const MIN_DELTAE = 25;
+            const MIN_CONTRAST = 4.5;
+
             const swatches: Swatch[] = [];
-            const anchorSlots = Array(anchors.length).fill(0);
-            let slotsLeft = count;
-            for (let i = 0; i < anchors.length && slotsLeft > 0; i++) {
-                anchorSlots[i] = 1;
-                slotsLeft--;
-            }
-            let idx = 0;
-            while (slotsLeft > 0) {
-                anchorSlots[idx % anchors.length]++;
-                idx++;
-                slotsLeft--;
-            }
-
             let roleIdx = 0;
-            for (let a = 0; a < anchors.length; a++) {
-                const h = anchors[a];
-                const slots = anchorSlots[a];
-                let anchorBaseC = baseC;
-                if (angleDiff(h, baseH) > 15) {
-                    anchorBaseC = clamp(baseC * lerp(0.6, 1.3, rng()) + rng() * 0.08, 0.01, 2.5);
+
+            for (let i = 0; i < count; i++) {
+                const h = anchors[i % anchors.length];
+                const role = roles[roleIdx % roles.length];
+                roleIdx++;
+
+                const tmpl = roleTemplate(role, tone);
+
+                let L = sampleAround(rng, tmpl.L, tmpl.range, tmpl.skew);
+                let C = tmpl.Cmul * (baseC || 0.2);
+                C = shrinkChromaToGamut(L, C, h, gamut);
+
+                let candidate = new ColorClass("oklch", [L, C, h]);
+                let attempts = 0;
+
+                while (attempts < 20) {
+                    let valid = true;
+
+                    for (const other of swatches) {
+                        const dE = candidate.deltaEOK(other.color);
+                        if (dE < MIN_DELTAE) {
+                            valid = false;
+                            break;
+                        }
+                    }
+
+                    if (valid && swatches.length > 0) {
+                        const hasContrast = swatches.some(
+                            (other) => candidate.contrast(other.color, "wcag21") >= MIN_CONTRAST
+                        );
+                        if (!hasContrast) valid = false;
+                    }
+
+                    if (valid) break;
+
+                    L = clamp(L + (rng() - 0.5) * tmpl.range, 0.01, 0.99);
+                    C = clamp(C * (0.9 + rng() * 0.2), 0.005, 2.0);
+                    candidate = new ColorClass("oklch", [L, C, h]);
+
+                    attempts++;
                 }
 
-                for (let s = 0; s < slots; s++) {
-                    const role = roles[roleIdx % roles.length];
-                    roleIdx++;
-                    const tmpl = roleTemplate(role, "default", context, scheme);
-
-                    const L = sampleAround(rng, tmpl.L, tmpl.range, tmpl.skew);
-                    const localCusp = findMaxChroma(h, L, gamut, ColorClass, rng);
-                    const cNoise = 1 + (rng() - 0.5) * 0.22;
-                    let targetC = anchorBaseC * tmpl.Cmul * cNoise;
-                    targetC = Math.min(targetC, localCusp > 0.000001 ? localCusp * lerp(0.7, 0.98, rng()) : 0.06);
-
-                    if (role === "primary" || role === "accent") targetC = Math.max(targetC, 0.08);
-                    if (role === "neutral" && targetC < 0.01) targetC = 0.01;
-
-                    const Lcouple = 1 - Math.abs(0.5 - L) * 0.95;
-                    targetC *= lerp(0.8, 1.1, Lcouple);
-
-                    const shrinkRes = shrinkChromaToGamut(L, targetC, h, gamut, ColorClass);
-                    const Cfinal = shrinkRes.C;
-
-                    const color = new ColorClass("oklch", [L, Cfinal, h, baseA || 1]);
-
-                    swatches.push({ color, okLCH: [L, Cfinal, h], role });
-                }
-            }
-
-            while (swatches.length > count) swatches.pop();
-
-            for (let i = 0; i < swatches.length; i++) {
-                swatches[i] = nudgeSwatch(swatches[i], swatches, gamut, ColorClass, rng);
+                swatches.push({ color: candidate, okLCH: [L, C, h], role });
             }
 
             return swatches;
@@ -690,7 +651,7 @@ export function harmonyPlugin(ColorClass: typeof Color) {
         let bestMeta: ScorePaletteResult | null = null;
         for (let k = 0; k < samples; k++) {
             const candidate = generateCandidate();
-            const s = scorePalette(candidate, minContrast);
+            const s = scorePalette(candidate);
             if (!best || s.score > (bestMeta?.score ?? -Infinity)) {
                 best = candidate;
                 bestMeta = s;
@@ -698,81 +659,26 @@ export function harmonyPlugin(ColorClass: typeof Color) {
         }
 
         const palette = best?.slice(0, count) ?? [];
-        let maxPairContrast = 0;
-        for (let i = 0; i < palette.length; i++) {
-            for (let j = i + 1; j < palette.length; j++) {
-                maxPairContrast = Math.max(maxPairContrast, palette[i].color.contrast(palette[j].color, "wcag21"));
-            }
-        }
-        if (maxPairContrast < minContrast) {
-            const neutralIdx = palette.findIndex((p) => p.role === "neutral");
-            if (neutralIdx >= 0) {
-                const neutral = palette[neutralIdx];
-                const baseOk = neutral.okLCH.slice();
-                const allL = palette.map((p) => p.okLCH[0]);
-                const meanL = allL.reduce((a, b) => a + b, 0) / allL.length;
-                const targetL = meanL > 0.5 ? clamp(meanL - 0.35, 0.03, 0.97) : clamp(meanL + 0.35, 0.03, 0.97);
-                const newCRes = shrinkChromaToGamut(targetL, Math.max(baseOk[1], 0.01), baseOk[2], gamut, ColorClass);
-                palette[neutralIdx] = {
-                    color: new ColorClass("oklch", [targetL, newCRes.C, baseOk[2], baseA || 1]),
-                    okLCH: [targetL, newCRes.C, baseOk[2]],
-                    role: neutral.role,
-                };
-            } else {
-                let minL = Infinity,
-                    maxL = -Infinity,
-                    minIdx = -1,
-                    maxIdx = -1;
-                for (let i = 0; i < palette.length; i++) {
-                    const L = palette[i].okLCH[0];
-                    if (L < minL) {
-                        minL = L;
-                        minIdx = i;
-                    }
-                    if (L > maxL) {
-                        maxL = L;
-                        maxIdx = i;
-                    }
-                }
-                if (minIdx >= 0 && maxIdx >= 0) {
-                    const low = palette[minIdx];
-                    const high = palette[maxIdx];
-                    const newLowL = clamp(low.okLCH[0] - 0.22, 0.01, 0.99);
-                    const newHighL = clamp(high.okLCH[0] + 0.22, 0.01, 0.99);
-                    const lowCRes = shrinkChromaToGamut(
-                        newLowL,
-                        Math.max(low.okLCH[1], 0.01),
-                        low.okLCH[2],
-                        gamut,
-                        ColorClass
-                    );
-                    const highCRes = shrinkChromaToGamut(
-                        newHighL,
-                        Math.max(high.okLCH[1], 0.01),
-                        high.okLCH[2],
-                        gamut,
-                        ColorClass
-                    );
-                    palette[minIdx] = {
-                        color: new ColorClass("oklch", [newLowL, lowCRes.C, low.okLCH[2], baseA || 1]),
-                        okLCH: [newLowL, lowCRes.C, low.okLCH[2]],
-                        role: low.role,
-                    };
-                    palette[maxIdx] = {
-                        color: new ColorClass("oklch", [newHighL, highCRes.C, high.okLCH[2], baseA || 1]),
-                        okLCH: [newHighL, highCRes.C, high.okLCH[2]],
-                        role: high.role,
-                    };
-                }
-            }
-        }
 
-        for (let i = 0; i < palette.length; i++) {
-            palette[i] = nudgeSwatch(palette[i], palette, gamut, ColorClass, rng);
+        if (includeBase && palette.length > 0) {
+            let minDeltaE = Infinity;
+            let closestIdx = 0;
+            for (let i = 0; i < palette.length; i++) {
+                const dE = baseColor.deltaEOK(palette[i].color);
+                if (dE < minDeltaE) {
+                    minDeltaE = dE;
+                    closestIdx = i;
+                }
+            }
+            palette[closestIdx] = {
+                color: baseColor,
+                okLCH: [baseL, baseC, baseH],
+                role: palette[closestIdx].role,
+            };
         }
 
         const resultArray = palette.map((p) => p.color) as HarmonyResult;
-        let finalMeta = resultArray.map((c, i) => {
+        const finalMeta = resultArray.map((c, i) => {
             let bestIdx = -1;
             let bestContrast = -Infinity;
             for (let j = 0; j < resultArray.length; j++) {
@@ -793,77 +699,6 @@ export function harmonyPlugin(ColorClass: typeof Color) {
 
         resultArray.meta = finalMeta;
         resultArray.score = bestMeta;
-
-        if (tone !== "default") {
-            const limits = toneLimits[tone];
-            if (limits) {
-                let toneMinL = limits.minL;
-                let toneMaxL = limits.maxL;
-                const toneMinC = limits.minC;
-                const toneMaxC = limits.maxC;
-                const isDark = context === "dark" || (context === "auto" && baseL < 0.5);
-                if (isDark) {
-                    toneMinL = clamp(1 - limits.maxL, 0, 1);
-                    toneMaxL = clamp(1 - limits.minL, 0, 1);
-                }
-
-                let currentMinL = Infinity,
-                    currentMaxL = -Infinity;
-                let currentMinC = Infinity,
-                    currentMaxC = -Infinity;
-                for (const p of palette) {
-                    const [L, C] = p.okLCH;
-                    if (L < currentMinL) currentMinL = L;
-                    if (L > currentMaxL) currentMaxL = L;
-                    if (C < currentMinC) currentMinC = C;
-                    if (C > currentMaxC) currentMaxC = C;
-                }
-                if (currentMaxL - currentMinL < 0.01) currentMaxL = currentMinL + 0.01;
-                if (currentMaxC - currentMinC < 0.01) currentMaxC = currentMinC + 0.01;
-
-                for (let i = 0; i < palette.length; i++) {
-                    const [L, C, h] = palette[i].okLCH;
-                    const tL = (L - currentMinL) / (currentMaxL - currentMinL);
-                    const newL = clamp(lerp(toneMinL, toneMaxL, tL), 0.01, 0.99);
-                    const tC = (C - currentMinC) / (currentMaxC - currentMinC);
-                    const newC = clamp(lerp(toneMinC, toneMaxC, tC), 0.005, 2.0);
-                    const shrinkRes = shrinkChromaToGamut(newL, newC, h, gamut, ColorClass);
-                    const finalC = shrinkRes.C;
-                    const newColor = new ColorClass("oklch", [newL, finalC, h, baseA || 1]);
-                    resultArray[i] = newColor;
-                    finalMeta[i].oklch = [newL, finalC, h];
-                    palette[i].color = newColor;
-                    palette[i].okLCH = [newL, finalC, h];
-                }
-
-                for (let i = 0; i < palette.length; i++) {
-                    palette[i] = nudgeSwatch(palette[i], palette, gamut, ColorClass, rng);
-                    resultArray[i] = palette[i].color;
-                    finalMeta[i].oklch = palette[i].okLCH;
-                }
-
-                finalMeta = resultArray.map((c, i) => {
-                    let bestIdx = -1;
-                    let bestContrast = -Infinity;
-                    for (let j = 0; j < resultArray.length; j++) {
-                        if (i === j) continue;
-                        const r = c.contrast(resultArray[j], "wcag21");
-                        if (r > bestContrast) {
-                            bestContrast = r;
-                            bestIdx = j;
-                        }
-                    }
-                    return {
-                        role: palette[i].role,
-                        contrastAgainst: bestIdx,
-                        bestContrast,
-                        oklch: palette[i].okLCH,
-                    };
-                });
-                resultArray.meta = finalMeta;
-                resultArray.score = scorePalette(palette, minContrast);
-            }
-        }
 
         return resultArray;
     };

@@ -1,7 +1,7 @@
-import { Color } from "./Color";
-import { colorModels } from "./converters.js";
-import { EASINGS, MATRICES } from "./math.js";
-import { ColorModel, ColorModelConverter, ColorSpace, FitMethod } from "./types.js";
+import { Color } from "../Color";
+import { colorModels } from "../converters.js";
+import { EASINGS, MATRICES } from "../math.js";
+import { ColorModel, ColorModelConverter, ColorSpace, FitMethod } from "../types.js";
 import {
     configure,
     extractBalancedExpression,
@@ -15,7 +15,7 @@ import {
     registerNamedColor,
     unregister,
     use,
-} from "./utils.js";
+} from "../utils.js";
 
 describe("Color", () => {
     it("should define a Color instance in different ways", () => {
@@ -105,11 +105,7 @@ describe("Color", () => {
     });
 
     it("should convert HEX color to RGB", () => {
-        expect(Color.from("#ff5733").to("rgb")).toBe("rgb(255 87 51)");
-    });
-
-    it("should convert LCH color to sRGB", () => {
-        expect(Color.from("lch(79.7256 40.448 84.771)").to("srgb")).toBe("color(srgb 0.8741 0.76037 0.47644)");
+        expect(Color.from("#ff5733").toString()).toBe("rgb(255 87 51)");
     });
 
     it("should output with different options", () => {
@@ -118,10 +114,10 @@ describe("Color", () => {
         const oklab = Color.from("oklab(0.18751241 0.22143 -0.398685234)");
         const xyz = Color.from("color(xyz 1.4 0.3 -0.2)");
 
-        expect(hsl.to("hsl", { legacy: true })).toBe("hsla(339, 83, 46, 0.5)");
-        expect(lch.to("lch", { units: true })).toBe("lch(83% 122 270deg)");
-        expect(oklab.to("oklab", { precision: 1 })).toBe("oklab(0.2 0.2 -0.4)");
-        expect(xyz.to("xyz", { fit: "none" })).toBe("color(xyz 1.4 0.3 -0.2)");
+        expect(hsl.toString({ legacy: true })).toBe("hsla(339, 83, 46, 0.5)");
+        expect(lch.toString({ units: true })).toBe("lch(83% 122 270deg)");
+        expect(oklab.toString({ precision: 1 })).toBe("oklab(0.2 0.2 -0.4)");
+        expect(xyz.toString({ fit: "none" })).toBe("color(xyz 1.4 0.3 -0.2)");
     });
 
     it("should parse deeply nested colors", () => {
@@ -147,21 +143,24 @@ describe("Color", () => {
             const randomXyzSpace = (): string => ["xyz-d65", "xyz-d50", "xyz"][Math.floor(Math.random() * 3)];
             const randomModel = (): string =>
                 ["rgb", "hsl", "hwb", "lab", "lch", "oklab", "oklch"][Math.floor(Math.random() * 7)];
+            const optionalAlpha = () => {
+                return Math.random() < 0.5 ? " / alpha" : "";
+            };
 
             const colorFns = [
                 (inner: string) => `light-dark(${inner}, ${getNestedColor()})`,
                 (inner: string) =>
                     `color-mix(in ${randomModel()}, ${inner} ${randomNum()}%, rebeccapurple ${randomNum()}%)`,
                 (inner: string) => `contrast-color(${inner})`,
-                (inner: string) => `rgb(from ${inner} r g b)`,
-                (inner: string) => `hsl(from ${inner} h s l)`,
-                (inner: string) => `hwb(from ${inner} h w b)`,
-                (inner: string) => `lab(from ${inner} l a b)`,
-                (inner: string) => `lch(from ${inner} l c h)`,
-                (inner: string) => `oklab(from ${inner} l a b)`,
-                (inner: string) => `oklch(from ${inner} l c h)`,
-                (inner: string) => `color(from ${inner} ${randomRgbSpace()} r g b / alpha)`,
-                (inner: string) => `color(from ${inner} ${randomXyzSpace()} x y z / alpha)`,
+                (inner: string) => `rgb(from ${inner} r g b${optionalAlpha()})`,
+                (inner: string) => `hsl(from ${inner} h s l${optionalAlpha()})`,
+                (inner: string) => `hwb(from ${inner} h w b${optionalAlpha()})`,
+                (inner: string) => `lab(from ${inner} l a b${optionalAlpha()})`,
+                (inner: string) => `lch(from ${inner} l c h${optionalAlpha()})`,
+                (inner: string) => `oklab(from ${inner} l a b${optionalAlpha()})`,
+                (inner: string) => `oklch(from ${inner} l c h${optionalAlpha()})`,
+                (inner: string) => `color(from ${inner} ${randomRgbSpace()} r g b${optionalAlpha()})`,
+                (inner: string) => `color(from ${inner} ${randomXyzSpace()} x y z${optionalAlpha()})`,
             ];
 
             if (deepness <= 0) {
@@ -272,16 +271,16 @@ describe("Color", () => {
 
     it("should handle none and calc(NaN) components correctly", () => {
         const color = Color.from("hsl(none calc(NaN) 50%)");
-        expect(color.to("hsl")).toBe("hsl(0 0 50)");
+        expect(color.toString()).toBe("hsl(0 0 50)");
         const adjusted = color.set({ h: 150, s: 100 });
-        expect(adjusted.to("hsl")).toBe("hsl(150 100 50)");
+        expect(adjusted.toString()).toBe("hsl(150 100 50)");
     });
 
     it("should handle calc(infinity) components correctly", () => {
         const color = Color.from("hsl(calc(infinity) calc(-infinity) 50%)");
-        expect(color.to("hsl")).toBe("hsl(0 0 50)");
+        expect(color.toString()).toBe("hsl(0 0 50)");
         const adjusted = color.set({ h: 100, s: 100 });
-        expect(adjusted.to("hsl")).toBe("hsl(100 100 50)");
+        expect(adjusted.toString()).toBe("hsl(100 100 50)");
     });
 
     it("should return correct component values using get()", () => {
@@ -332,25 +331,25 @@ describe("Color", () => {
     it("should adjust opacity correctly", () => {
         const color = Color.from("rgb(120, 20, 170)");
         const adjusted = color.set({ alpha: 0.5 });
-        expect(adjusted.to("rgb")).toBe("rgb(120 20 170 / 0.5)");
+        expect(adjusted.toString()).toBe("rgb(120 20 170 / 0.5)");
     });
 
     it("should adjust saturation correctly", () => {
         const color = Color.from("hsl(120, 80%, 50%)");
         const adjusted = color.set({ s: 10 });
-        expect(adjusted.to("hsl", { units: true })).toBe("hsl(120deg 10% 50%)");
+        expect(adjusted.toString({ units: true })).toBe("hsl(120deg 10% 50%)");
     });
 
     it("should adjust hue correctly", () => {
         const color = Color.from("hsl(30, 100%, 50%)");
         const adjusted = color.set({ h: (h) => h - 70 });
-        expect(adjusted.to("hsl", { units: true })).toBe("hsl(320deg 100% 50%)");
+        expect(adjusted.toString({ units: true })).toBe("hsl(320deg 100% 50%)");
     });
 
     it("should adjust brightness correctly", () => {
         const color = Color.from("hsl(50, 100%, 30%)");
         const adjusted = color.set({ l: 50 });
-        expect(adjusted.to("hsl", { units: true })).toBe("hsl(50deg 100% 50%)");
+        expect(adjusted.toString({ units: true })).toBe("hsl(50deg 100% 50%)");
     });
 
     it("should adjust contrast correctly", () => {
@@ -361,7 +360,7 @@ describe("Color", () => {
             g: (g) => (g - 128) * amount + 128,
             b: (b) => (b - 128) * amount + 128,
         });
-        expect(adjusted.to("rgb")).toBe("rgb(0 252 255)");
+        expect(adjusted.toString()).toBe("rgb(0 252 255)");
     });
 
     it("should apply sepia filter", () => {
@@ -374,7 +373,7 @@ describe("Color", () => {
             b: b + (0.272 * r + 0.534 * g + 0.131 * b - b) * amount,
         }));
 
-        expect(adjusted.to("rgb")).toBe("rgb(152 135 105)");
+        expect(adjusted.toString()).toBe("rgb(152 135 105)");
     });
 
     it("should return the same color-mix in different syntaxes", () => {
@@ -399,7 +398,14 @@ describe("Color", () => {
         expect(Color.from(lightDark).to("named-color")).toBe("blue");
         expect(Color.from(systemColor).to("rgb")).toBe("rgb(0 128 255)");
 
-        configure({ systemColor: { key: "LinkText", dark: [50, 150, 250] } });
+        configure({
+            systemColors: {
+                LinkText: [
+                    [0, 0, 255],
+                    [50, 150, 250],
+                ],
+            },
+        });
 
         expect(Color.from(systemColor).to("rgb")).toBe("rgb(50 150 250)");
     });
@@ -484,8 +490,7 @@ describe("Color", () => {
         ];
 
         cases.forEach(([input, expected]) => {
-            const type = Color.type(input) as string;
-            expect(Color.from(input).to(type, { precision: 4 })).toBe(expected);
+            expect(Color.from(input).toString({ precision: 4 })).toBe(expected);
         });
     });
 
@@ -1706,7 +1711,7 @@ describe("Color registration system", () => {
     });
 });
 
-declare module "./Color.js" {
+declare module "../Color.js" {
     interface Color<M extends ColorModel = ColorModel> {
         /**
          * Lightens the color by the given amount.
@@ -1746,8 +1751,8 @@ describe("use()", () => {
         use(lightenPlugin, darkenPlugin);
 
         const color = Color.from("hsl(50 50 50)");
-        expect(color.lighten(10).to("hsl")).toBe("hsl(50 50 60)");
-        expect(color.darken(20).to("hsl")).toBe("hsl(50 50 30)");
+        expect(color.lighten(10).toString()).toBe("hsl(50 50 60)");
+        expect(color.darken(20).toString()).toBe("hsl(50 50 30)");
     });
 
     it("should throw if called with no arguments", () => {

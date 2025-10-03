@@ -82,11 +82,11 @@ body:
               Provide details about your environment:
               - Operating System (e.g., Windows 10, macOS Monterey)
               - Browser and Version (if applicable)
-              - Version of CSSpectrum (if applicable)
+              - Project/Package Version (if applicable)
           placeholder: |
               Operating System: macOS Monterey
               Browser: Chrome 103.0.5060.53
-              Version of CSSpectrum: 2.3.1
+              Project/Package Version: 2.3.1
 
     - type: textarea
       id: additional_information

@@ -1,4 +1,4 @@
-import { Color } from "./Color.js";
+import { Color } from "../Color.js";
 
 describe("Web Platform Tests", () => {
     it("should test valid <color>", () => {
@@ -44,7 +44,7 @@ describe("Web Platform Tests", () => {
         cases.forEach((c) => expect(Color.isValid(c)).toBe(false));
     });
 
-    it("should test invalid <system-color>", () => {
+    it("should test valid <system-color>", () => {
         const cases = [
             "ActiveText",
             "ButtonBorder",

@@ -3,7 +3,6 @@ import { cache, clean, fit } from "./utils.js";
 import type {
     ComponentDefinition,
     Component,
-    Interface,
     MixOptions,
     ColorType,
     OutputType,
@@ -212,26 +211,6 @@ export class Color<M extends ColorModel = ColorModel> {
     }
 
     /**
-     * Returns an array of supported output color types.
-     *
-     * @returns An array of supported output type names.
-     */
-    static getOutputTypes() {
-        return Object.keys(colorTypes).filter(
-            (key) => typeof (colorTypes as any)[key]?.fromBridge === "function" // eslint-disable-line @typescript-eslint/no-explicit-any
-        ) as OutputType[];
-    }
-
-    /**
-     * Returns an array of all supported color types.
-     *
-     * @returns An array of supported color types.
-     */
-    static getInputTypes() {
-        return Array.from(Object.keys(colorTypes)) as ColorType[];
-    }
-
-    /**
      * Converts the current color to the specified format.
      *
      * @param format - The target color format.
@@ -268,14 +247,24 @@ export class Color<M extends ColorModel = ColorModel> {
     }
 
     /**
+     * Formats the color as a string in its current color model.
+     *
+     * @param options - Formatting options.
+     * @returns The color formatted as a string in its current model.
+     */
+    toString(options?: FormattingOptions) {
+        return this.to(this.model, options);
+    }
+
+    /**
      * Allows access to the raw values of the color in a specified model.
      *
      * @param model - The target color model.
      * @returns An object containing methods to get, set, and mix color components in the specified color model.
      */
-    in<T extends ColorModel = ColorModel>(model: T): Interface<T>; // eslint-disable-line no-unused-vars
-    in(model: string): Interface<any>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
-    in<T extends ColorModel = ColorModel>(model: string | T): Interface<T> {
+    in<T extends ColorModel = ColorModel>(model: T): Color<T>; // eslint-disable-line no-unused-vars
+    in(model: string): Color<any>; // eslint-disable-line no-unused-vars, @typescript-eslint/no-explicit-any
+    in<T extends ColorModel = ColorModel>(model: string | T): Color<T> {
         const { model: currentModel, coords: currentCoords } = this;
         const targetModel = model.trim().toLowerCase();
 
@@ -370,15 +359,7 @@ export class Color<M extends ColorModel = ColorModel> {
             }
         }
 
-        const instance = new Color(targetModel as ColorModel, [...value.slice(0, 3), currentCoords[3] ?? 1]);
-
-        return {
-            get: instance.get.bind(instance) as Interface<T>["get"],
-            getCoords: instance.getCoords.bind(instance) as Interface<T>["getCoords"],
-            set: instance.set.bind(instance) as Interface<T>["set"],
-            setCoords: instance.setCoords.bind(instance) as Interface<T>["setCoords"],
-            mix: instance.mix.bind(instance) as Interface<T>["mix"],
-        };
+        return new Color(targetModel as T, [...value.slice(0, 3), currentCoords[3] ?? 1]);
     }
 
     /**
@@ -746,22 +727,22 @@ export class Color<M extends ColorModel = ColorModel> {
     /**
      * Calculates the luminance of the color.
      *
-     * @param space - The color space to use for luminance calculation. Can be "xyz" (default) or "oklab".
+     * @param space - The color space to use for luminance calculation. Can be "xyz" (default), or "apca".
      * @returns The luminance value of the color, a number between 0 and 1.
      */
-    luminance(space: "xyz" | "oklab" = "xyz") {
+    luminance(space: "xyz" | "apca" = "xyz") {
         const cleanedSpace = space.trim().toLowerCase();
         switch (cleanedSpace) {
             case "xyz": {
                 const [, Y] = this.in("xyz").getCoords();
                 return Y;
             }
-            case "oklab": {
-                const [L] = this.in("oklab").getCoords();
-                return L;
+            case "apca": {
+                const [r, g, b] = this.in("srgb-linear").getCoords();
+                return 0.2126729 * r + 0.7151522 * g + 0.072175 * b;
             }
             default:
-                throw new Error(`Invalid color space for luminance: must be 'xyz' or 'oklab'.`);
+                throw new Error(`Invalid color space for luminance: must be 'xyz' or 'apca'.`);
         }
     }
 
@@ -769,18 +750,16 @@ export class Color<M extends ColorModel = ColorModel> {
      * Calculates the contrast ratio between the current color and a given color.
      *
      * @param other - The color to compare against (as a Color instance or string).
-     * @param algorithm - The contrast algorithm to use: "wcag21" (default), "apca", or "oklab".
+     * @param algorithm - The contrast algorithm to use: "wcag21" (default), or "apca".
      *                  - "wcag21": Uses WCAG 2.1 contrast ratio (1 to 21). Limited by sRGB assumptions and poor hue handling.
      *                  - "apca": Uses APCA-W3 (Lc 0 to ~100), better for perceptual accuracy. See https://git.myndex.com.
-     *                  - "oklab": Uses lightness difference in OKLab (0 to 1) for perceptual uniformity.
-     *                  Note: WCAG 2.1 is standard but limited; consider APCA or OKLab for modern displays and test visually.
+     *                  Note: WCAG 2.1 is standard but limited; consider APCA for modern displays and test visually.
      * @returns The contrast value:
      *          - "wcag21": Ratio from 1 to 21.
      *          - "apca": Lc value (positive for light text on dark background, negative for dark text).
-     *          - "oklab": Lightness difference (0 to 1).
      * @throws If the algorithm is invalid.
      */
-    contrast(other: Color<ColorModel> | string, algorithm: "wcag21" | "apca" | "oklab" = "wcag21") {
+    contrast(other: Color<ColorModel> | string, algorithm: "wcag21" | "apca" = "wcag21") {
         const otherColor = typeof other === "string" ? Color.from(other) : other;
         const cleanedAlgorithm = algorithm.trim().toLowerCase();
 
@@ -790,14 +769,9 @@ export class Color<M extends ColorModel = ColorModel> {
                 const L_text = this.luminance();
                 return (Math.max(L_text, L_bg) + 0.05) / (Math.min(L_text, L_bg) + 0.05);
             }
-            case "oklab": {
-                const oklab1 = this.in("oklab").getCoords();
-                const oklab2 = otherColor.in("oklab").getCoords();
-                return Math.abs(oklab1[0] - oklab2[0]);
-            }
             case "apca": {
-                const L_text = this.luminance();
-                const L_bg = otherColor.luminance();
+                const yText = this.luminance("apca");
+                const yBg = otherColor.luminance("apca");
 
                 const Ntx = 0.57;
                 const Nbg = 0.56;
@@ -809,22 +783,22 @@ export class Color<M extends ColorModel = ColorModel> {
                 const B_thrsh = 0.022;
                 const B_clip = 1.414;
 
-                const yText = Math.max(L_text, 0);
-                const yBg = Math.max(L_bg, 0);
-
                 const yTextClamped = yText < B_thrsh ? yText + Math.pow(B_thrsh - yText, B_clip) : yText;
                 const yBgClamped = yBg < B_thrsh ? yBg + Math.pow(B_thrsh - yBg, B_clip) : yBg;
 
                 let S_apc: number;
-                if (yBg > yText) S_apc = (Math.pow(yBgClamped, Nbg) - Math.pow(yTextClamped, Ntx)) * W_scale;
-                else S_apc = (Math.pow(yBgClamped, Rbg) - Math.pow(yTextClamped, Rtx)) * W_scale;
+                if (yBg > yText) {
+                    S_apc = (Math.pow(yBgClamped, Nbg) - Math.pow(yTextClamped, Ntx)) * W_scale;
+                } else {
+                    S_apc = (Math.pow(yBgClamped, Rbg) - Math.pow(yTextClamped, Rtx)) * W_scale;
+                }
 
                 if (Math.abs(S_apc) < W_clamp) return 0;
 
                 return S_apc > 0 ? (S_apc - W_offset) * 100 : (S_apc + W_offset) * 100;
             }
             default: {
-                throw new Error(`Unsupported contrast algorithm: must be 'wcag21', 'apca', or 'oklab'.`);
+                throw new Error(`Unsupported contrast algorithm: must be 'wcag21', or 'apca'.`);
             }
         }
     }
