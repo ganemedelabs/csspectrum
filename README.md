@@ -4,7 +4,7 @@
 ![npm](https://img.shields.io/npm/dw/saturon)
 ![License](https://img.shields.io/npm/l/saturon)
 
-A fast, tiny, extensible color library fully aligned with W3C Color Level 4/5 specs — built for developers and color scientists alike.
+A runtime-extensible JavaScript library for parsing, converting, and manipulating colors with full CSS spec support.
 
 ## 📋 Table of Contents
 
@@ -63,24 +63,24 @@ console.log(color.to("hex-color")); // → #ff3381ff
 
 ### Manipulating Components
 
-```js
-const color = Color.from("hwb(255 7% 1%)");
-const hwb = color.in("hwb").set({ h: 100, b: (b) => b * 20 });
-console.log(hwb.to("hwb")); // → hwb(100 7% 20%)
+```ts
+const color = Color.from<"hwb">("hwb(255 7% 1%)");
+const hwb = color.set({ h: 100, b: (b) => b * 20 });
+console.log(hwb.toString()); // → hwb(100 7% 20%)
 ```
 
 ### Mixing Colors
 
 ```js
 const red = Color.from("hsl(0, 100%, 50%)");
-const mixed = red.in("hsl").mix("hsl(120, 100%, 50%)");
-console.log(mixed.to("hsl")); // → hsl(60, 100%, 50%)
+const mixed = red.mix("hsl(120, 100%, 50%)");
+console.log(mixed.toString()); // → hsl(60, 100%, 50%)
 ```
 
 ### New Named Color Registration
 
 ```js
-Color.registerNamedColor("sunsetblush", [255, 94, 77]);
+registerNamedColor("sunsetblush", [255, 94, 77]);
 const rgb = Color.from("rgb(255, 94, 77)");
 console.log(rgb.to("named-color")); // → sunsetblush
 ```
@@ -99,7 +99,7 @@ const converter = {
     fromBridge: (rgb: number[]) => [/* i, ct, cp */],
 };
 
-Color.registerFormat("ictcp", converter);
+registerColorFunction("ictcp", converter);
 const ictcp = Color.from("ictcp(0.2 0.2 -0.1)");
 console.log(ictcp.to("rgb")); // → rgb(6.09 6.58 90.88)
 ```
