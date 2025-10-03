@@ -63,8 +63,8 @@ console.log(color.to("hex-color")); // → #ff3381ff
 
 ### Manipulating Components
 
-```js
-const color = Color.from("hwb(255 7% 1%)");
+```ts
+const color = Color.from<"hwb">("hwb(255 7% 1%)");
 const hwb = color.set({ h: 100, b: (b) => b * 20 });
 console.log(hwb.toString()); // → hwb(100 7% 20%)
 ```
