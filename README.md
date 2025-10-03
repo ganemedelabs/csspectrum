@@ -65,16 +65,16 @@ console.log(color.to("hex-color")); // → #ff3381ff
 
 ```js
 const color = Color.from("hwb(255 7% 1%)");
-const hwb = color.in("hwb").set({ h: 100, b: (b) => b * 20 });
-console.log(hwb.to("hwb")); // → hwb(100 7% 20%)
+const hwb = color.set({ h: 100, b: (b) => b * 20 });
+console.log(hwb.toString()); // → hwb(100 7% 20%)
 ```
 
 ### Mixing Colors
 
 ```js
 const red = Color.from("hsl(0, 100%, 50%)");
-const mixed = red.in("hsl").mix("hsl(120, 100%, 50%)");
-console.log(mixed.to("hsl")); // → hsl(60, 100%, 50%)
+const mixed = red.mix("hsl(120, 100%, 50%)");
+console.log(mixed.toString()); // → hsl(60, 100%, 50%)
 ```
 
 ### New Named Color Registration
