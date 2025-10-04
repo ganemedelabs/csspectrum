@@ -21,7 +21,6 @@ A runtime-extensible JavaScript library for parsing, converting, and manipulatin
 - Infinite nested color functions (e.g. `color-mix(...)` inside `light-dark(...)`)
 - Converts between all modern color spaces (OKLab, Display-P3, Rec.2020, etc.)
 - High-precision color math for serious colorimetry
-- Advanced contrast & accessibility calculations (WCAG 2.1, APCA, OKLab)
 - Powerful plugin system for custom color spaces and functions
 - Supports complex color syntaxes like `color(from hsl(240 none calc(-infinity) / 0.5) display-p3 r calc(g + b) 100 / alpha)`
 
@@ -43,12 +42,12 @@ const color = Color.from("hsl(200 80% 40%)");
 console.log(color.to("oklch")); // → "oklch(62.43% 0.18 236.79)"
 
 // Access values in another color space
-const lab = color.in("lab").get();
+const lab = color.in("lab").toObject();
 console.log(lab); // → { l: 52.3, a: -20.9, b: -45.1, alpha: 1 }
 
 // Modify components
-color.in("hsl").set({ l: (l) => l * 1.2 });
-console.log(color.to("hsl", { units: true })); // → "hsl(200deg 80% 48%)"
+const hsl = color.in("hsl").with({ l: (l) => l * 1.2 });
+console.log(hsl.to("hsl", { units: true })); // → "hsl(200deg 80% 48%)"
 ```
 
 ## 💡 Examples
@@ -65,8 +64,8 @@ console.log(color.to("hex-color")); // → #ff3381ff
 
 ```ts
 const color = Color.from<"hwb">("hwb(255 7% 1%)");
-const hwb = color.set({ h: 100, b: (b) => b * 20 });
-console.log(hwb.toString()); // → hwb(100 7% 20%)
+const hwb = color.with({ h: 100, b: (b) => b * 20 });
+console.log(hwb.toString()); // → hwb(100 7 20)
 ```
 
 ### Mixing Colors
@@ -74,7 +73,7 @@ console.log(hwb.toString()); // → hwb(100 7% 20%)
 ```js
 const red = Color.from("hsl(0, 100%, 50%)");
 const mixed = red.mix("hsl(120, 100%, 50%)");
-console.log(mixed.toString()); // → hsl(60, 100%, 50%)
+console.log(mixed.toString()); // → hsl(60 100 50)
 ```
 
 ### New Named Color Registration
@@ -101,7 +100,7 @@ const converter = {
 
 registerColorFunction("ictcp", converter);
 const ictcp = Color.from("ictcp(0.2 0.2 -0.1)");
-console.log(ictcp.to("rgb")); // → rgb(6.09 6.58 90.88)
+console.log(ictcp.to("rgb", { precision: 2 })); // → rgb(6.09 6.58 90.88)
 ```
 
 ## 📜 License

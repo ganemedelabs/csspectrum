@@ -238,22 +238,12 @@ export class Color<M extends ColorModel = ColorModel> {
         }
 
         if (cleanedType in colorModels) {
-            const coords = this.in(cleanedType).getCoords();
+            const coords = this.in(cleanedType).toArray();
             return format(coords, { legacy, fit, precision, units });
         }
 
-        const coords = this.in(bridge).getCoords();
+        const coords = this.in(bridge).toArray();
         return format(fromBridge(coords), { legacy, fit, precision, units });
-    }
-
-    /**
-     * Formats the color as a string in its current color model.
-     *
-     * @param options - Formatting options.
-     * @returns The color formatted as a string in its current model.
-     */
-    toString(options?: FormattingOptions) {
-        return this.to(this.model, options);
     }
 
     /**
@@ -363,15 +353,25 @@ export class Color<M extends ColorModel = ColorModel> {
     }
 
     /**
-     * Gets all component values as an object.
+     * Formats the color as a string in its current color model.
      *
-     * @param options - Options for retrieving the coordinates.
-     * @returns An object mapping component names to their numeric values.
+     * @param options - Formatting options.
+     * @returns The color formatted as a string in its current model.
+     */
+    toString(options?: FormattingOptions) {
+        return this.to(this.model, options);
+    }
+
+    /**
+     * Converts the color instance to an object representation based on the specified options.
+     *
+     * @param options - Optional configuration for retrieving color coordinates.
+     * @returns An object with keys for each color component and "alpha", mapped to their numeric values.
      * @throws If the color model does not have defined components.
      */
-    get(options: GetOptions = {}) {
+    toObject(options: GetOptions = {}) {
         const { model } = this;
-        const coords = this.getCoords(options);
+        const coords = this.toArray(options);
 
         const { components } = colorModels[model] as unknown as Record<
             string,
@@ -403,13 +403,13 @@ export class Color<M extends ColorModel = ColorModel> {
     }
 
     /**
-     * Gets all component values as an array.
+     * Converts the color instance to an array representation, optionally normalizing and fitting the color components.
      *
-     * @param options - Options for retrieving the coordinates.
-     * @return An array of component values in the order defined by the color model, with alpha as the fourth element.
+     * @param options - Configuration options for conversion.
+     * @returns An array containing the normalized color components and alpha value.
      * @throws If the color model does not have defined components.
      */
-    getCoords(options: GetOptions = {}) {
+    toArray(options: GetOptions = {}) {
         const { fit: fitMethod = "none", precision } = options;
         const { model, coords } = this;
 
@@ -455,17 +455,11 @@ export class Color<M extends ColorModel = ColorModel> {
     }
 
     /**
-     * Sets new values for the color components and returns a new `Color` instance with the updated values.
+     * Returns a new `Color` instance with updated color components.
      *
-     * The `values` parameter can be:
-     * - A partial object mapping component names (including "alpha") to numbers or updater functions.
-     * - A function that receives the current components and returns a partial object with updated values.
-     *
-     * Each component value can be set directly or via a function that receives the previous value.
-     * Values are clamped to their allowed ranges, and special handling is provided for `NaN`, `Infinity`, and `-Infinity`.
-     *
-     * @param values - Partial mapping of component names to new values or updater functions, or a function returning such a mapping.
-     * @returns A new `Color` instance with the updated component values.
+     * @param values - Either a partial object mapping component names to new values or updater functions,
+     *                 or a function that receives the current components and returns a partial object of updated values.
+     * @returns A new `Color` instance with the updated components.
      * @throws If the color model does not have defined components.
      *
      * @example
@@ -484,7 +478,7 @@ export class Color<M extends ColorModel = ColorModel> {
      * })) // applies a sepia filter
      * ```
      */
-    set(
+    with(
         values: // eslint-disable-next-line no-unused-vars
         | Partial<{ [K in Component<M> | "alpha"]: number | ((prev: number) => number) }>
             // eslint-disable-next-line no-unused-vars
@@ -494,7 +488,7 @@ export class Color<M extends ColorModel = ColorModel> {
               }>)
     ) {
         const { model } = this;
-        const coords = this.getCoords();
+        const coords = this.toArray();
 
         const { components } = colorModels[model] as unknown as Record<
             string,
@@ -554,15 +548,15 @@ export class Color<M extends ColorModel = ColorModel> {
     }
 
     /**
-     * Sets component values using an array and returns a new `Color` instance with the updated values.
+     * Returns a new `Color` instance with updated coordinate values.
      *
-     * @param newCoords - An array of new coordinate values (numbers or undefined) to set.
-     * @returns The updated Color instance.
+     * @param newCoords - An array of new coordinate values to apply to the color model.
+     * @returns A new `Color` instance with the adjusted coordinates.
      * @throws If the color model does not have defined components.
      */
-    setCoords(newCoords: (number | undefined)[]) {
+    withCoords(newCoords: (number | undefined)[]) {
         const { model } = this;
-        const coords = this.getCoords();
+        const coords = this.toArray();
 
         const { components } = colorModels[model] as unknown as Record<
             string,
@@ -649,7 +643,7 @@ export class Color<M extends ColorModel = ColorModel> {
         };
 
         const { model } = this;
-        const coords = this.getCoords();
+        const coords = this.toArray();
 
         const { hue = "shorter", amount = 0.5, easing = "linear", gamma = 1.0 } = options;
         const { components } = colorModels[model] as unknown as Record<
@@ -673,7 +667,7 @@ export class Color<M extends ColorModel = ColorModel> {
 
         const thisCoords = coords.slice(0, 3);
         const otherColor = typeof other === "string" ? Color.from(other) : other;
-        const otherCoords = otherColor.in(model).getCoords().slice(0, 3);
+        const otherCoords = otherColor.in(model).toArray().slice(0, 3);
 
         const thisAlpha = coords[3];
         const otherAlpha = otherColor.coords[3];
@@ -725,82 +719,20 @@ export class Color<M extends ColorModel = ColorModel> {
     }
 
     /**
-     * Calculates the luminance of the color.
+     * Calculates the contrast ratio between this color and another color, following the WCAG 2.1 formula.
      *
-     * @param space - The color space to use for luminance calculation. Can be "xyz" (default), or "apca".
-     * @returns The luminance value of the color, a number between 0 and 1.
-     */
-    luminance(space: "xyz" | "apca" = "xyz") {
-        const cleanedSpace = space.trim().toLowerCase();
-        switch (cleanedSpace) {
-            case "xyz": {
-                const [, Y] = this.in("xyz").getCoords();
-                return Y;
-            }
-            case "apca": {
-                const [r, g, b] = this.in("srgb-linear").getCoords();
-                return 0.2126729 * r + 0.7151522 * g + 0.072175 * b;
-            }
-            default:
-                throw new Error(`Invalid color space for luminance: must be 'xyz' or 'apca'.`);
-        }
-    }
-
-    /**
-     * Calculates the contrast ratio between the current color and a given color.
+     * @param other - The color to compare against. Can be a `Color` instance or a color string.
+     * @returns The contrast ratio as a number (1 to 21). Ratios above 4.5 are generally considered accessible for normal text.
      *
-     * @param other - The color to compare against (as a Color instance or string).
-     * @param algorithm - The contrast algorithm to use: "wcag21" (default), or "apca".
-     *                  - "wcag21": Uses WCAG 2.1 contrast ratio (1 to 21). Limited by sRGB assumptions and poor hue handling.
-     *                  - "apca": Uses APCA-W3 (Lc 0 to ~100), better for perceptual accuracy. See https://git.myndex.com.
-     *                  Note: WCAG 2.1 is standard but limited; consider APCA for modern displays and test visually.
-     * @returns The contrast value:
-     *          - "wcag21": Ratio from 1 to 21.
-     *          - "apca": Lc value (positive for light text on dark background, negative for dark text).
-     * @throws If the algorithm is invalid.
+     * @remarks
+     * - WCAG 2.1 is the standard for contrast, but may be limited for modern displays.
+     * - Consider using APCA for more accurate results..
      */
-    contrast(other: Color<ColorModel> | string, algorithm: "wcag21" | "apca" = "wcag21") {
+    contrast(other: Color<ColorModel> | string) {
         const otherColor = typeof other === "string" ? Color.from(other) : other;
-        const cleanedAlgorithm = algorithm.trim().toLowerCase();
-
-        switch (cleanedAlgorithm) {
-            case "wcag21": {
-                const L_bg = otherColor.luminance();
-                const L_text = this.luminance();
-                return (Math.max(L_text, L_bg) + 0.05) / (Math.min(L_text, L_bg) + 0.05);
-            }
-            case "apca": {
-                const yText = this.luminance("apca");
-                const yBg = otherColor.luminance("apca");
-
-                const Ntx = 0.57;
-                const Nbg = 0.56;
-                const Rtx = 0.62;
-                const Rbg = 0.65;
-                const W_scale = 1.14;
-                const W_offset = 0.027;
-                const W_clamp = 0.1;
-                const B_thrsh = 0.022;
-                const B_clip = 1.414;
-
-                const yTextClamped = yText < B_thrsh ? yText + Math.pow(B_thrsh - yText, B_clip) : yText;
-                const yBgClamped = yBg < B_thrsh ? yBg + Math.pow(B_thrsh - yBg, B_clip) : yBg;
-
-                let S_apc: number;
-                if (yBg > yText) {
-                    S_apc = (Math.pow(yBgClamped, Nbg) - Math.pow(yTextClamped, Ntx)) * W_scale;
-                } else {
-                    S_apc = (Math.pow(yBgClamped, Rbg) - Math.pow(yTextClamped, Rtx)) * W_scale;
-                }
-
-                if (Math.abs(S_apc) < W_clamp) return 0;
-
-                return S_apc > 0 ? (S_apc - W_offset) * 100 : (S_apc + W_offset) * 100;
-            }
-            default: {
-                throw new Error(`Unsupported contrast algorithm: must be 'wcag21', or 'apca'.`);
-            }
-        }
+        const [, L_bg] = otherColor.in("xyz-d65").toArray();
+        const [, L_text] = this.in("xyz-d65").toArray();
+        return (Math.max(L_text, L_bg) + 0.05) / (Math.min(L_text, L_bg) + 0.05);
     }
 
     /**
@@ -815,8 +747,8 @@ export class Color<M extends ColorModel = ColorModel> {
      * The result is normalized by a factor of 100 to align with OKLAB's L range (0-1) and approximate the JND scale.
      */
     deltaEOK(other: Color<ColorModel> | string) {
-        const [L1, a1, b1] = this.in("oklab").getCoords();
-        const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("oklab").getCoords();
+        const [L1, a1, b1] = this.in("oklab").toArray();
+        const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("oklab").toArray();
 
         const ΔL = L1 - L2;
         const Δa = a1 - a2;
@@ -834,8 +766,8 @@ export class Color<M extends ColorModel = ColorModel> {
      * @returns The ΔE76 value — a non-negative number where smaller values indicate more similar colors.
      */
     deltaE76(other: Color<ColorModel> | string) {
-        const [L1, a1, b1] = this.in("lab").getCoords();
-        const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("lab").getCoords();
+        const [L1, a1, b1] = this.in("lab").toArray();
+        const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("lab").toArray();
 
         const ΔL = L1 - L2;
         const ΔA = a1 - a2;
@@ -852,8 +784,8 @@ export class Color<M extends ColorModel = ColorModel> {
      * @returns The ΔE94 value — a non-negative number where smaller values indicate more similar colors.
      */
     deltaE94(other: Color<ColorModel> | string) {
-        const [L1, a1, b1] = this.in("lab").getCoords();
-        const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("lab").getCoords();
+        const [L1, a1, b1] = this.in("lab").toArray();
+        const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("lab").toArray();
 
         const ΔL = L1 - L2;
         const ΔA = a1 - a2;
@@ -884,8 +816,8 @@ export class Color<M extends ColorModel = ColorModel> {
      * @returns The ΔE2000 value — a non-negative number where smaller values indicate more similar colors.
      */
     deltaE2000(other: Color<ColorModel> | string) {
-        const [L1, a1, b1] = this.in("lab").getCoords();
-        const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("lab").getCoords();
+        const [L1, a1, b1] = this.in("lab").toArray();
+        const [L2, a2, b2] = (typeof other === "string" ? Color.from(other) : other).in("lab").toArray();
 
         const π = Math.PI,
             d2r = π / 180,
@@ -989,8 +921,8 @@ export class Color<M extends ColorModel = ColorModel> {
             return this.coords.every((value, i) => Math.abs(value - otherColor.coords[i]) <= epsilon);
         }
 
-        const thisXyz = this.in("xyz").getCoords();
-        const otherXyz = otherColor.in("xyz").getCoords();
+        const thisXyz = this.in("xyz-d65").toArray();
+        const otherXyz = otherColor.in("xyz-d65").toArray();
         return thisXyz.every((value, i) => Math.abs(value - otherXyz[i]) <= epsilon);
     }
 
@@ -1013,7 +945,7 @@ export class Color<M extends ColorModel = ColorModel> {
 
         if (targetGamut === null) return true;
 
-        const coords = this.in(cleanedGamut).getCoords();
+        const coords = this.in(cleanedGamut).toArray();
 
         for (const [, props] of Object.entries(components)) {
             const value = coords[props.index];

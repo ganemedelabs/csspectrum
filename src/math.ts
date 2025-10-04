@@ -153,7 +153,7 @@ export const fitMethods = {
         const { targetGamut } = colorModels[model] as ColorModelConverter;
         if (targetGamut === null || color.inGamut(targetGamut as ColorSpace, 1e-5)) return coords;
 
-        const [L, , H] = color.in("oklch").getCoords();
+        const [L, , H] = color.in("oklch").toArray();
         const [L_min, L_max] = lightnessRange();
         const L_adjusted = Math.min(L_max, Math.max(L_min, L));
 
@@ -168,7 +168,7 @@ export const fitMethods = {
 
             if (candidate_color.inGamut(targetGamut as ColorSpace, 1e-5)) C_low = C_mid;
             else {
-                const clipped_coords = fit(candidate_color.getCoords().slice(0, 3), model);
+                const clipped_coords = fit(candidate_color.toArray().slice(0, 3), model);
                 const clipped_color = new Color(model, clipped_coords);
                 const deltaE = candidate_color.deltaEOK(clipped_color);
                 if (deltaE < 2) {
@@ -179,7 +179,7 @@ export const fitMethods = {
         }
 
         const finalColor = new Color("oklch", [L_adjusted, C_low, H]);
-        clipped = finalColor.in(model).getCoords();
+        clipped = finalColor.in(model).toArray();
         return clipped;
     },
     "css-gamut-map": (coords, model): number[] => {
@@ -187,16 +187,16 @@ export const fitMethods = {
         if (targetGamut === null) return coords;
 
         const color = new Color(model, coords);
-        const [L, C, H] = color.in("oklch").getCoords();
+        const [L, C, H] = color.in("oklch").toArray();
 
         if (L >= 1.0) {
             const white = new Color("oklab", [1, 0, 0]);
-            return white.in(model).getCoords();
+            return white.in(model).toArray();
         }
 
         if (L <= 0.0) {
             const black = new Color("oklab", [0, 0, 0]);
-            return black.in(model).getCoords();
+            return black.in(model).toArray();
         }
 
         if (color.inGamut(targetGamut as ColorSpace, 1e-5)) return coords;
@@ -205,7 +205,7 @@ export const fitMethods = {
         const epsilon = 0.0001;
 
         const current = new Color("oklch", [L, C, H]);
-        let clipped: number[] = fit(current.in(model).getCoords().slice(0, 3), model);
+        let clipped: number[] = fit(current.in(model).toArray().slice(0, 3), model);
 
         const initialClippedColor = new Color(model, clipped);
         const E = current.deltaEOK(initialClippedColor);
@@ -222,7 +222,7 @@ export const fitMethods = {
 
             if (min_inGamut && candidate.inGamut(targetGamut as ColorSpace, 1e-5)) min = chroma;
             else {
-                const clippedCoords = fit(candidate.in(model).getCoords().slice(0, 3), model);
+                const clippedCoords = fit(candidate.in(model).toArray().slice(0, 3), model);
                 clipped = clippedCoords;
                 const clippedColor = new Color(model, clippedCoords);
                 const deltaE = candidate.deltaEOK(clippedColor);

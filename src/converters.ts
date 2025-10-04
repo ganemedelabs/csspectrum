@@ -670,11 +670,11 @@ export const colorBases = {
             const { amount, alphaMultiplier = 1 } = getWeight2Prime(weight1, weight2);
 
             return color1
-                .set({ alpha: (a) => a * alphaMultiplier })
+                .with({ alpha: (a) => a * alphaMultiplier })
                 .in(model)
-                .mix(color2.set({ alpha: (a) => a * alphaMultiplier }), { amount, hue })
+                .mix(color2.with({ alpha: (a) => a * alphaMultiplier }), { amount, hue })
                 .in("rgb")
-                .getCoords();
+                .toArray();
         },
     },
     transparent: {
@@ -715,7 +715,7 @@ export const colorTypes = {
         toBridge: (coords: number[]) => coords,
         parse: (str: string) => {
             const inner = str.slice(15, -1);
-            const luminance = Color.from(inner).luminance();
+            const [, luminance] = Color.from(inner).in("xyz-d65").toArray();
             return luminance > 0.5 ? [0, 0, 0, 1] : [255, 255, 255, 1];
         },
     },
@@ -817,7 +817,7 @@ export const colorTypes = {
             if (idx < tokens.length && tokens[idx] === ",") {
                 idx++;
                 const fallbackStr = tokens.slice(idx).join(" ");
-                return Color.from(fallbackStr).in("rgb").getCoords();
+                return Color.from(fallbackStr).in("rgb").toArray();
             }
 
             const red = 1 - Math.min(1, c * (1 - k) + k);
@@ -902,7 +902,7 @@ export const colorTypes = {
             const [color1, color2] = parts;
 
             const { theme } = config;
-            return Color.from(theme === "light" ? color1 : color2).getCoords();
+            return Color.from(theme === "light" ? color1 : color2).toArray();
         },
     },
 } satisfies Record<string, ColorConverter>;

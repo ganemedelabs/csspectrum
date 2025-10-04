@@ -17,7 +17,6 @@ import type {
     FormattingOptions,
     NamedColor,
     Plugin,
-    SystemColor,
 } from "./types.js";
 
 export const cache = new Map();
@@ -780,7 +779,7 @@ export function modelConverterToColorConverter(name: string, converter: ColorMod
 
             const originComponents = Color.from(fromOrigin)
                 .in(colorSpace as ColorModel)
-                .get();
+                .toObject();
 
             const evaluatedComponents = [c1, c2, c3, alpha].map((token, i) => {
                 const [, meta] = sorted[i];

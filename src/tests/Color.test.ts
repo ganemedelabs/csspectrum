@@ -100,7 +100,7 @@ describe("Color", () => {
         ];
 
         cases.forEach(([input, expected]) => {
-            expect(Color.from(input).getCoords({ fit: "clip", precision: undefined })).toEqual(expected);
+            expect(Color.from(input).toArray({ fit: "clip", precision: undefined })).toEqual(expected);
         });
     });
 
@@ -178,34 +178,19 @@ describe("Color", () => {
         }
     });
 
-    it("should calculate luminance correctly", () => {
-        expect(Color.from("rgb(255, 255, 255)").luminance()).toBeCloseTo(1);
-        expect(Color.from("rgb(0, 0, 0)").luminance()).toBeCloseTo(0);
-    });
-
     it("should calculate contrast ratio correctly", () => {
-        expect(Color.from("#ffffff").contrast("#000000")).toBeCloseTo(21);
-    });
-
-    it("should determine if a color is dark", () => {
-        expect(Color.from("rgb(0, 0, 0)").luminance() < 0.5).toBe(true);
-        expect(Color.from("rgb(255, 255, 255)").luminance() < 0.5).toBe(false);
-    });
-
-    it("should determine if a color is light", () => {
-        expect(Color.from("rgb(255, 255, 255)").luminance() >= 0.5).toBe(true);
-        expect(Color.from("rgb(0, 0, 0)").luminance() >= 0.5).toBe(false);
+        expect(Color.from("#fff").contrast("#000")).toBeCloseTo(21);
     });
 
     it("should determine if a color is cool", () => {
         const color = Color.from("rgb(0, 0, 255)");
-        const { h } = color.in("hsl").get();
+        const { h } = color.in("hsl").toObject();
         expect(h > 60 && h < 300).toBe(true);
     });
 
     it("should determine if a color is warm", () => {
         const color = Color.from("rgb(255, 0, 0)");
-        const { h } = color.in("hsl").get();
+        const { h } = color.in("hsl").toObject();
         expect(h <= 60 || h >= 300).toBe(true);
     });
 
@@ -272,42 +257,42 @@ describe("Color", () => {
     it("should handle none and calc(NaN) components correctly", () => {
         const color = Color.from("hsl(none calc(NaN) 50%)");
         expect(color.toString()).toBe("hsl(0 0 50)");
-        const adjusted = color.set({ h: 150, s: 100 });
+        const adjusted = color.with({ h: 150, s: 100 });
         expect(adjusted.toString()).toBe("hsl(150 100 50)");
     });
 
     it("should handle calc(infinity) components correctly", () => {
         const color = Color.from("hsl(calc(infinity) calc(-infinity) 50%)");
         expect(color.toString()).toBe("hsl(0 0 50)");
-        const adjusted = color.set({ h: 100, s: 100 });
+        const adjusted = color.with({ h: 100, s: 100 });
         expect(adjusted.toString()).toBe("hsl(100 100 50)");
     });
 
-    it("should return correct component values using get()", () => {
+    it("should return correct component values using toObject()", () => {
         const color = Color.from("rgb(0, 157, 255)");
-        const rgb = color.get({ fit: "clip" });
+        const rgb = color.toObject({ fit: "clip" });
         expect(rgb).toEqual({ r: 0, g: 157, b: 255, alpha: 1 });
     });
 
-    it("should retrieve the correct array of components using getCoords()", () => {
+    it("should retrieve the correct array of components using toArray()", () => {
         const color = Color.from("rgb(0, 157, 255)");
-        expect(color.getCoords({ fit: "clip" })).toEqual([0, 157, 255, 1]);
+        expect(color.toArray({ fit: "clip" })).toEqual([0, 157, 255, 1]);
     });
 
-    it("should update multiple components with set()", () => {
+    it("should update multiple components with with()", () => {
         const color = Color.from("hsl(0, 100%, 50%)");
-        const updated = color.set({
+        const updated = color.with({
             h: (h) => h + 50,
             s: (s) => s - 20,
         });
-        const [h, s] = updated.getCoords({ fit: "clip" });
+        const [h, s] = updated.toArray({ fit: "clip" });
         expect([h, s]).toStrictEqual([50, 80]);
     });
 
-    it("should update multiple components with setCoords()", () => {
+    it("should update multiple components with withCoords()", () => {
         const color = Color.from("hsl(200 100% 50%)");
-        const updated = color.setCoords([undefined, 50, 80]);
-        const coords = updated.getCoords({ fit: "clip" });
+        const updated = color.withCoords([undefined, 50, 80]);
+        const coords = updated.toArray({ fit: "clip" });
         expect(coords).toStrictEqual([200, 50, 80, 1]);
     });
 
@@ -319,8 +304,8 @@ describe("Color", () => {
     });
 
     it("should clamp component values when getting components", () => {
-        const rgbColor = Color.from("rgb(200, 100, 50)").set({ g: 400 });
-        const [, g] = rgbColor.getCoords({ fit: "clip" });
+        const rgbColor = Color.from("rgb(200, 100, 50)").with({ g: 400 });
+        const [, g] = rgbColor.toArray({ fit: "clip" });
         expect(g).toBe(255);
     });
 
@@ -330,32 +315,32 @@ describe("Color", () => {
 
     it("should adjust opacity correctly", () => {
         const color = Color.from("rgb(120, 20, 170)");
-        const adjusted = color.set({ alpha: 0.5 });
+        const adjusted = color.with({ alpha: 0.5 });
         expect(adjusted.toString()).toBe("rgb(120 20 170 / 0.5)");
     });
 
     it("should adjust saturation correctly", () => {
         const color = Color.from("hsl(120, 80%, 50%)");
-        const adjusted = color.set({ s: 10 });
+        const adjusted = color.with({ s: 10 });
         expect(adjusted.toString({ units: true })).toBe("hsl(120deg 10% 50%)");
     });
 
     it("should adjust hue correctly", () => {
         const color = Color.from("hsl(30, 100%, 50%)");
-        const adjusted = color.set({ h: (h) => h - 70 });
+        const adjusted = color.with({ h: (h) => h - 70 });
         expect(adjusted.toString({ units: true })).toBe("hsl(320deg 100% 50%)");
     });
 
     it("should adjust brightness correctly", () => {
         const color = Color.from("hsl(50, 100%, 30%)");
-        const adjusted = color.set({ l: 50 });
+        const adjusted = color.with({ l: 50 });
         expect(adjusted.toString({ units: true })).toBe("hsl(50deg 100% 50%)");
     });
 
     it("should adjust contrast correctly", () => {
         const color = Color.from("rgb(30, 190, 250)");
         const amount = 2;
-        const adjusted = color.set({
+        const adjusted = color.with({
             r: (r) => (r - 128) * amount + 128,
             g: (g) => (g - 128) * amount + 128,
             b: (b) => (b - 128) * amount + 128,
@@ -367,7 +352,7 @@ describe("Color", () => {
         const color = Color.from("rgb(255, 50, 70)");
         const amount = 1;
 
-        const adjusted = color.set(({ r, g, b }) => ({
+        const adjusted = color.with(({ r, g, b }) => ({
             r: r + (0.393 * r + 0.769 * g + 0.189 * b - r) * amount,
             g: g + (0.349 * r + 0.686 * g + 0.168 * b - g) * amount,
             b: b + (0.272 * r + 0.534 * g + 0.131 * b - b) * amount,
@@ -499,9 +484,9 @@ describe("Color", () => {
         const model = "srgb";
         const epsilon = 1e-5;
 
-        const clipCoords = new Color(model, coords).getCoords({ fit: "clip" });
-        const chromaCoords = new Color(model, coords).getCoords({ fit: "chroma-reduction" });
-        const cssCoords = new Color(model, coords).getCoords({ fit: "css-gamut-map" });
+        const clipCoords = new Color(model, coords).toArray({ fit: "clip" });
+        const chromaCoords = new Color(model, coords).toArray({ fit: "chroma-reduction" });
+        const cssCoords = new Color(model, coords).toArray({ fit: "css-gamut-map" });
 
         expect(clipCoords).toEqual([1, 0, 0.5, 1]);
         expect(chromaCoords.every((c) => c >= 0 - epsilon && c <= 1 + epsilon)).toBe(true);
@@ -517,7 +502,7 @@ describe("Color", () => {
         const model = "srgb";
 
         for (const fit of fitMethods) {
-            const fitted = new Color(model, coords).getCoords({ fit });
+            const fitted = new Color(model, coords).toArray({ fit });
             expect(fitted).toEqual([...coords, 1]);
         }
     });
@@ -528,7 +513,7 @@ describe("Color", () => {
         const model = "srgb";
         const epsilon = 1e-5;
 
-        const results = fitMethods.map((fit) => new Color(model, coords).getCoords({ fit }));
+        const results = fitMethods.map((fit) => new Color(model, coords).toArray({ fit }));
 
         for (const res of results) {
             expect(res.every((c) => c >= 0 - epsilon && c <= 1 + epsilon)).toBe(true);
@@ -635,11 +620,11 @@ describe("Color registration system", () => {
         });
 
         const ictcp = Color.from("ictcp(none calc(-infinity) 100%)");
-        expect(ictcp.getCoords()).toEqual([0, -1, 1, 1]);
-        expect(() => ictcp.set({ cp: 0 }).to("rgb")).not.toThrow();
+        expect(ictcp.toArray()).toEqual([0, -1, 1, 1]);
+        expect(() => ictcp.with({ cp: 0 }).to("rgb")).not.toThrow();
 
         const instance = new Color("ictcp" as ColorModel, [NaN, -Infinity, Infinity]);
-        expect(instance.getCoords()).toEqual([0, -1, 1, 1]);
+        expect(instance.toArray()).toEqual([0, -1, 1, 1]);
 
         const relative = "ictcp(from ictcp(0.5 0.3 -0.2) i ct cp)";
         expect(Color.isValid(relative, "ictcp"));
@@ -658,11 +643,11 @@ describe("Color registration system", () => {
         });
 
         const rec2100 = Color.from("color(rec2100-linear none calc(-infinity) 100%)");
-        expect(rec2100.getCoords()).toEqual([0, 0, 1, 1]);
-        expect(() => rec2100.set({ r: 0 }).to("xyz-d65")).not.toThrow();
+        expect(rec2100.toArray()).toEqual([0, 0, 1, 1]);
+        expect(() => rec2100.with({ r: 0 }).to("xyz-d65")).not.toThrow();
 
         const instance = new Color("rec2100-linear" as ColorModel, [NaN, -Infinity, Infinity]);
-        expect(instance.getCoords()).toEqual([0, 0, 1, 1]);
+        expect(instance.toArray()).toEqual([0, 0, 1, 1]);
 
         const relative = "color(from color(rec2100-linear 0.7 0.3 0.1) rec2100-linear r g b)";
         expect(Color.isValid(relative, "rec2100-linear"));
@@ -1177,8 +1162,8 @@ describe("Color registration system", () => {
         });
 
         const wavelength = Color.from("wavelength(360)");
-        expect(wavelength.getCoords()).toEqual([0.0001299, 0.000003917, 0.0006061, 1]);
-        expect(() => wavelength.set({ x: 0 }).to("rgb")).not.toThrow();
+        expect(wavelength.toArray()).toEqual([0.0001299, 0.000003917, 0.0006061, 1]);
+        expect(() => wavelength.with({ x: 0 }).to("rgb")).not.toThrow();
 
         const relative = "color(from wavelength(360) xyz-d65 x y z)";
         expect(Color.isValid(relative, "xyz-d65"));
@@ -1302,16 +1287,16 @@ describe("Color registration system", () => {
                     if (isNaN(now.getTime())) throw new Error("Invalid date");
                     currentMinutes = now.getHours() * 60 + now.getMinutes();
                 } catch {
-                    return pairs[0].color.in("rgb").getCoords();
+                    return pairs[0].color.in("rgb").toArray();
                 }
 
                 for (let j = pairs.length - 1; j >= 0; j--) {
                     if (currentMinutes >= pairs[j].minutes) {
-                        return pairs[j].color.in("rgb").getCoords();
+                        return pairs[j].color.in("rgb").toArray();
                     }
                 }
 
-                return pairs[0].color.in("rgb").getCoords();
+                return pairs[0].color.in("rgb").toArray();
             },
         });
 
@@ -1339,7 +1324,7 @@ describe("Color registration system", () => {
         unregister("hwb", "prophoto-rgb", "lch");
 
         expect(() => Color.from("hwb(120deg 0% 0%)")).toThrow();
-        expect(() => Color.from("red").in("prophoto-rgb").set({ b: 0 })).toThrow();
+        expect(() => Color.from("red").in("prophoto-rgb").with({ b: 0 })).toThrow();
         expect(() => new Color("lch", [90, 100, 280])).toThrow();
     });
 
@@ -1649,7 +1634,7 @@ describe("Color registration system", () => {
             const color = new Color(model, coords);
             if (color.inGamut(targetGamut as ColorSpace, 1e-5)) return coords;
 
-            const XYZ = color.in("xyz-d65").getCoords();
+            const XYZ = color.in("xyz-d65").toArray();
             const cam = XYZ_to_CAM16(XYZ);
             const c1 = 0.007,
                 c2 = 0.0228;
@@ -1673,10 +1658,10 @@ describe("Color registration system", () => {
 
                 const XYZ_s = CAM16_to_XYZ({ J: J_s, M: M_s, h: h_s });
 
-                const candidateCoords = new Color("xyz-d65", XYZ_s).in(model).getCoords();
+                const candidateCoords = new Color("xyz-d65", XYZ_s).in(model).toArray();
                 const candidate = new Color(model, candidateCoords);
                 if (candidate.inGamut(targetGamut as ColorSpace, epsilon)) {
-                    clippedCoords = candidate.getCoords();
+                    clippedCoords = candidate.toArray();
                     break;
                 }
 
@@ -1684,7 +1669,7 @@ describe("Color registration system", () => {
             }
 
             if (!clippedCoords.length) {
-                clippedCoords = fit(color.getCoords().slice(0, 3), model);
+                clippedCoords = fit(color.toArray().slice(0, 3), model);
             }
 
             return clippedCoords;
@@ -1694,9 +1679,9 @@ describe("Color registration system", () => {
         const model = "srgb";
         const epsilon = 1e-5;
 
-        const cam16Coords = new Color(model, coords).getCoords({ fit: "cam16-ucs" as FitMethod });
-        const chromaCoords = new Color(model, coords).getCoords({ fit: "chroma-reduction" });
-        const cssCoords = new Color(model, coords).getCoords({ fit: "css-gamut-map" });
+        const cam16Coords = new Color(model, coords).toArray({ fit: "cam16-ucs" as FitMethod });
+        const chromaCoords = new Color(model, coords).toArray({ fit: "chroma-reduction" });
+        const cssCoords = new Color(model, coords).toArray({ fit: "css-gamut-map" });
 
         expect(cam16Coords.every((c) => c >= 0 - epsilon && c <= 1 + epsilon)).toBe(true);
         expect(chromaCoords.every((c) => c >= 0 - epsilon && c <= 1 + epsilon)).toBe(true);
@@ -1706,7 +1691,7 @@ describe("Color registration system", () => {
         expect(cssCoords).not.toEqual(cam16Coords);
 
         const withinGamut = [0.5, 0.5, 0.5];
-        const fitted = new Color(model, withinGamut).getCoords({ fit: "cam16-ucs" as FitMethod });
+        const fitted = new Color(model, withinGamut).toArray({ fit: "cam16-ucs" as FitMethod });
         expect(fitted).toEqual([...withinGamut, 1]);
     });
 });
@@ -1734,7 +1719,7 @@ describe("use()", () => {
 
         const lightenPlugin = (ColorClass: typeof Color) => {
             ColorClass.prototype.lighten = function <M extends ColorModel>(this: Color<M>, amount: number) {
-                return this.in("hsl").set({
+                return this.in("hsl").with({
                     l: (l: number) => clamp(l + amount, 0, 100),
                 });
             };
@@ -1742,7 +1727,7 @@ describe("use()", () => {
 
         const darkenPlugin = (ColorClass: typeof Color) => {
             ColorClass.prototype.darken = function <M extends ColorModel>(this: Color<M>, amount: number) {
-                return this.in("hsl").set({
+                return this.in("hsl").with({
                     l: (l: number) => clamp(l - amount, 0, 100),
                 });
             };
